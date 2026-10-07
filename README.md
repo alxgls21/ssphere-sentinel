@@ -86,6 +86,44 @@ pyproject.toml  Python dependencies and packaging
 New Django apps should live under `apps/` and be registered in
 `sentinel/settings.py` (`INSTALLED_APPS`).
 
+## Agent authentication and heartbeat
+
+Agents authenticate with a Bearer token. Sentinel stores only an HMAC-SHA256
+hash of the token (peppered with `DJANGO_SECRET_KEY`). The raw token is shown
+once at creation and is never logged or persisted.
+
+### Create an agent
+
+1. Create a `Server` in Django admin (or the shell).
+2. Issue a token:
+
+   ```bash
+   python manage.py create_agent --server <server-uuid> --name server-agent
+   ```
+
+3. Copy the printed raw token immediately. It cannot be recovered later.
+
+You can also regenerate a token from Django admin via the
+**Regenerate authentication token** action (shown once in the admin message).
+
+### Send a heartbeat
+
+```bash
+curl -X POST http://localhost:8000/api/v1/agent/heartbeat/ \
+  -H "Authorization: Bearer <agent-token>" \
+  -H "Content-Type: application/json"
+```
+
+Successful response:
+
+```json
+{"status": "ok"}
+```
+
+A valid heartbeat updates `Agent.last_seen_at`, `Server.last_seen_at`, and sets
+`Server.status` to `online`. Put the token only in the `Authorization` header —
+never in the URL or query string.
+
 ## Configuration
 
 All secrets and environment-specific settings come from environment variables.

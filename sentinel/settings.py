@@ -1,8 +1,3 @@
-"""Django settings for SSphere Sentinel.
-
-Configuration is loaded from environment variables. See `.env.example`.
-"""
-
 import os
 from pathlib import Path
 
@@ -41,6 +36,7 @@ INSTALLED_APPS = [
     # Project apps
     "apps.core",
     "apps.infrastructure",
+    "apps.agents",
 ]
 
 MIDDLEWARE = [
