@@ -54,3 +54,35 @@ class Server(models.Model):
         from apps.infrastructure.liveness import evaluate_effective_status
 
         return evaluate_effective_status(self)
+
+
+class ServerTelemetry(models.Model):
+    """Latest host telemetry snapshot for a server (not a full time-series).
+
+    Historical metrics are intentionally out of scope for this model. Each
+    successful telemetry report upserts this one-to-one row.
+    """
+
+    server = models.OneToOneField(
+        Server,
+        on_delete=models.CASCADE,
+        related_name="telemetry",
+    )
+    cpu_percent = models.FloatField()
+    memory_total_bytes = models.BigIntegerField()
+    memory_used_bytes = models.BigIntegerField()
+    memory_percent = models.FloatField()
+    disk_total_bytes = models.BigIntegerField()
+    disk_used_bytes = models.BigIntegerField()
+    disk_percent = models.FloatField()
+    uptime_seconds = models.BigIntegerField()
+    collected_at = models.DateTimeField()
+    received_at = models.DateTimeField()
+
+    class Meta:
+        verbose_name = "server telemetry"
+        verbose_name_plural = "server telemetry"
+
+    def __str__(self) -> str:
+        return f"Telemetry for {self.server.name}"
+

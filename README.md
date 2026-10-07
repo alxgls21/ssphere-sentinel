@@ -194,6 +194,58 @@ Production deployments will normally supervise this process with **systemd**
 Use HTTPS for real deployments. The agent sends
 `Authorization: Bearer <token>` and never puts the token in the URL.
 
+Telemetry is collected with **psutil** (Linux and macOS) and sent in the same
+agent cycle as the heartbeat — there is no separate metrics loop.
+
+### Host telemetry (v0.1)
+
+Each heartbeat/report cycle attempts to include a versioned telemetry object:
+
+| Metric | Field | Unit |
+| --- | --- | --- |
+| CPU usage | `cpu_percent` | percent (0–100) |
+| Memory total / used | `memory_total_bytes` / `memory_used_bytes` | bytes |
+| Memory usage | `memory_percent` | percent (0–100) |
+| Root disk total / used | `disk_total_bytes` / `disk_used_bytes` | bytes |
+| Disk usage | `disk_percent` | percent (0–100) |
+| Uptime | `uptime_seconds` | seconds |
+| Collected at | `collected_at` | UTC ISO-8601 |
+
+Payload version: **`telemetry.version = 1`**.
+
+Example heartbeat body:
+
+```json
+{
+  "telemetry": {
+    "version": 1,
+    "collected_at": "2026-10-07T12:00:00+00:00",
+    "cpu_percent": 12.5,
+    "memory_total_bytes": 17179869184,
+    "memory_used_bytes": 8589934592,
+    "memory_percent": 50.0,
+    "disk_total_bytes": 494384795648,
+    "disk_used_bytes": 220000000000,
+    "disk_percent": 44.5,
+    "uptime_seconds": 123456
+  }
+}
+```
+
+Empty / omitted telemetry remains valid (liveness-only), so older one-shot
+clients keep working.
+
+On the server, valid telemetry is stored as a **latest snapshot**
+(`ServerTelemetry`, one row per server). This is **not** a historical
+time-series store yet.
+
+If telemetry collection fails on the agent, the failure is logged and a
+liveness-only heartbeat is still sent. Invalid telemetry accepted by auth is
+rejected for storage without overwriting the previous snapshot; liveness is
+still updated.
+
+Latest values are visible in Django admin (read-only). No dashboard UI yet.
+
 ## Server liveness / offline detection
 
 Heartbeats update `Agent.last_seen_at`, `Server.last_seen_at`, and set stored

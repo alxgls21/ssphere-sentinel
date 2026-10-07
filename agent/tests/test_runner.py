@@ -7,6 +7,7 @@ from unittest.mock import MagicMock, patch
 
 from agent.config import Config
 from agent.errors import HeartbeatError
+from agent.http_client import HttpResponse
 from agent.runner import run_continuous
 
 
@@ -110,6 +111,39 @@ class RunnerTests(unittest.TestCase):
         self.assertEqual(calls["n"], 2)
         self.assertIn("Heartbeat failed: server returned HTTP 500", stderr.getvalue())
         self.assertNotIn(self.config.agent_token, stderr.getvalue())
+
+    def test_loop_survives_telemetry_collection_failure(self):
+        from agent.heartbeat import send_heartbeat
+
+        posts = []
+
+        def fake_post(url, *, headers=None, payload=None, timeout=10.0):
+            posts.append(payload)
+            return HttpResponse(status=200, body='{"status":"ok"}')
+
+        fast = Config(
+            sentinel_url=self.config.sentinel_url,
+            agent_token=self.config.agent_token,
+            heartbeat_interval=0,
+        )
+
+        def boom():
+            raise RuntimeError("collector failed")
+
+        with (
+            patch("agent.heartbeat.post_json", side_effect=fake_post),
+            redirect_stdout(io.StringIO()),
+            redirect_stderr(io.StringIO()),
+        ):
+            code = run_continuous(
+                fast,
+                send_fn=lambda cfg: send_heartbeat(cfg, collect_fn=boom),
+                max_iterations=2,
+                install_signal_handlers=False,
+            )
+
+        self.assertEqual(code, 0)
+        self.assertEqual(posts, [{}, {}])
 
     def test_signal_handler_stops_loop_gracefully(self):
         send_fn = MagicMock()
