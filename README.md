@@ -27,8 +27,8 @@ environment-based configuration, and a basic health endpoint. Product features
    cp .env.example .env
    ```
 
-   Edit `.env` and replace placeholder values for `DJANGO_SECRET_KEY` and
-   `POSTGRES_PASSWORD`.
+   Edit `.env` and replace placeholder values for `DJANGO_SECRET_KEY`,
+   `AGENT_TOKEN_PEPPER`, and `POSTGRES_PASSWORD`.
 
 2. Build and start the stack:
 
@@ -89,8 +89,10 @@ New Django apps should live under `apps/` and be registered in
 ## Agent authentication and heartbeat
 
 Agents authenticate with a Bearer token. Sentinel stores only an HMAC-SHA256
-hash of the token (peppered with `DJANGO_SECRET_KEY`). The raw token is shown
-once at creation and is never logged or persisted.
+hash of the token (peppered with `AGENT_TOKEN_PEPPER`). The raw token is shown
+once at creation and is never logged or persisted. Rotating
+`AGENT_TOKEN_PEPPER` invalidates existing agent tokens; rotating
+`DJANGO_SECRET_KEY` does not.
 
 ### Create an agent
 

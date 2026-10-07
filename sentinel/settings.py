@@ -19,6 +19,10 @@ def env_bool(name: str, default: bool = False) -> bool:
 
 
 SECRET_KEY = env("DJANGO_SECRET_KEY")
+AGENT_TOKEN_PEPPER = env("AGENT_TOKEN_PEPPER")
+if not AGENT_TOKEN_PEPPER.strip():
+    raise RuntimeError("Required environment variable AGENT_TOKEN_PEPPER is empty")
+
 DEBUG = env_bool("DJANGO_DEBUG", default=False)
 ALLOWED_HOSTS = [
     host.strip()
