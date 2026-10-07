@@ -126,6 +126,13 @@ class RunnerTests(unittest.TestCase):
             agent_token=self.config.agent_token,
             heartbeat_interval=0,
         )
+        docker_payload = {
+            "version": 1,
+            "available": False,
+            "status": "unavailable",
+            "collected_at": "2026-10-07T12:00:00+00:00",
+            "containers": [],
+        }
 
         def boom():
             raise RuntimeError("collector failed")
@@ -137,13 +144,69 @@ class RunnerTests(unittest.TestCase):
         ):
             code = run_continuous(
                 fast,
-                send_fn=lambda cfg: send_heartbeat(cfg, collect_fn=boom),
+                send_fn=lambda cfg: send_heartbeat(
+                    cfg,
+                    collect_fn=boom,
+                    docker_fn=lambda: docker_payload,
+                ),
                 max_iterations=2,
                 install_signal_handlers=False,
             )
 
         self.assertEqual(code, 0)
-        self.assertEqual(posts, [{}, {}])
+        self.assertEqual(len(posts), 2)
+        for payload in posts:
+            self.assertNotIn("telemetry", payload)
+            self.assertEqual(payload["docker"], docker_payload)
+
+    def test_loop_survives_docker_collection_failure(self):
+        from agent.heartbeat import send_heartbeat
+
+        posts = []
+
+        def fake_post(url, *, headers=None, payload=None, timeout=10.0):
+            posts.append(payload)
+            return HttpResponse(status=200, body='{"status":"ok"}')
+
+        fast = Config(
+            sentinel_url=self.config.sentinel_url,
+            agent_token=self.config.agent_token,
+            heartbeat_interval=0,
+        )
+        telemetry = {
+            "version": 1,
+            "collected_at": "2026-10-07T12:00:00+00:00",
+            "cpu_percent": 1.0,
+            "memory_total_bytes": 100,
+            "memory_used_bytes": 10,
+            "memory_percent": 10.0,
+            "disk_total_bytes": 100,
+            "disk_used_bytes": 10,
+            "disk_percent": 10.0,
+            "uptime_seconds": 1,
+        }
+
+        with (
+            patch("agent.heartbeat.post_json", side_effect=fake_post),
+            redirect_stdout(io.StringIO()),
+            redirect_stderr(io.StringIO()),
+        ):
+            code = run_continuous(
+                fast,
+                send_fn=lambda cfg: send_heartbeat(
+                    cfg,
+                    collect_fn=lambda: telemetry,
+                    docker_fn=lambda: (_ for _ in ()).throw(RuntimeError("docker")),
+                ),
+                max_iterations=2,
+                install_signal_handlers=False,
+            )
+
+        self.assertEqual(code, 0)
+        self.assertEqual(len(posts), 2)
+        for payload in posts:
+            self.assertEqual(payload["telemetry"], telemetry)
+            self.assertNotIn("docker", payload)
 
     def test_signal_handler_stops_loop_gracefully(self):
         send_fn = MagicMock()

@@ -1,6 +1,11 @@
 from django.contrib import admin
 
-from apps.infrastructure.models import Server, ServerTelemetry
+from apps.infrastructure.models import (
+    DockerContainer,
+    DockerHostState,
+    Server,
+    ServerTelemetry,
+)
 
 
 class ServerTelemetryInline(admin.StackedInline):
@@ -25,6 +30,42 @@ class ServerTelemetryInline(admin.StackedInline):
         return False
 
 
+class DockerHostStateInline(admin.StackedInline):
+    model = DockerHostState
+    can_delete = False
+    extra = 0
+    max_num = 1
+    readonly_fields = (
+        "available",
+        "status",
+        "collected_at",
+        "received_at",
+    )
+
+    def has_add_permission(self, request, obj=None) -> bool:
+        return False
+
+
+class DockerContainerInline(admin.TabularInline):
+    model = DockerContainer
+    can_delete = False
+    extra = 0
+    show_change_link = True
+    fields = (
+        "name",
+        "container_id",
+        "image",
+        "state",
+        "health",
+        "present",
+        "last_seen_at",
+    )
+    readonly_fields = fields
+
+    def has_add_permission(self, request, obj=None) -> bool:
+        return False
+
+
 @admin.register(Server)
 class ServerAdmin(admin.ModelAdmin):
     list_display = (
@@ -34,6 +75,7 @@ class ServerAdmin(admin.ModelAdmin):
         "operating_system",
         "status",
         "effective_status",
+        "docker_status",
         "last_seen_at",
         "updated_at",
     )
@@ -41,7 +83,7 @@ class ServerAdmin(admin.ModelAdmin):
     search_fields = ("name", "hostname", "ip_address", "description")
     readonly_fields = ("id", "effective_status", "created_at", "updated_at")
     ordering = ("name",)
-    inlines = (ServerTelemetryInline,)
+    inlines = (ServerTelemetryInline, DockerHostStateInline, DockerContainerInline)
     fieldsets = (
         (
             None,
@@ -79,6 +121,13 @@ class ServerAdmin(admin.ModelAdmin):
     def effective_status(self, obj: Server) -> str:
         return obj.effective_status
 
+    @admin.display(description="Docker")
+    def docker_status(self, obj: Server) -> str:
+        try:
+            return obj.docker_host.status
+        except DockerHostState.DoesNotExist:
+            return "—"
+
 
 @admin.register(ServerTelemetry)
 class ServerTelemetryAdmin(admin.ModelAdmin):
@@ -105,6 +154,71 @@ class ServerTelemetryAdmin(admin.ModelAdmin):
         "collected_at",
         "received_at",
     )
+
+    def has_add_permission(self, request) -> bool:
+        return False
+
+    def has_change_permission(self, request, obj=None) -> bool:
+        return False
+
+
+@admin.register(DockerHostState)
+class DockerHostStateAdmin(admin.ModelAdmin):
+    list_display = (
+        "server",
+        "available",
+        "status",
+        "collected_at",
+        "received_at",
+    )
+    list_filter = ("available", "status")
+    search_fields = ("server__name", "server__hostname")
+    readonly_fields = (
+        "server",
+        "available",
+        "status",
+        "collected_at",
+        "received_at",
+    )
+
+    def has_add_permission(self, request) -> bool:
+        return False
+
+    def has_change_permission(self, request, obj=None) -> bool:
+        return False
+
+
+@admin.register(DockerContainer)
+class DockerContainerAdmin(admin.ModelAdmin):
+    list_display = (
+        "name",
+        "server",
+        "short_id",
+        "image",
+        "state",
+        "health",
+        "present",
+        "last_seen_at",
+    )
+    list_filter = ("present", "state", "health", "server")
+    search_fields = ("name", "container_id", "image", "server__name")
+    readonly_fields = (
+        "server",
+        "container_id",
+        "name",
+        "image",
+        "state",
+        "health",
+        "container_created_at",
+        "started_at",
+        "present",
+        "last_seen_at",
+        "received_at",
+    )
+
+    @admin.display(description="ID")
+    def short_id(self, obj: DockerContainer) -> str:
+        return obj.container_id[:12]
 
     def has_add_permission(self, request) -> bool:
         return False
