@@ -43,3 +43,14 @@ class Server(models.Model):
 
     def __str__(self) -> str:
         return self.name
+
+    @property
+    def effective_status(self) -> str:
+        """Current liveness derived from ``last_seen_at`` and the offline threshold.
+
+        Prefer this over the stored ``status`` field when deciding whether a
+        server is presently reachable. See ``apps.infrastructure.liveness``.
+        """
+        from apps.infrastructure.liveness import evaluate_effective_status
+
+        return evaluate_effective_status(self)

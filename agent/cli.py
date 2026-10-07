@@ -9,6 +9,7 @@ import sys
 from agent.config import load_config
 from agent.errors import AgentError, ConfigError
 from agent.heartbeat import send_heartbeat
+from agent.runner import run_continuous
 
 
 def _configure_logging() -> None:
@@ -29,6 +30,13 @@ def _build_parser() -> argparse.ArgumentParser:
         "heartbeat",
         help="Send a single heartbeat to the Sentinel server",
     )
+    subparsers.add_parser(
+        "run",
+        help=(
+            "Run continuously in the foreground, sending heartbeats on an "
+            "interval (for systemd or similar later)"
+        ),
+    )
     return parser
 
 
@@ -38,8 +46,8 @@ def _redact(text: str, secret: str) -> str:
     return text
 
 
-def run_heartbeat(argv: list[str] | None = None) -> int:
-    """Execute the heartbeat subcommand. Returns a process exit code."""
+def run_heartbeat() -> int:
+    """Execute the one-shot heartbeat subcommand. Returns a process exit code."""
     token_for_redaction = ""
     try:
         config = load_config()
@@ -61,6 +69,22 @@ def run_heartbeat(argv: list[str] | None = None) -> int:
     return 0
 
 
+def run_agent() -> int:
+    """Execute the continuous foreground run loop."""
+    try:
+        config = load_config()
+    except ConfigError as exc:
+        print(f"Agent failed: {exc}", file=sys.stderr)
+        return 1
+
+    try:
+        return run_continuous(config)
+    except KeyboardInterrupt:
+        # Fallback if a signal races past our handlers.
+        print("Agent stopped.", file=sys.stderr)
+        return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     _configure_logging()
     parser = _build_parser()
@@ -68,6 +92,8 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.command == "heartbeat":
         return run_heartbeat()
+    if args.command == "run":
+        return run_agent()
 
     parser.error(f"Unknown command: {args.command}")
     return 2

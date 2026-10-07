@@ -38,6 +38,26 @@ class CliTests(unittest.TestCase):
         self.assertEqual(out.strip(), "Heartbeat successful.")
         self.assertNotIn(token, out)
         self.assertNotIn(token, err)
+        mock_post.assert_called_once()
+
+    @patch("agent.cli.run_continuous")
+    def test_cli_run_invokes_continuous_loop(self, mock_run):
+        mock_run.return_value = 0
+        token = "cli-secret-token-value"
+        code, out, err = self._run(
+            ["run"],
+            {
+                "SENTINEL_URL": "https://sentinel.example.com",
+                "SENTINEL_AGENT_TOKEN": token,
+                "SENTINEL_HEARTBEAT_INTERVAL": "12",
+            },
+        )
+        self.assertEqual(code, 0)
+        mock_run.assert_called_once()
+        config = mock_run.call_args.args[0]
+        self.assertEqual(config.heartbeat_interval, 12)
+        self.assertNotIn(token, out)
+        self.assertNotIn(token, err)
 
     @patch("agent.heartbeat.post_json")
     def test_cli_heartbeat_401(self, mock_post):

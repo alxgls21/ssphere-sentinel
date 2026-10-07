@@ -18,10 +18,29 @@ def env_bool(name: str, default: bool = False) -> bool:
     return value.strip().lower() in {"1", "true", "yes", "on"}
 
 
+def env_int(name: str, default: int) -> int:
+    raw = os.environ.get(name)
+    if raw is None or not str(raw).strip():
+        return default
+    try:
+        value = int(str(raw).strip())
+    except ValueError as exc:
+        raise RuntimeError(
+            f"Environment variable {name} must be an integer"
+        ) from exc
+    return value
+
+
 SECRET_KEY = env("DJANGO_SECRET_KEY")
 AGENT_TOKEN_PEPPER = env("AGENT_TOKEN_PEPPER")
 if not AGENT_TOKEN_PEPPER.strip():
     raise RuntimeError("Required environment variable AGENT_TOKEN_PEPPER is empty")
+
+# Seconds without a heartbeat before a server is considered offline.
+# Default 90s pairs with the agent's default 30s heartbeat interval.
+SENTINEL_OFFLINE_THRESHOLD = env_int("SENTINEL_OFFLINE_THRESHOLD", default=90)
+if SENTINEL_OFFLINE_THRESHOLD <= 0:
+    raise RuntimeError("SENTINEL_OFFLINE_THRESHOLD must be a positive integer")
 
 DEBUG = env_bool("DJANGO_DEBUG", default=False)
 ALLOWED_HOSTS = [

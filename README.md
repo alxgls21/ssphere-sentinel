@@ -141,23 +141,26 @@ python manage.py check
 The host agent lives in the top-level `agent/` package. It does **not** import
 Django and does **not** require Docker.
 
-After `pip install -e .` (or any install that provides the console script):
-
-```bash
-export SENTINEL_URL=http://127.0.0.1:8000
-export SENTINEL_AGENT_TOKEN=<token>
-
-sentinel-agent heartbeat
-```
-
 Create a server + agent token on the Django side first:
 
 ```bash
 python manage.py create_agent --server <server-uuid> --name server-agent
 ```
 
-Use HTTPS for real deployments. The agent sends
-`Authorization: Bearer <token>` and never puts the token in the URL.
+Configure the agent:
+
+```bash
+export SENTINEL_URL=http://127.0.0.1:8000
+export SENTINEL_AGENT_TOKEN=<token>
+# optional; default is 30
+export SENTINEL_HEARTBEAT_INTERVAL=30
+```
+
+### One-shot heartbeat
+
+```bash
+sentinel-agent heartbeat
+```
 
 Successful output:
 
@@ -170,6 +173,52 @@ Example failure:
 ```text
 Heartbeat failed: server returned HTTP 401.
 ```
+
+### Continuous foreground run
+
+```bash
+sentinel-agent run
+```
+
+`sentinel-agent run`:
+
+- stays in the **foreground** (does not daemonize)
+- sends a heartbeat immediately, then every `SENTINEL_HEARTBEAT_INTERVAL`
+  seconds (default **30**)
+- logs failures and keeps running
+- stops cleanly on SIGINT / SIGTERM
+
+Production deployments will normally supervise this process with **systemd**
+(or similar). A unit file is not shipped yet.
+
+Use HTTPS for real deployments. The agent sends
+`Authorization: Bearer <token>` and never puts the token in the URL.
+
+## Server liveness / offline detection
+
+Heartbeats update `Agent.last_seen_at`, `Server.last_seen_at`, and set stored
+`Server.status` to `online`.
+
+Current reachability is derived at read time from `last_seen_at` — no Celery
+or periodic job is required:
+
+| Condition | `Server.effective_status` |
+| --- | --- |
+| Never reported (`last_seen_at` is null) | `unknown` |
+| Last seen within the threshold | `online` |
+| Last seen older than the threshold | `offline` |
+
+Configure the threshold on the server (seconds, default **90**):
+
+```bash
+# in .env / environment
+SENTINEL_OFFLINE_THRESHOLD=90
+```
+
+With the default agent interval of 30s, 90s means roughly three missed
+heartbeats before a server is considered offline. Stored `status` remains
+available for future warning/error states; prefer `effective_status` for
+liveness.
 
 ## Docker Compose deployment
 

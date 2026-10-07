@@ -11,12 +11,13 @@ class ServerAdmin(admin.ModelAdmin):
         "ip_address",
         "operating_system",
         "status",
+        "effective_status",
         "last_seen_at",
         "updated_at",
     )
     list_filter = ("status", "operating_system")
     search_fields = ("name", "hostname", "ip_address", "description")
-    readonly_fields = ("id", "created_at", "updated_at")
+    readonly_fields = ("id", "effective_status", "created_at", "updated_at")
     ordering = ("name",)
     fieldsets = (
         (
@@ -35,7 +36,12 @@ class ServerAdmin(admin.ModelAdmin):
         (
             "Status",
             {
-                "fields": ("status", "last_seen_at"),
+                "fields": ("status", "effective_status", "last_seen_at"),
+                "description": (
+                    "Stored status is updated by heartbeats and future checks. "
+                    "Effective status is derived from last_seen_at using "
+                    "SENTINEL_OFFLINE_THRESHOLD (no background job required)."
+                ),
             },
         ),
         (
@@ -45,3 +51,7 @@ class ServerAdmin(admin.ModelAdmin):
             },
         ),
     )
+
+    @admin.display(description="Effective status")
+    def effective_status(self, obj: Server) -> str:
+        return obj.effective_status

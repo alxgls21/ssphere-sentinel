@@ -15,10 +15,34 @@ class ConfigTests(unittest.TestCase):
 
         self.assertEqual(config.sentinel_url, "https://sentinel.example.com")
         self.assertEqual(config.agent_token, "secret-token")
+        self.assertEqual(config.heartbeat_interval, 30)
         self.assertEqual(
             config.heartbeat_url,
             "https://sentinel.example.com/api/v1/agent/heartbeat/",
         )
+
+    def test_configurable_heartbeat_interval(self):
+        config = load_config(
+            {
+                "SENTINEL_URL": "https://sentinel.example.com",
+                "SENTINEL_AGENT_TOKEN": "secret-token",
+                "SENTINEL_HEARTBEAT_INTERVAL": "15",
+            }
+        )
+        self.assertEqual(config.heartbeat_interval, 15)
+
+    def test_invalid_heartbeat_interval_rejected(self):
+        for value in ("0", "-5", "abc", "1.5"):
+            with self.subTest(value=value):
+                with self.assertRaises(ConfigError) as ctx:
+                    load_config(
+                        {
+                            "SENTINEL_URL": "https://sentinel.example.com",
+                            "SENTINEL_AGENT_TOKEN": "secret-token",
+                            "SENTINEL_HEARTBEAT_INTERVAL": value,
+                        }
+                    )
+                self.assertIn("SENTINEL_HEARTBEAT_INTERVAL", str(ctx.exception))
 
     def test_missing_sentinel_url(self):
         with self.assertRaises(ConfigError) as ctx:
