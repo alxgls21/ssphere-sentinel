@@ -15,9 +15,15 @@ dist/
 build/
 .eggs/
 pip-wheel-metadata/
+pip-log.txt
+pip-delete-this-directory.txt
 .venv/
 venv/
 env/
+__pypackages__/
+*.manifest
+*.spec
+.python-version
 
 # Django
 *.log
