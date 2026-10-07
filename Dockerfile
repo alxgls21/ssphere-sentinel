@@ -12,6 +12,7 @@ RUN apt-get update \
 COPY pyproject.toml README.md ./
 COPY sentinel ./sentinel
 COPY apps ./apps
+COPY agent ./agent
 COPY manage.py entrypoint.sh ./
 
 RUN pip install --no-cache-dir --upgrade pip \

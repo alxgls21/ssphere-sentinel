@@ -75,7 +75,10 @@ python manage.py check
 
 ```text
 apps/           Django applications (add new apps here)
-  core/         Shared/core app (health endpoint for now)
+  core/         Shared/core app (health endpoint)
+  infrastructure/  Monitored servers
+  agents/       Agent registration and heartbeat API
+agent/          Standalone host agent (no Django imports)
 sentinel/       Django project settings and URL routing
 manage.py       Django management entrypoint
 compose.yml     Docker Compose services
@@ -85,6 +88,34 @@ pyproject.toml  Python dependencies and packaging
 
 New Django apps should live under `apps/` and be registered in
 `sentinel/settings.py` (`INSTALLED_APPS`).
+
+## Running the host agent
+
+The `agent/` package is independent of Django. On a monitored host (after
+`pip install -e .` or an equivalent install that provides the `sentinel-agent`
+console script):
+
+```bash
+export SENTINEL_URL=https://sentinel.example.com
+export SENTINEL_AGENT_TOKEN=<token>
+
+sentinel-agent heartbeat
+```
+
+Successful output:
+
+```text
+Heartbeat successful.
+```
+
+Example failure:
+
+```text
+Heartbeat failed: server returned HTTP 401.
+```
+
+Use HTTPS for normal deployments. The agent sends
+`Authorization: Bearer <token>` and never puts the token in the URL.
 
 ## Agent authentication and heartbeat
 

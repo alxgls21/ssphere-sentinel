@@ -10,9 +10,12 @@ dependencies = [
     "psycopg[binary]>=3.2",
 ]
 
+[project.scripts]
+sentinel-agent = "agent.cli:main"
+
 [build-system]
 requires = ["setuptools>=75"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]
-include = ["sentinel*", "apps*"]
+include = ["sentinel*", "apps*", "agent*"]
