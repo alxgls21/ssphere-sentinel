@@ -22,8 +22,10 @@ class CliTests(unittest.TestCase):
                 code = main(argv)
         return code, stdout.getvalue(), stderr.getvalue()
 
+    @patch("agent.heartbeat.collect_docker", return_value={"version": 1, "available": False, "status": "unavailable", "collected_at": "2026-10-07T00:00:00+00:00", "containers": []})
+    @patch("agent.heartbeat.collect_telemetry", return_value={"version": 1, "collected_at": "2026-10-07T00:00:00+00:00", "cpu_percent": 1.0, "memory_total_bytes": 1, "memory_used_bytes": 1, "memory_percent": 100.0, "disk_total_bytes": 1, "disk_used_bytes": 1, "disk_percent": 100.0, "uptime_seconds": 1})
     @patch("agent.heartbeat.post_json")
-    def test_cli_heartbeat_success(self, mock_post):
+    def test_cli_heartbeat_success(self, mock_post, _telemetry, _docker):
         mock_post.return_value = HttpResponse(status=200, body='{"status":"ok"}')
         token = "cli-secret-token-value"
         code, out, err = self._run(
@@ -59,8 +61,10 @@ class CliTests(unittest.TestCase):
         self.assertNotIn(token, out)
         self.assertNotIn(token, err)
 
+    @patch("agent.heartbeat.collect_docker", return_value={"version": 1, "available": False, "status": "unavailable", "collected_at": "2026-10-07T00:00:00+00:00", "containers": []})
+    @patch("agent.heartbeat.collect_telemetry", return_value={"version": 1, "collected_at": "2026-10-07T00:00:00+00:00", "cpu_percent": 1.0, "memory_total_bytes": 1, "memory_used_bytes": 1, "memory_percent": 100.0, "disk_total_bytes": 1, "disk_used_bytes": 1, "disk_percent": 100.0, "uptime_seconds": 1})
     @patch("agent.heartbeat.post_json")
-    def test_cli_heartbeat_401(self, mock_post):
+    def test_cli_heartbeat_401(self, mock_post, _telemetry, _docker):
         mock_post.return_value = HttpResponse(status=401, body="unauthorized")
         token = "cli-secret-token-value"
         code, out, err = self._run(

@@ -27,12 +27,23 @@ class HeartbeatTests(unittest.TestCase):
             "disk_percent": 25.0,
             "uptime_seconds": 99,
         }
+        self.sample_docker = {
+            "version": 1,
+            "available": False,
+            "status": "unavailable",
+            "collected_at": "2026-10-07T12:00:00+00:00",
+            "containers": [],
+        }
 
     @patch("agent.heartbeat.post_json")
     def test_successful_heartbeat(self, mock_post):
         mock_post.return_value = HttpResponse(status=200, body='{"status":"ok"}')
 
-        send_heartbeat(self.config, collect_fn=lambda: self.sample_telemetry)
+        send_heartbeat(
+            self.config,
+            collect_fn=lambda: self.sample_telemetry,
+            docker_fn=lambda: self.sample_docker,
+        )
 
         mock_post.assert_called_once()
         args, kwargs = mock_post.call_args
@@ -45,13 +56,19 @@ class HeartbeatTests(unittest.TestCase):
             "Bearer super-secret-agent-token",
         )
         self.assertEqual(kwargs["payload"]["telemetry"], self.sample_telemetry)
+        self.assertEqual(kwargs["payload"]["docker"], self.sample_docker)
         self.assertNotIn("super-secret-agent-token", args[0])
 
     @patch("agent.heartbeat.post_json")
-    def test_telemetry_included_in_payload(self, mock_post):
+    def test_telemetry_included_in_heartbeat_report_payload(self, mock_post):
         mock_post.return_value = HttpResponse(status=200, body='{"status":"ok"}')
-        send_heartbeat(self.config, collect_fn=lambda: self.sample_telemetry)
+        send_heartbeat(
+            self.config,
+            collect_fn=lambda: self.sample_telemetry,
+            docker_fn=lambda: self.sample_docker,
+        )
         self.assertIn("telemetry", mock_post.call_args.kwargs["payload"])
+        self.assertIn("docker", mock_post.call_args.kwargs["payload"])
 
     @patch("agent.heartbeat.post_json")
     def test_telemetry_collection_failure_falls_back_to_liveness_only(
@@ -68,27 +85,54 @@ class HeartbeatTests(unittest.TestCase):
         logger.addHandler(handler)
         logger.setLevel(logging.WARNING)
         try:
-            send_heartbeat(self.config, collect_fn=boom)
+            send_heartbeat(
+                self.config,
+                collect_fn=boom,
+                docker_fn=lambda: self.sample_docker,
+            )
         finally:
             logger.removeHandler(handler)
 
         payload = mock_post.call_args.kwargs["payload"]
-        self.assertEqual(payload, {})
+        self.assertNotIn("telemetry", payload)
+        self.assertEqual(payload["docker"], self.sample_docker)
         self.assertIn("Telemetry collection failed", stream.getvalue())
         self.assertNotIn(self.config.agent_token, stream.getvalue())
 
+    @patch("agent.heartbeat.post_json")
+    def test_docker_collection_failure_does_not_stop_heartbeat(self, mock_post):
+        mock_post.return_value = HttpResponse(status=200, body='{"status":"ok"}')
+
+        def boom():
+            raise RuntimeError("docker exploded")
+
+        send_heartbeat(
+            self.config,
+            collect_fn=lambda: self.sample_telemetry,
+            docker_fn=boom,
+        )
+        payload = mock_post.call_args.kwargs["payload"]
+        self.assertEqual(payload["telemetry"], self.sample_telemetry)
+        self.assertNotIn("docker", payload)
+
     def test_build_payload_omits_telemetry_on_failure(self):
         payload = build_heartbeat_payload(
-            collect_fn=lambda: (_ for _ in ()).throw(RuntimeError("nope"))
+            collect_fn=lambda: (_ for _ in ()).throw(RuntimeError("nope")),
+            docker_fn=lambda: self.sample_docker,
         )
-        self.assertEqual(payload, {})
+        self.assertNotIn("telemetry", payload)
+        self.assertEqual(payload["docker"], self.sample_docker)
 
     @patch("agent.heartbeat.post_json")
     def test_unauthorized_response(self, mock_post):
         mock_post.return_value = HttpResponse(status=401, body='{"detail":"nope"}')
 
         with self.assertRaises(HeartbeatError) as ctx:
-            send_heartbeat(self.config, collect_fn=lambda: self.sample_telemetry)
+            send_heartbeat(
+                self.config,
+                collect_fn=lambda: self.sample_telemetry,
+                docker_fn=lambda: self.sample_docker,
+            )
 
         self.assertEqual(str(ctx.exception), "server returned HTTP 401")
         self.assertNotIn(self.config.agent_token, str(ctx.exception))
@@ -98,7 +142,11 @@ class HeartbeatTests(unittest.TestCase):
         mock_post.return_value = HttpResponse(status=500, body="error")
 
         with self.assertRaises(HeartbeatError) as ctx:
-            send_heartbeat(self.config, collect_fn=lambda: self.sample_telemetry)
+            send_heartbeat(
+                self.config,
+                collect_fn=lambda: self.sample_telemetry,
+                docker_fn=lambda: self.sample_docker,
+            )
 
         self.assertEqual(str(ctx.exception), "server returned HTTP 500")
 
@@ -109,7 +157,11 @@ class HeartbeatTests(unittest.TestCase):
         mock_urlopen.side_effect = urllib.error.URLError("Connection refused")
 
         with self.assertRaises(HeartbeatError) as ctx:
-            send_heartbeat(self.config, collect_fn=lambda: self.sample_telemetry)
+            send_heartbeat(
+                self.config,
+                collect_fn=lambda: self.sample_telemetry,
+                docker_fn=lambda: self.sample_docker,
+            )
 
         self.assertIn("connection failed", str(ctx.exception))
         self.assertNotIn(self.config.agent_token, str(ctx.exception))
@@ -121,7 +173,11 @@ class HeartbeatTests(unittest.TestCase):
         mock_urlopen.side_effect = urllib.error.URLError(TimeoutError("timed out"))
 
         with self.assertRaises(HeartbeatError) as ctx:
-            send_heartbeat(self.config, collect_fn=lambda: self.sample_telemetry)
+            send_heartbeat(
+                self.config,
+                collect_fn=lambda: self.sample_telemetry,
+                docker_fn=lambda: self.sample_docker,
+            )
 
         self.assertEqual(str(ctx.exception), "request timed out")
         self.assertNotIn(self.config.agent_token, str(ctx.exception))
@@ -141,7 +197,11 @@ class HeartbeatTests(unittest.TestCase):
                 return False
 
         mock_urlopen.return_value = FakeResponse()
-        send_heartbeat(self.config, collect_fn=lambda: self.sample_telemetry)
+        send_heartbeat(
+            self.config,
+            collect_fn=lambda: self.sample_telemetry,
+            docker_fn=lambda: self.sample_docker,
+        )
 
         request = mock_urlopen.call_args.args[0]
         self.assertEqual(request.get_header("User-agent"), USER_AGENT)
@@ -156,7 +216,11 @@ class HeartbeatTests(unittest.TestCase):
         logger.setLevel(logging.DEBUG)
 
         try:
-            send_heartbeat(self.config, collect_fn=lambda: self.sample_telemetry)
+            send_heartbeat(
+                self.config,
+                collect_fn=lambda: self.sample_telemetry,
+                docker_fn=lambda: self.sample_docker,
+            )
         finally:
             logger.removeHandler(handler)
 

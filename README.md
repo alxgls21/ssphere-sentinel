@@ -246,6 +246,75 @@ still updated.
 
 Latest values are visible in Django admin (read-only). No dashboard UI yet.
 
+### Docker discovery (v0.1, optional)
+
+Docker monitoring is **optional**. Hosts without Docker, or agents that cannot
+access the Docker daemon, continue normal heartbeat and host telemetry.
+
+The agent uses the official Docker SDK (`docker` Python package) against the
+Docker Engine API (typically the local Docker socket). It only **reads**
+container state — it never starts, stops, restarts, or otherwise mutates
+containers.
+
+**Security warning:** Access to the Docker daemon/socket is highly privileged
+and can be root-equivalent on many Linux systems. Grant the agent the minimum
+access needed for read-only discovery, and treat the agent host as sensitive.
+
+Collected per container:
+
+| Field | Meaning |
+| --- | --- |
+| `container_id` | Full Docker ID (identity; not the mutable name) |
+| `name` | Container name |
+| `image` | Image reference |
+| `state` | `running`, `exited`, `paused`, `restarting`, `created`, `dead`, `unknown` |
+| `health` | `healthy`, `unhealthy`, `starting`, `none`, `unknown` |
+| `created_at` / `started_at` | Timestamps when available |
+
+Explicitly **not** collected: environment variables, secrets, mounts, labels,
+command lines, logs, or full container configuration.
+
+When Docker is unavailable, the agent still reports a machine-readable status
+such as `unavailable`, `permission_denied`, or `error` with an empty container
+list — the heartbeat itself does not fail.
+
+Payload version: **`docker.version = 1`**.
+
+Example fragment:
+
+```json
+{
+  "docker": {
+    "version": 1,
+    "available": true,
+    "status": "available",
+    "collected_at": "2026-10-07T12:00:00+00:00",
+    "containers": [
+      {
+        "container_id": "…",
+        "name": "nginx",
+        "image": "nginx:latest",
+        "state": "running",
+        "health": "healthy",
+        "created_at": "…",
+        "started_at": "…"
+      }
+    ]
+  }
+}
+```
+
+Server storage is **latest-state only** (`DockerHostState` + `DockerContainer`):
+
+- Containers in a successful (`available`) discovery are upserted by
+  `container_id` and marked `present=True`.
+- Containers missing from that authoritative list are marked `present=False`
+  (not hard-deleted).
+- If discovery failed/unavailable, existing container rows are left unchanged
+  (the agent did not obtain an authoritative list).
+
+No Docker control/actions in this release. Inspect Docker state in Django admin.
+
 ## Server liveness / offline detection
 
 Heartbeats update `Agent.last_seen_at`, `Server.last_seen_at`, and set stored

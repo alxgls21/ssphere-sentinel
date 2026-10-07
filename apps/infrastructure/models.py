@@ -86,3 +86,85 @@ class ServerTelemetry(models.Model):
     def __str__(self) -> str:
         return f"Telemetry for {self.server.name}"
 
+
+class DockerHostState(models.Model):
+    """Latest Docker availability/status for a server (not historical)."""
+
+    class Status(models.TextChoices):
+        AVAILABLE = "available", "Available"
+        UNAVAILABLE = "unavailable", "Unavailable"
+        PERMISSION_DENIED = "permission_denied", "Permission denied"
+        ERROR = "error", "Error"
+
+    server = models.OneToOneField(
+        Server,
+        on_delete=models.CASCADE,
+        related_name="docker_host",
+    )
+    available = models.BooleanField(default=False)
+    status = models.CharField(max_length=32, choices=Status.choices)
+    collected_at = models.DateTimeField()
+    received_at = models.DateTimeField()
+
+    class Meta:
+        verbose_name = "Docker host state"
+        verbose_name_plural = "Docker host states"
+
+    def __str__(self) -> str:
+        return f"Docker on {self.server.name}: {self.status}"
+
+
+class DockerContainer(models.Model):
+    """Latest-known Docker container for a server (identified by container ID)."""
+
+    class State(models.TextChoices):
+        RUNNING = "running", "Running"
+        EXITED = "exited", "Exited"
+        PAUSED = "paused", "Paused"
+        RESTARTING = "restarting", "Restarting"
+        CREATED = "created", "Created"
+        DEAD = "dead", "Dead"
+        UNKNOWN = "unknown", "Unknown"
+
+    class Health(models.TextChoices):
+        HEALTHY = "healthy", "Healthy"
+        UNHEALTHY = "unhealthy", "Unhealthy"
+        STARTING = "starting", "Starting"
+        NONE = "none", "None"
+        UNKNOWN = "unknown", "Unknown"
+
+    server = models.ForeignKey(
+        Server,
+        on_delete=models.CASCADE,
+        related_name="docker_containers",
+    )
+    container_id = models.CharField(max_length=64)
+    name = models.CharField(max_length=255)
+    image = models.CharField(max_length=512)
+    state = models.CharField(max_length=32, choices=State.choices)
+    health = models.CharField(max_length=32, choices=Health.choices)
+    container_created_at = models.DateTimeField(null=True, blank=True)
+    started_at = models.DateTimeField(null=True, blank=True)
+    present = models.BooleanField(default=True)
+    last_seen_at = models.DateTimeField()
+    received_at = models.DateTimeField()
+
+    class Meta:
+        verbose_name = "Docker container"
+        verbose_name_plural = "Docker containers"
+        ordering = ["name", "container_id"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["server", "container_id"],
+                name="uniq_server_docker_container_id",
+            ),
+        ]
+        indexes = [
+            models.Index(fields=["server", "present"]),
+            models.Index(fields=["state"]),
+        ]
+
+    def __str__(self) -> str:
+        marker = "" if self.present else " (absent)"
+        return f"{self.name} [{self.container_id[:12]}]{marker}"
+
