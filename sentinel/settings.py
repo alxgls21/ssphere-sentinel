@@ -42,6 +42,16 @@ SENTINEL_OFFLINE_THRESHOLD = env_int("SENTINEL_OFFLINE_THRESHOLD", default=90)
 if SENTINEL_OFFLINE_THRESHOLD <= 0:
     raise RuntimeError("SENTINEL_OFFLINE_THRESHOLD must be a positive integer")
 
+# How long to retain historical NetworkMeasurement rows.
+SENTINEL_NETWORK_MEASUREMENT_RETENTION_DAYS = env_int(
+    "SENTINEL_NETWORK_MEASUREMENT_RETENTION_DAYS",
+    default=30,
+)
+if SENTINEL_NETWORK_MEASUREMENT_RETENTION_DAYS <= 0:
+    raise RuntimeError(
+        "SENTINEL_NETWORK_MEASUREMENT_RETENTION_DAYS must be a positive integer"
+    )
+
 DEBUG = env_bool("DJANGO_DEBUG", default=False)
 ALLOWED_HOSTS = [
     host.strip()
@@ -60,6 +70,7 @@ INSTALLED_APPS = [
     "apps.core",
     "apps.infrastructure",
     "apps.agents",
+    "apps.network",
 ]
 
 MIDDLEWARE = [

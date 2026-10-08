@@ -315,6 +315,93 @@ Server storage is **latest-state only** (`DockerHostState` + `DockerContainer`):
 
 No Docker control/actions in this release. Inspect Docker state in Django admin.
 
+### Network monitoring (v0.1)
+
+The agent can probe configured network targets (ICMP echo and TCP connect)
+and report latency, packet loss, and availability. Probing runs in the same
+heartbeat cycle; there is no separate loop.
+
+**Configuration is agent-local in v0.1** (not pushed from the server). Each
+target `id` must match a `NetworkTarget` UUID in Django that is assigned to
+the same agent.
+
+1. Create `NetworkTarget` rows in Django admin (assigned agent, protocol/port).
+   You may paste a specific UUID on create, or copy the generated id afterward.
+2. Put the same target UUID(s) in the agent-local JSON file:
+
+   ```bash
+   cp agent/network_targets.example.json /etc/ssphere/network_targets.json
+   # edit ids/hosts to match admin targets
+   export SENTINEL_NETWORK_TARGETS_FILE=/etc/ssphere/network_targets.json
+   ```
+
+Example target file:
+
+```json
+{
+  "targets": [
+    {
+      "id": "11111111-1111-1111-1111-111111111111",
+      "name": "public-dns-tcp",
+      "hostname_or_ip": "1.1.1.1",
+      "protocol": "tcp",
+      "port": 443,
+      "enabled": true,
+      "monitoring_interval_seconds": 60,
+      "timeout_seconds": 2,
+      "probe_count": 4
+    }
+  ]
+}
+```
+
+Heartbeat fragment (`network.version = 1`):
+
+```json
+{
+  "network": {
+    "version": 1,
+    "measurements": [
+      {
+        "measurement_id": "…",
+        "target_id": "11111111-1111-1111-1111-111111111111",
+        "measured_at": "2026-10-08T12:00:00+00:00",
+        "success": true,
+        "latency_ms": 12.5,
+        "packet_loss_percentage": 0.0,
+        "probe_count": 4,
+        "successful_probes": 4,
+        "failure_reason": ""
+      }
+    ]
+  }
+}
+```
+
+Valid measurements are stored as **historical** `NetworkMeasurement` rows
+(indexed by target / `measured_at`). Duplicate `measurement_id` values are
+ignored idempotently. Retention defaults to 30 days:
+
+```bash
+# SENTINEL_NETWORK_MEASUREMENT_RETENTION_DAYS=30
+python manage.py purge_network_measurements
+```
+
+Network reports are isolated from liveness, host telemetry, and Docker: an
+invalid network section does not block those subsystems.
+
+**Security**
+
+- Only probe destinations you are authorized to monitor.
+- Targets come from the agent-local file, not from unauthenticated input.
+- Hostnames/IPs are validated; probes never use `shell=True`.
+- ICMP may require privileges / capabilities; if unavailable the agent reports
+  `permission_denied` / `unsupported` and TCP targets continue to work.
+- Root is not required for TCP monitoring.
+
+SLA calculations, alarms, and remote target configuration are not implemented
+yet.
+
 ## Server liveness / offline detection
 
 Heartbeats update `Agent.last_seen_at`, `Server.last_seen_at`, and set stored
@@ -393,8 +480,9 @@ curl -X POST http://localhost:8000/api/v1/agent/heartbeat/ \
 ```text
 apps/                  Django applications
   core/                Health endpoint
-  infrastructure/      Monitored servers
+  infrastructure/      Monitored servers, telemetry, Docker state
   agents/              Agent registration and heartbeat API
+  network/             Network targets and measurement history
 agent/                 Standalone host agent (no Django imports)
 sentinel/              Django project settings and URL routing
 manage.py

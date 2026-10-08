@@ -34,6 +34,7 @@ class HeartbeatTests(unittest.TestCase):
             "collected_at": "2026-10-07T12:00:00+00:00",
             "containers": [],
         }
+        self.empty_network = {"version": 1, "measurements": []}
 
     @patch("agent.heartbeat.post_json")
     def test_successful_heartbeat(self, mock_post):
@@ -43,6 +44,7 @@ class HeartbeatTests(unittest.TestCase):
             self.config,
             collect_fn=lambda: self.sample_telemetry,
             docker_fn=lambda: self.sample_docker,
+            network_fn=lambda: self.empty_network,
         )
 
         mock_post.assert_called_once()
@@ -57,6 +59,7 @@ class HeartbeatTests(unittest.TestCase):
         )
         self.assertEqual(kwargs["payload"]["telemetry"], self.sample_telemetry)
         self.assertEqual(kwargs["payload"]["docker"], self.sample_docker)
+        self.assertNotIn("network", kwargs["payload"])
         self.assertNotIn("super-secret-agent-token", args[0])
 
     @patch("agent.heartbeat.post_json")
@@ -66,6 +69,7 @@ class HeartbeatTests(unittest.TestCase):
             self.config,
             collect_fn=lambda: self.sample_telemetry,
             docker_fn=lambda: self.sample_docker,
+            network_fn=lambda: self.empty_network,
         )
         self.assertIn("telemetry", mock_post.call_args.kwargs["payload"])
         self.assertIn("docker", mock_post.call_args.kwargs["payload"])
@@ -89,6 +93,7 @@ class HeartbeatTests(unittest.TestCase):
                 self.config,
                 collect_fn=boom,
                 docker_fn=lambda: self.sample_docker,
+                network_fn=lambda: self.empty_network,
             )
         finally:
             logger.removeHandler(handler)
@@ -110,6 +115,7 @@ class HeartbeatTests(unittest.TestCase):
             self.config,
             collect_fn=lambda: self.sample_telemetry,
             docker_fn=boom,
+            network_fn=lambda: self.empty_network,
         )
         payload = mock_post.call_args.kwargs["payload"]
         self.assertEqual(payload["telemetry"], self.sample_telemetry)
@@ -119,6 +125,7 @@ class HeartbeatTests(unittest.TestCase):
         payload = build_heartbeat_payload(
             collect_fn=lambda: (_ for _ in ()).throw(RuntimeError("nope")),
             docker_fn=lambda: self.sample_docker,
+            network_fn=lambda: self.empty_network,
         )
         self.assertNotIn("telemetry", payload)
         self.assertEqual(payload["docker"], self.sample_docker)
@@ -132,6 +139,7 @@ class HeartbeatTests(unittest.TestCase):
                 self.config,
                 collect_fn=lambda: self.sample_telemetry,
                 docker_fn=lambda: self.sample_docker,
+                network_fn=lambda: self.empty_network,
             )
 
         self.assertEqual(str(ctx.exception), "server returned HTTP 401")
@@ -146,6 +154,7 @@ class HeartbeatTests(unittest.TestCase):
                 self.config,
                 collect_fn=lambda: self.sample_telemetry,
                 docker_fn=lambda: self.sample_docker,
+                network_fn=lambda: self.empty_network,
             )
 
         self.assertEqual(str(ctx.exception), "server returned HTTP 500")
@@ -161,6 +170,7 @@ class HeartbeatTests(unittest.TestCase):
                 self.config,
                 collect_fn=lambda: self.sample_telemetry,
                 docker_fn=lambda: self.sample_docker,
+                network_fn=lambda: self.empty_network,
             )
 
         self.assertIn("connection failed", str(ctx.exception))
@@ -177,6 +187,7 @@ class HeartbeatTests(unittest.TestCase):
                 self.config,
                 collect_fn=lambda: self.sample_telemetry,
                 docker_fn=lambda: self.sample_docker,
+                network_fn=lambda: self.empty_network,
             )
 
         self.assertEqual(str(ctx.exception), "request timed out")
@@ -201,6 +212,7 @@ class HeartbeatTests(unittest.TestCase):
             self.config,
             collect_fn=lambda: self.sample_telemetry,
             docker_fn=lambda: self.sample_docker,
+            network_fn=lambda: self.empty_network,
         )
 
         request = mock_urlopen.call_args.args[0]
@@ -220,6 +232,7 @@ class HeartbeatTests(unittest.TestCase):
                 self.config,
                 collect_fn=lambda: self.sample_telemetry,
                 docker_fn=lambda: self.sample_docker,
+                network_fn=lambda: self.empty_network,
             )
         finally:
             logger.removeHandler(handler)
