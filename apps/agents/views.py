@@ -16,6 +16,11 @@ from apps.infrastructure.telemetry import (
     upsert_server_telemetry,
     validate_telemetry_payload,
 )
+from apps.network.reports import (
+    NetworkValidationError,
+    apply_network_report,
+    validate_network_payload,
+)
 
 
 @csrf_exempt
@@ -25,8 +30,9 @@ def agent_heartbeat(request):
 
     Authentication uses ``Authorization: Bearer <token>``.
 
-    Subsystems (telemetry, docker) are validated and applied independently.
-    Invalid subsystem data does not block liveness or other valid subsystems.
+    Subsystems (telemetry, docker, network) are validated and applied
+    independently. Invalid subsystem data does not block liveness or other
+    valid subsystems.
     """
     result = authenticate_agent(request)
     if result.agent is None:
@@ -84,5 +90,16 @@ def agent_heartbeat(request):
         except DockerValidationError as exc:
             response["docker"] = "rejected"
             response["docker_detail"] = str(exc)
+
+    if "network" in payload:
+        try:
+            network_report = validate_network_payload(payload["network"], agent=agent)
+            created, duplicates = apply_network_report(agent, network_report)
+            response["network"] = "accepted"
+            response["network_created"] = created
+            response["network_duplicates"] = duplicates
+        except NetworkValidationError as exc:
+            response["network"] = "rejected"
+            response["network_detail"] = str(exc)
 
     return JsonResponse(response)
