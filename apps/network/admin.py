@@ -1,29 +1,42 @@
-from django.contrib import admin
+from django.contrib import admin, messages
 from django.db.models import OuterRef, Subquery
-from django.utils import timezone
+from django.urls import reverse
+from django.utils.html import format_html
 
 from apps.network.models import NetworkMeasurement, NetworkTarget
 
-
-class LatestMeasurementInline(admin.TabularInline):
-    model = NetworkMeasurement
-    extra = 0
-    can_delete = False
-    max_num = 5
-    ordering = ("-measured_at",)
-    fields = (
-        "measured_at",
-        "success",
-        "latency_ms",
-        "packet_loss_percentage",
-        "probe_count",
-        "successful_probes",
-        "failure_reason",
-    )
-    readonly_fields = fields
-
-    def has_add_permission(self, request, obj=None) -> bool:
-        return False
+_TARGET_FIELDS = (
+    "name",
+    "hostname_or_ip",
+    "protocol",
+    "port",
+    "enabled",
+    "assigned_agent",
+)
+_SHARED_FIELDSETS = (
+    (
+        "Probe settings",
+        {
+            "fields": (
+                "monitoring_interval_seconds",
+                "timeout_seconds",
+                "expected_sla_percentage",
+            )
+        },
+    ),
+    (
+        "Optional metadata",
+        {
+            "fields": ("customer_name", "circuit_identifier"),
+        },
+    ),
+    (
+        "Timestamps",
+        {
+            "fields": ("created_at", "updated_at"),
+        },
+    ),
+)
 
 
 @admin.register(NetworkTarget)
@@ -49,45 +62,21 @@ class NetworkTargetAdmin(admin.ModelAdmin):
         "circuit_identifier",
     )
     raw_id_fields = ("assigned_agent",)
-    inlines = (LatestMeasurementInline,)
+    # The UUID is generated on create (it is not an editable model field) and
+    # shown read-only afterwards for use in the agent-local targets file.
+    add_fieldsets = ((None, {"fields": _TARGET_FIELDS}),) + _SHARED_FIELDSETS
     fieldsets = (
+        (None, {"fields": ("id",) + _TARGET_FIELDS}),
         (
-            None,
-            {
-                "fields": (
-                    "id",
-                    "name",
-                    "hostname_or_ip",
-                    "protocol",
-                    "port",
-                    "enabled",
-                    "assigned_agent",
-                )
-            },
+            "Latest measurement",
+            {"fields": ("latest_measurement_summary", "measurements_link")},
         ),
-        (
-            "Probe settings",
-            {
-                "fields": (
-                    "monitoring_interval_seconds",
-                    "timeout_seconds",
-                    "expected_sla_percentage",
-                )
-            },
-        ),
-        (
-            "Optional metadata",
-            {
-                "fields": ("customer_name", "circuit_identifier"),
-            },
-        ),
-        (
-            "Timestamps",
-            {
-                "fields": ("created_at", "updated_at"),
-            },
-        ),
-    )
+    ) + _SHARED_FIELDSETS
+
+    def get_fieldsets(self, request, obj=None):
+        if obj is None:
+            return self.add_fieldsets
+        return super().get_fieldsets(request, obj)
 
     def get_queryset(self, request):
         qs = super().get_queryset(request)
@@ -102,10 +91,46 @@ class NetworkTargetAdmin(admin.ModelAdmin):
         )
 
     def get_readonly_fields(self, request, obj=None):
-        # Allow setting id on create so agent-local config UUIDs can match.
         if obj:
-            return ("id", "created_at", "updated_at")
+            return (
+                "id",
+                "latest_measurement_summary",
+                "measurements_link",
+                "created_at",
+                "updated_at",
+            )
         return ("created_at", "updated_at")
+
+    def response_add(self, request, obj, post_url_continue=None):
+        self.message_user(
+            request,
+            f"Target UUID for the agent-local targets file: {obj.pk}",
+            level=messages.INFO,
+        )
+        return super().response_add(request, obj, post_url_continue)
+
+    @admin.display(description="Latest measurement")
+    def latest_measurement_summary(self, obj: NetworkTarget):
+        measured_at = getattr(obj, "_latest_measured_at", None)
+        if measured_at is None:
+            return "No measurements yet"
+        latency = getattr(obj, "_latest_latency", None)
+        return format_html(
+            "{} at {} — latency: {} — packet loss: {}%",
+            "up" if getattr(obj, "_latest_success", False) else "down",
+            measured_at.isoformat(),
+            f"{latency} ms" if latency is not None else "—",
+            getattr(obj, "_latest_loss", None),
+        )
+
+    @admin.display(description="Measurement history")
+    def measurements_link(self, obj: NetworkTarget):
+        url = reverse("admin:network_networkmeasurement_changelist")
+        return format_html(
+            '<a href="{}?target__id__exact={}">View all measurements for this target</a>',
+            url,
+            obj.pk,
+        )
 
     @admin.display(description="Latest latency (ms)")
     def latest_latency_ms(self, obj: NetworkTarget):

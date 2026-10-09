@@ -12,7 +12,11 @@ from apps.agents.services import create_agent
 from apps.agents.tests.test_telemetry_api import valid_telemetry
 from apps.infrastructure.models import Server, ServerTelemetry
 from apps.network.models import NetworkMeasurement, NetworkTarget
-from apps.network.reports import MAX_MEASUREMENTS_PER_REPORT
+from apps.network.reports import (
+    MAX_MEASUREMENTS_PER_REPORT,
+    apply_network_report,
+    validate_network_payload,
+)
 
 
 def valid_measurement(**overrides):
@@ -180,6 +184,182 @@ class NetworkAPITests(TestCase):
         )
         self.assertEqual(response.json()["network"], "rejected")
         self.assertIn("maximum", response.json()["network_detail"])
+
+
+class NetworkBatchValidationTests(TestCase):
+    """Each measurement is validated and stored independently."""
+
+    def setUp(self):
+        self.client = Client()
+        self.url = reverse("agent-heartbeat")
+        self.server = Server.objects.create(name="batch-host", hostname="batch.local")
+        self.agent, self.token = create_agent(server=self.server, name="agent")
+        self.target = NetworkTarget.objects.create(
+            name="ok",
+            hostname_or_ip="1.1.1.1",
+            protocol=NetworkTarget.Protocol.TCP,
+            port=443,
+            assigned_agent=self.agent,
+        )
+        self.disabled = NetworkTarget.objects.create(
+            name="disabled",
+            hostname_or_ip="1.1.1.2",
+            protocol=NetworkTarget.Protocol.TCP,
+            port=443,
+            assigned_agent=self.agent,
+            enabled=False,
+        )
+
+    def _post_measurements(self, measurements, token=None, **extra):
+        body = {"network": {"version": 1, "measurements": measurements}, **extra}
+        return self.client.post(
+            self.url,
+            data=json.dumps(body),
+            content_type="application/json",
+            HTTP_AUTHORIZATION=f"Bearer {token or self.token}",
+        )
+
+    def _valid(self, **overrides):
+        return valid_measurement(target_id=str(self.target.id), **overrides)
+
+    def test_all_valid_reports_counts_without_rejections(self):
+        response = self._post_measurements([self._valid(), self._valid()])
+        body = response.json()
+        self.assertEqual(body["network"], "accepted")
+        self.assertEqual(body["network_created"], 2)
+        self.assertEqual(body["network_duplicates"], 0)
+        self.assertEqual(body["network_accepted"], 2)
+        self.assertEqual(body["network_rejected"], 0)
+        self.assertNotIn("network_rejections", body)
+        self.assertNotIn("network_detail", body)
+
+    def test_one_invalid_measurement_does_not_reject_valid_ones(self):
+        valid = [self._valid() for _ in range(9)]
+        disabled = valid_measurement(target_id=str(self.disabled.id))
+        response = self._post_measurements(valid + [disabled])
+        self.assertEqual(response.status_code, 200)
+        body = response.json()
+        self.assertEqual(body["network"], "partial")
+        self.assertEqual(body["network_accepted"], 9)
+        self.assertEqual(body["network_rejected"], 1)
+        self.assertEqual(
+            body["network_rejections"],
+            [{"measurement_id": disabled["measurement_id"], "reason": "target is disabled"}],
+        )
+        self.assertIn("1 measurement(s) rejected", body["network_detail"])
+        self.assertEqual(NetworkMeasurement.objects.count(), 9)
+        self.assertFalse(NetworkMeasurement.objects.filter(target=self.disabled).exists())
+
+    def test_mixed_invalid_reasons_are_reported_individually(self):
+        unknown = valid_measurement(target_id=str(uuid.uuid4()))
+        bad_loss = self._valid(packet_loss_percentage=75.0)
+        not_object = "garbage"
+        good = self._valid()
+        response = self._post_measurements([unknown, bad_loss, not_object, good])
+        body = response.json()
+        self.assertEqual(body["network"], "partial")
+        self.assertEqual(body["network_accepted"], 1)
+        self.assertEqual(body["network_rejected"], 3)
+        rejections = body["network_rejections"]
+        self.assertEqual(rejections[0]["measurement_id"], unknown["measurement_id"])
+        self.assertIn("unknown target_id", rejections[0]["reason"])
+        self.assertEqual(rejections[1]["measurement_id"], bad_loss["measurement_id"])
+        self.assertIn("packet_loss_percentage", rejections[1]["reason"])
+        self.assertIsNone(rejections[2]["measurement_id"])
+        self.assertEqual(
+            NetworkMeasurement.objects.get().pk, uuid.UUID(good["measurement_id"])
+        )
+
+    def test_all_invalid_is_rejected_with_counts(self):
+        response = self._post_measurements(
+            [valid_measurement(target_id=str(self.disabled.id)) for _ in range(3)]
+        )
+        body = response.json()
+        self.assertEqual(body["network"], "rejected")
+        self.assertEqual(body["network_accepted"], 0)
+        self.assertEqual(body["network_rejected"], 3)
+        self.assertEqual(len(body["network_rejections"]), 3)
+        self.assertFalse(NetworkMeasurement.objects.exists())
+
+    def test_duplicate_id_within_report_rejects_only_the_repeat(self):
+        first = self._valid()
+        repeat = dict(first)
+        response = self._post_measurements([first, repeat])
+        body = response.json()
+        self.assertEqual(body["network"], "partial")
+        self.assertEqual(body["network_created"], 1)
+        self.assertEqual(
+            body["network_rejections"],
+            [
+                {
+                    "measurement_id": first["measurement_id"],
+                    "reason": "duplicate measurement_id in report",
+                }
+            ],
+        )
+        self.assertEqual(NetworkMeasurement.objects.count(), 1)
+
+    def test_retry_of_partially_accepted_batch_is_idempotent(self):
+        good = self._valid()
+        bad = valid_measurement(target_id=str(self.disabled.id))
+        self._post_measurements([good, bad])
+        response = self._post_measurements([good, bad])
+        body = response.json()
+        self.assertEqual(body["network"], "partial")
+        self.assertEqual(body["network_created"], 0)
+        self.assertEqual(body["network_duplicates"], 1)
+        self.assertEqual(body["network_accepted"], 1)
+        self.assertEqual(body["network_rejected"], 1)
+        self.assertEqual(NetworkMeasurement.objects.count(), 1)
+
+    def test_measurement_id_owned_by_another_agent_is_not_a_duplicate(self):
+        other_server = Server.objects.create(name="other", hostname="other.local")
+        other_agent, other_token = create_agent(server=other_server, name="other")
+        other_target = NetworkTarget.objects.create(
+            name="other-target",
+            hostname_or_ip="8.8.8.8",
+            protocol=NetworkTarget.Protocol.TCP,
+            port=53,
+            assigned_agent=other_agent,
+        )
+        shared_id = str(uuid.uuid4())
+        self._post_measurements(
+            [valid_measurement(measurement_id=shared_id, target_id=str(other_target.id))],
+            token=other_token,
+        )
+        response = self._post_measurements([self._valid(measurement_id=shared_id)])
+        body = response.json()
+        self.assertEqual(body["network"], "rejected")
+        self.assertEqual(body["network_duplicates"], 0)
+        self.assertEqual(
+            body["network_rejections"],
+            [{"measurement_id": shared_id, "reason": "measurement_id conflict"}],
+        )
+        self.assertEqual(NetworkMeasurement.objects.get().agent, other_agent)
+
+    def test_partial_network_keeps_telemetry_and_liveness_isolated(self):
+        earlier = timezone.now() - timedelta(hours=1)
+        Server.objects.filter(pk=self.server.pk).update(last_seen_at=earlier)
+        response = self._post_measurements(
+            [self._valid(), valid_measurement(target_id=str(self.disabled.id))],
+            telemetry=valid_telemetry(cpu_percent=33.0),
+        )
+        body = response.json()
+        self.assertEqual(body["telemetry"], "accepted")
+        self.assertEqual(body["network"], "partial")
+        self.assertEqual(ServerTelemetry.objects.get().cpu_percent, 33.0)
+        self.server.refresh_from_db()
+        self.assertGreater(self.server.last_seen_at, earlier)
+
+    def test_target_lookups_do_not_scale_with_batch_size(self):
+        measurements = [self._valid() for _ in range(MAX_MEASUREMENTS_PER_REPORT)]
+        with self.assertNumQueries(1):
+            report = validate_network_payload(
+                {"version": 1, "measurements": measurements}, agent=self.agent
+            )
+        result = apply_network_report(self.agent, report)
+        self.assertEqual(result.created, MAX_MEASUREMENTS_PER_REPORT)
+        self.assertEqual(result.status, "accepted")
 
 
 @override_settings(SENTINEL_NETWORK_MEASUREMENT_RETENTION_DAYS=7)

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime, timedelta
+from datetime import timezone as dt_timezone
 from typing import Any
 
 from django.db import transaction
@@ -210,11 +211,14 @@ def _require_string(raw: dict[str, Any], field: str, *, max_length: int) -> str:
 def _parse_timestamp(value: Any, *, field: str) -> datetime:
     if not isinstance(value, str) or not value.strip():
         raise DockerValidationError(f"{field} must be an ISO-8601 timestamp")
-    parsed = parse_datetime(value.strip())
+    try:
+        parsed = parse_datetime(value.strip())
+    except ValueError:
+        parsed = None
     if parsed is None:
         raise DockerValidationError(f"{field} must be an ISO-8601 timestamp")
     if timezone.is_naive(parsed):
-        parsed = timezone.make_aware(parsed, timezone.utc)
+        parsed = timezone.make_aware(parsed, dt_timezone.utc)
     if parsed > timezone.now() + MAX_FUTURE_SKEW:
         raise DockerValidationError(f"{field} is too far in the future")
     return parsed

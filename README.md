@@ -127,7 +127,7 @@ Then open:
 
 ```bash
 # Django apps
-python manage.py test apps.infrastructure apps.agents
+python manage.py test apps
 
 # Standalone agent (no live Sentinel server required)
 python -m unittest discover -s agent/tests -v
@@ -326,7 +326,8 @@ target `id` must match a `NetworkTarget` UUID in Django that is assigned to
 the same agent.
 
 1. Create `NetworkTarget` rows in Django admin (assigned agent, protocol/port).
-   You may paste a specific UUID on create, or copy the generated id afterward.
+   The UUID is generated on save; it is shown in the success message and as a
+   read-only `ID` on the target's change page.
 2. Put the same target UUID(s) in the agent-local JSON file:
 
    ```bash
@@ -379,8 +380,55 @@ Heartbeat fragment (`network.version = 1`):
 ```
 
 Valid measurements are stored as **historical** `NetworkMeasurement` rows
-(indexed by target / `measured_at`). Duplicate `measurement_id` values are
-ignored idempotently. Retention defaults to 30 days:
+(indexed by target / `measured_at`). Resending a `measurement_id` already
+stored for the same agent is counted as an idempotent duplicate.
+
+Each measurement is validated and stored **independently**. A problem with
+the network section itself (not an object, unsupported version, more than 100
+measurements) rejects the whole section as before. A problem with one
+measurement (unknown/disabled/unassigned target, invalid fields, repeated
+`measurement_id` within the report, `measurement_id` owned by another agent)
+rejects only that measurement.
+
+Heartbeat response fields for the network section:
+
+| Field | Meaning |
+| --- | --- |
+| `network` | `accepted` (nothing rejected), `partial` (some stored, some rejected), or `rejected` |
+| `network_created` | New rows stored |
+| `network_duplicates` | Idempotent resends of already-stored measurements |
+| `network_accepted` | `network_created + network_duplicates` |
+| `network_rejected` | Number of rejected measurements |
+| `network_rejections` | Present only when something was rejected: `[{"measurement_id": "…" or null, "reason": "…"}]` (`measurement_id` is null when it was not a valid UUID) |
+| `network_detail` | Human-readable summary when anything was rejected |
+
+Example partial response:
+
+```json
+{
+  "status": "ok",
+  "network": "partial",
+  "network_created": 9,
+  "network_duplicates": 0,
+  "network_accepted": 9,
+  "network_rejected": 1,
+  "network_rejections": [
+    {"measurement_id": "…", "reason": "target is disabled"}
+  ],
+  "network_detail": "1 measurement(s) rejected; first: target is disabled"
+}
+```
+
+The agent reads this response body: an HTTP 2xx only proves liveness was
+recorded. Rejected or partial telemetry, Docker, and network results are
+logged as warnings (server-provided reasons only, truncated; never the token
+or the request payload). Rejected measurements are not retried in v0.1.
+
+In Django admin, a target's change page shows the latest measurement and a
+link to that target's filtered measurement history (it no longer embeds the
+history inline).
+
+Retention defaults to 30 days:
 
 ```bash
 # SENTINEL_NETWORK_MEASUREMENT_RETENTION_DAYS=30

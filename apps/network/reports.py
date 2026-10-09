@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime, timedelta
+from datetime import timezone as dt_timezone
 from typing import Any
 from uuid import UUID
 
@@ -40,8 +41,44 @@ class ValidatedMeasurement:
 
 
 @dataclass(frozen=True)
+class MeasurementRejection:
+    """A single measurement that was not stored, with a safe reason."""
+
+    measurement_id: str | None
+    reason: str
+
+    def as_dict(self) -> dict[str, str | None]:
+        return {"measurement_id": self.measurement_id, "reason": self.reason}
+
+
+@dataclass(frozen=True)
 class ValidatedNetworkReport:
     measurements: tuple[ValidatedMeasurement, ...]
+    rejections: tuple[MeasurementRejection, ...] = ()
+
+
+@dataclass(frozen=True)
+class NetworkIngestResult:
+    created: int
+    duplicates: int
+    rejections: tuple[MeasurementRejection, ...]
+
+    @property
+    def accepted(self) -> int:
+        """Measurements now stored server-side (new rows plus idempotent retries)."""
+        return self.created + self.duplicates
+
+    @property
+    def rejected(self) -> int:
+        return len(self.rejections)
+
+    @property
+    def status(self) -> str:
+        if not self.rejections:
+            return "accepted"
+        if self.accepted == 0:
+            return "rejected"
+        return "partial"
 
 
 def validate_network_payload(
@@ -49,6 +86,13 @@ def validate_network_payload(
     *,
     agent: Agent,
 ) -> ValidatedNetworkReport:
+    """Validate the report envelope, then each measurement independently.
+
+    Envelope problems (wrong type/version, too many items) raise
+    ``NetworkValidationError`` and reject the whole section. Problems with an
+    individual measurement are collected as rejections without affecting the
+    other measurements in the same report.
+    """
     if not isinstance(raw, dict):
         raise NetworkValidationError("network must be an object")
 
@@ -66,18 +110,37 @@ def validate_network_payload(
             f"measurements exceeds maximum of {MAX_MEASUREMENTS_PER_REPORT}"
         )
 
+    targets = NetworkTarget.objects.in_bulk(
+        {
+            target_id
+            for item in measurements_raw
+            if (target_id := _peek_uuid(item, "target_id")) is not None
+        }
+    )
+
     seen_ids: set[UUID] = set()
     validated: list[ValidatedMeasurement] = []
+    rejections: list[MeasurementRejection] = []
     for item in measurements_raw:
-        measurement = _validate_measurement(item, agent=agent)
+        peeked_id = _peek_uuid(item, "measurement_id")
+        safe_id = str(peeked_id) if peeked_id is not None else None
+        try:
+            measurement = _validate_measurement(item, agent=agent, targets=targets)
+        except NetworkValidationError as exc:
+            rejections.append(MeasurementRejection(safe_id, str(exc)))
+            continue
         if measurement.measurement_id in seen_ids:
-            raise NetworkValidationError(
-                f"duplicate measurement_id: {measurement.measurement_id}"
+            rejections.append(
+                MeasurementRejection(safe_id, "duplicate measurement_id in report")
             )
+            continue
         seen_ids.add(measurement.measurement_id)
         validated.append(measurement)
 
-    return ValidatedNetworkReport(measurements=tuple(validated))
+    return ValidatedNetworkReport(
+        measurements=tuple(validated),
+        rejections=tuple(rejections),
+    )
 
 
 @transaction.atomic
@@ -86,11 +149,17 @@ def apply_network_report(
     report: ValidatedNetworkReport,
     *,
     received_at: datetime | None = None,
-) -> tuple[int, int]:
-    """Insert validated measurements. Returns (created_count, duplicate_count)."""
+) -> NetworkIngestResult:
+    """Insert validated measurements one by one and report the outcome.
+
+    A ``measurement_id`` already stored for the same agent counts as an
+    idempotent duplicate. Any other insert failure is reported as a rejection
+    rather than being counted as a duplicate.
+    """
     received = received_at if received_at is not None else timezone.now()
     created = 0
     duplicates = 0
+    rejections = list(report.rejections)
     for item in report.measurements:
         try:
             with transaction.atomic():
@@ -109,22 +178,52 @@ def apply_network_report(
                 )
             created += 1
         except IntegrityError:
-            # Same measurement_id already stored — idempotent retry.
-            duplicates += 1
-    return created, duplicates
+            owner_id = (
+                NetworkMeasurement.objects.filter(pk=item.measurement_id)
+                .values_list("agent_id", flat=True)
+                .first()
+            )
+            if owner_id == agent.id:
+                duplicates += 1
+                continue
+            reason = (
+                "measurement could not be stored"
+                if owner_id is None
+                else "measurement_id conflict"
+            )
+            rejections.append(MeasurementRejection(str(item.measurement_id), reason))
+    return NetworkIngestResult(
+        created=created,
+        duplicates=duplicates,
+        rejections=tuple(rejections),
+    )
 
 
-def _validate_measurement(raw: Any, *, agent: Agent) -> ValidatedMeasurement:
+def _peek_uuid(raw: Any, field: str) -> UUID | None:
+    """Best-effort UUID extraction used for lookups and safe echoing only."""
+    if not isinstance(raw, dict):
+        return None
+    try:
+        return _parse_uuid(raw.get(field), field=field)
+    except NetworkValidationError:
+        return None
+
+
+def _validate_measurement(
+    raw: Any,
+    *,
+    agent: Agent,
+    targets: dict[UUID, NetworkTarget],
+) -> ValidatedMeasurement:
     if not isinstance(raw, dict):
         raise NetworkValidationError("each measurement must be an object")
 
     measurement_id = _parse_uuid(raw.get("measurement_id"), field="measurement_id")
     target_id = _parse_uuid(raw.get("target_id"), field="target_id")
 
-    try:
-        target = NetworkTarget.objects.get(pk=target_id)
-    except NetworkTarget.DoesNotExist as exc:
-        raise NetworkValidationError(f"unknown target_id: {target_id}") from exc
+    target = targets.get(target_id)
+    if target is None:
+        raise NetworkValidationError(f"unknown target_id: {target_id}")
 
     if target.assigned_agent_id != agent.id:
         raise NetworkValidationError(
@@ -212,11 +311,14 @@ def _parse_uuid(value: Any, *, field: str) -> UUID:
 def _parse_timestamp(value: Any, *, field: str) -> datetime:
     if not isinstance(value, str) or not value.strip():
         raise NetworkValidationError(f"{field} must be an ISO-8601 timestamp")
-    parsed = parse_datetime(value.strip())
+    try:
+        parsed = parse_datetime(value.strip())
+    except ValueError:
+        parsed = None
     if parsed is None:
         raise NetworkValidationError(f"{field} must be an ISO-8601 timestamp")
     if timezone.is_naive(parsed):
-        parsed = timezone.make_aware(parsed, timezone.utc)
+        parsed = timezone.make_aware(parsed, dt_timezone.utc)
     if parsed > timezone.now() + MAX_FUTURE_SKEW:
         raise NetworkValidationError(f"{field} is too far in the future")
     return parsed
