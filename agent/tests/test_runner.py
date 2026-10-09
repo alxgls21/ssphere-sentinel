@@ -81,6 +81,7 @@ class RunnerTests(unittest.TestCase):
                 send_fn=send_fn,
                 stop_event=stop,
                 install_signal_handlers=False,
+                time_fn=lambda: 100.0,
             )
 
         self.assertEqual(wait_timeouts, [7])

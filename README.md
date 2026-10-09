@@ -184,8 +184,12 @@ sentinel-agent run
 
 - stays in the **foreground** (does not daemonize)
 - sends a heartbeat immediately, then every `SENTINEL_HEARTBEAT_INTERVAL`
-  seconds (default **30**)
+  seconds (default **30**) on a fixed monotonic schedule; if one heartbeat
+  takes longer than the interval, the missed slots are skipped (logged) rather
+  than sent back-to-back
 - logs failures and keeps running
+- runs network probes independently of heartbeats (see
+  [Network monitoring](#network-monitoring-v01))
 - stops cleanly on SIGINT / SIGTERM
 
 Production deployments will normally supervise this process with **systemd**
@@ -318,8 +322,9 @@ No Docker control/actions in this release. Inspect Docker state in Django admin.
 ### Network monitoring (v0.1)
 
 The agent can probe configured network targets (ICMP echo and TCP connect)
-and report latency, packet loss, and availability. Probing runs in the same
-heartbeat cycle; there is no separate loop.
+and report latency, packet loss, and availability. Measurements are stored in
+a local queue and delivered with the next heartbeats until the server
+acknowledges them (see [Measurement queue and delivery](#measurement-queue-and-delivery)).
 
 **Configuration is agent-local in v0.1** (not pushed from the server). Each
 target `id` must match a `NetworkTarget` UUID in Django that is assigned to
@@ -399,8 +404,14 @@ Heartbeat response fields for the network section:
 | `network_duplicates` | Idempotent resends of already-stored measurements |
 | `network_accepted` | `network_created + network_duplicates` |
 | `network_rejected` | Number of rejected measurements |
-| `network_rejections` | Present only when something was rejected: `[{"measurement_id": "…" or null, "reason": "…"}]` (`measurement_id` is null when it was not a valid UUID) |
+| `network_rejections` | Present only when something was rejected: `[{"measurement_id": "…" or null, "reason": "…", "retryable": false}]` (`measurement_id` is null when it was not a valid UUID) |
+| `network_results` | One entry per identifiable measurement in the report: `{"measurement_id": "…", "result": "created" \| "duplicate" \| "rejected"}`; rejected entries also carry `reason` and `retryable` |
 | `network_detail` | Human-readable summary when anything was rejected |
+
+`retryable: true` means the server could not store a valid measurement for a
+transient reason and the agent should resend it; `false` means resending the
+same measurement will never succeed. `network_results` and `retryable` are
+additive fields; older agents ignore them.
 
 Example partial response:
 
@@ -413,7 +424,11 @@ Example partial response:
   "network_accepted": 9,
   "network_rejected": 1,
   "network_rejections": [
-    {"measurement_id": "…", "reason": "target is disabled"}
+    {"measurement_id": "…", "reason": "target is disabled", "retryable": false}
+  ],
+  "network_results": [
+    {"measurement_id": "…", "result": "created"},
+    {"measurement_id": "…", "result": "rejected", "reason": "target is disabled", "retryable": false}
   ],
   "network_detail": "1 measurement(s) rejected; first: target is disabled"
 }
@@ -422,7 +437,83 @@ Example partial response:
 The agent reads this response body: an HTTP 2xx only proves liveness was
 recorded. Rejected or partial telemetry, Docker, and network results are
 logged as warnings (server-provided reasons only, truncated; never the token
-or the request payload). Rejected measurements are not retried in v0.1.
+or the request payload).
+
+#### Measurement queue and delivery
+
+Every measurement gets a stable `measurement_id` and is written to a local
+SQLite queue **before** it is sent. It leaves the queue only when the server
+explicitly acknowledges it, so resends are idempotent duplicates rather than
+new rows.
+
+Configuration (all optional):
+
+| Variable | Default | Meaning |
+| --- | --- | --- |
+| `SENTINEL_QUEUE_PATH` | `$XDG_STATE_HOME/ssphere-sentinel/network-queue.sqlite3` (falls back to `~/.local/state/…`) | Queue file; must be an absolute path without `..` |
+| `SENTINEL_QUEUE_MAX_MEASUREMENTS` | `10000` (100–1,000,000) | Maximum queued measurements |
+| `SENTINEL_QUEUE_MAX_AGE_SECONDS` | `604800` (7 days; 3600–2,592,000) | Unsent measurements older than this are discarded |
+| `SENTINEL_NETWORK_MAX_CONCURRENT_PROBES` | `4` (1–16) | Probe worker threads |
+
+Invalid values are logged and replaced by the default. No queue file is
+created unless at least one enabled network target is configured (or a queue
+file already exists from an earlier run).
+
+Storage and security:
+
+- The queue directory is created with mode `0700`; it must be owned by the
+  agent user (or root) and must not be group/other-writable. The queue file
+  and its SQLite sidecar files are `0600`. Symlinked queue files are refused.
+- Only the nine measurement fields shown above are stored (each payload is
+  limited to 2 KiB). The agent token and server URL are never written to the
+  queue or logged.
+- Disk use is capped through SQLite's page limit, proportional to
+  `SENTINEL_QUEUE_MAX_MEASUREMENTS`.
+
+Retention and overflow: when the queue is full, the **oldest** measurements
+are dropped to make room for new ones, with a warning. Measurements older than
+`SENTINEL_QUEUE_MAX_AGE_SECONDS` are purged before each send.
+
+Delivery and retry semantics (up to 100 measurements per heartbeat, oldest
+first):
+
+| Server response | Agent action |
+| --- | --- |
+| `created` / `duplicate` | Remove from queue |
+| `rejected`, `retryable: false` | Remove from queue, log warning (never retried) |
+| `rejected`, `retryable: true`, or measurement not mentioned | Keep; retry with per-measurement backoff (30 s doubling to 10 min), dropped with a warning after 10 attempts |
+| Network error, timeout, non-2xx, invalid JSON, missing/unknown `network` status | Keep **all** measurements untouched; pause network sending with a batch backoff (30 s doubling to 10 min) while heartbeats continue |
+
+Older servers without `network_results` are still supported: the agent
+falls back to `network_rejections` plus the created/duplicate counts, and
+treats anything it cannot attribute unambiguously as not yet delivered.
+
+Scheduling:
+
+- Each enabled target is probed every `monitoring_interval_seconds`
+  (start-to-start) by a bounded worker pool. A slow target never overlaps
+  itself and never delays heartbeats or other targets.
+- Heartbeats are not blocked by probes, and heartbeat failures do not stop
+  probing; queue failures are logged and never stop the agent.
+- On SIGINT/SIGTERM the agent stops scheduling, cancels in-progress probes
+  between attempts, and waits briefly for them; queued measurements are kept
+  for the next start.
+- `sentinel-agent heartbeat` (one-shot) probes all enabled targets once,
+  enqueues the results, and sends the oldest pending measurements.
+
+Operational limitations:
+
+- If the queue location is unsafe or unusable, the agent logs a warning and
+  uses an in-memory queue: measurements then do not survive a restart.
+- A corrupted queue file is renamed to `<file>.corrupt-<timestamp>` and a new
+  queue is started; the backlog in the corrupted file is not recovered.
+- A queue file with a newer schema version (from a newer agent) is left
+  untouched and the agent falls back to the in-memory queue.
+- Large wall-clock jumps can make age-based retention discard or keep
+  measurements earlier or later than expected; retry scheduling is protected
+  against jumps backwards.
+- Several agent processes sharing one queue file are safe (SQLite locking)
+  but may send the same measurement twice; the server treats it as a duplicate.
 
 In Django admin, a target's change page shows the latest measurement and a
 link to that target's filtered measurement history (it no longer embeds the

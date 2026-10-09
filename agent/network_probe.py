@@ -5,6 +5,7 @@ from __future__ import annotations
 import platform
 import socket
 import subprocess
+import threading
 import time
 from dataclasses import dataclass
 from shutil import which
@@ -38,12 +39,26 @@ class ProbeResult:
     failure_reason: str
 
 
-def probe_target(target: NetworkTargetConfig) -> ProbeResult:
-    """Run multiple probe attempts and aggregate latency / packet loss."""
+class ProbeCancelled(Exception):
+    """Raised when a multi-attempt probe is interrupted by shutdown."""
+
+
+def probe_target(
+    target: NetworkTargetConfig,
+    *,
+    stop_event: threading.Event | None = None,
+) -> ProbeResult:
+    """Run multiple probe attempts and aggregate latency / packet loss.
+
+    If ``stop_event`` is set between attempts the probe is abandoned with
+    ``ProbeCancelled`` (a partial result would misstate packet loss).
+    """
     host = validate_hostname_or_ip(target.hostname_or_ip)
     attempts: list[ProbeAttempt] = []
 
     for _ in range(target.probe_count):
+        if stop_event is not None and stop_event.is_set():
+            raise ProbeCancelled()
         if target.protocol == "tcp":
             assert target.port is not None
             attempts.append(

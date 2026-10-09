@@ -1,4 +1,4 @@
-"""Foreground continuous agent loop (heartbeat only for now)."""
+"""Foreground continuous heartbeat loop (network probes run separately)."""
 
 from __future__ import annotations
 
@@ -6,6 +6,7 @@ import logging
 import signal
 import sys
 import threading
+import time
 from collections.abc import Callable
 
 from agent.config import Config
@@ -28,12 +29,16 @@ def run_continuous(
     stop_event: threading.Event | None = None,
     max_iterations: int | None = None,
     install_signal_handlers: bool = True,
+    time_fn: Callable[[], float] = time.monotonic,
 ) -> int:
     """Send heartbeats until stopped.
 
-    Sends one heartbeat immediately, then waits ``config.heartbeat_interval``
-    seconds between attempts. Heartbeat failures are logged and the loop
-    continues. Returns ``0`` on graceful shutdown.
+    Sends one heartbeat immediately, then on a fixed-rate monotonic schedule:
+    attempt N starts at ``start + N * heartbeat_interval`` regardless of how
+    long each attempt took. If an attempt overruns one or more slots, the
+    missed slots are skipped (logged) rather than sent in a burst. Heartbeat
+    failures are logged and the loop continues. Returns ``0`` on graceful
+    shutdown.
     """
     stop = stop_event if stop_event is not None else threading.Event()
     previous_handlers: dict[int, object] = {}
@@ -47,7 +52,9 @@ def run_continuous(
             previous_handlers[sig] = signal.getsignal(sig)
             signal.signal(sig, _request_stop)
 
+    interval = config.heartbeat_interval
     iterations = 0
+    next_run = time_fn()
     try:
         while not stop.is_set():
             try:
@@ -66,8 +73,21 @@ def run_continuous(
             if max_iterations is not None and iterations >= max_iterations:
                 break
 
-            # Interruptible sleep between heartbeats.
-            if stop.wait(timeout=config.heartbeat_interval):
+            now = time_fn()
+            if interval > 0:
+                next_run += interval
+                if next_run <= now:
+                    missed = int((now - next_run) // interval) + 1
+                    next_run += missed * interval
+                    logger.warning(
+                        "Heartbeat took longer than the interval; skipped %d slot(s)",
+                        missed,
+                    )
+            else:
+                next_run = now
+
+            # Interruptible sleep until the next scheduled heartbeat.
+            if stop.wait(timeout=max(0.0, next_run - now)):
                 break
     finally:
         if install_signal_handlers:
