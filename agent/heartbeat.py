@@ -12,6 +12,7 @@ from agent.docker_discovery import collect_docker
 from agent.errors import HeartbeatError
 from agent.http_client import post_json
 from agent.network import collect_network
+from agent.network_delivery import DeliveryBatch, NetworkDelivery
 from agent.telemetry import collect_telemetry
 
 logger = logging.getLogger("sentinel_agent")
@@ -65,12 +66,23 @@ def send_heartbeat(
     collect_fn: Callable[[], dict[str, Any]] = collect_telemetry,
     docker_fn: Callable[[], dict[str, Any]] = collect_docker,
     network_fn: Callable[[], dict[str, Any]] = collect_network,
+    network_delivery: NetworkDelivery | None = None,
 ) -> None:
-    """POST a heartbeat (with optional telemetry/Docker/network) to Sentinel."""
+    """POST a heartbeat (with optional telemetry/Docker/network) to Sentinel.
+
+    With ``network_delivery``, the network section is a batch from the
+    persistent queue (``network_fn`` is ignored) and queued measurements are
+    removed only according to the server's explicit acknowledgement.
+    """
     if uses_insecure_http(config):
         logger.warning(
             "SENTINEL_URL uses HTTP; HTTPS is expected for normal deployments"
         )
+
+    batch = DeliveryBatch()
+    if network_delivery is not None:
+        batch = network_delivery.prepare_batch()
+        network_fn = batch.section
 
     headers = {"Authorization": f"Bearer {config.agent_token}"}
     payload = build_heartbeat_payload(
@@ -82,14 +94,23 @@ def send_heartbeat(
     if timeout is not None:
         kwargs["timeout"] = timeout
 
-    # Token is only passed via the Authorization header, never the URL.
-    response = post_json(config.heartbeat_url, headers=headers, **kwargs)
+    try:
+        # Token is only passed via the Authorization header, never the URL.
+        response = post_json(config.heartbeat_url, headers=headers, **kwargs)
+    except Exception:
+        if network_delivery is not None:
+            network_delivery.record_failure(batch, "request failed")
+        raise
 
     if 200 <= response.status < 300:
         logger.info("Heartbeat accepted by Sentinel")
         log_subsystem_status(response.body)
+        if network_delivery is not None:
+            network_delivery.acknowledge(batch, response.body)
         return
 
+    if network_delivery is not None:
+        network_delivery.record_failure(batch, f"HTTP {response.status}")
     raise HeartbeatError(f"server returned HTTP {response.status}")
 
 

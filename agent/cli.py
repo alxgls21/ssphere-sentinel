@@ -5,11 +5,15 @@ from __future__ import annotations
 import argparse
 import logging
 import sys
+from functools import partial
 
 from agent.config import load_config
 from agent.errors import AgentError, ConfigError
 from agent.heartbeat import send_heartbeat
+from agent.network_runtime import NetworkRuntime
 from agent.runner import run_continuous
+
+logger = logging.getLogger("sentinel_agent")
 
 
 def _configure_logging() -> None:
@@ -46,13 +50,31 @@ def _redact(text: str, secret: str) -> str:
     return text
 
 
+def _build_network_runtime() -> NetworkRuntime | None:
+    try:
+        return NetworkRuntime.from_environment()
+    except Exception as exc:  # noqa: BLE001 - network must never block heartbeats
+        logger.warning("Network monitoring disabled: %s", exc)
+        return None
+
+
 def run_heartbeat() -> int:
-    """Execute the one-shot heartbeat subcommand. Returns a process exit code."""
+    """Execute the one-shot heartbeat subcommand. Returns a process exit code.
+
+    With network monitoring configured, probes every enabled target once,
+    queues the results, and delivers pending measurements in this heartbeat.
+    """
     token_for_redaction = ""
+    runtime: NetworkRuntime | None = None
     try:
         config = load_config()
         token_for_redaction = config.agent_token
-        send_heartbeat(config)
+        runtime = _build_network_runtime()
+        if runtime is None:
+            send_heartbeat(config)
+        else:
+            runtime.probe_once()
+            send_heartbeat(config, network_delivery=runtime.delivery)
     except ConfigError as exc:
         print(f"Heartbeat failed: {exc}", file=sys.stderr)
         return 1
@@ -64,25 +86,41 @@ def run_heartbeat() -> int:
         message = _redact(str(exc), token_for_redaction)
         print(f"Heartbeat failed: {message}", file=sys.stderr)
         return 1
+    finally:
+        if runtime is not None:
+            runtime.stop()
 
     print("Heartbeat successful.")
     return 0
 
 
 def run_agent() -> int:
-    """Execute the continuous foreground run loop."""
+    """Execute the continuous foreground run loop.
+
+    Network probes (if configured) run on their own scheduler threads and
+    feed the persistent queue; the heartbeat loop delivers queued batches.
+    """
     try:
         config = load_config()
     except ConfigError as exc:
         print(f"Agent failed: {exc}", file=sys.stderr)
         return 1
 
+    runtime = _build_network_runtime()
+    if runtime is None:
+        send_fn = send_heartbeat
+    else:
+        send_fn = partial(send_heartbeat, network_delivery=runtime.delivery)
+        runtime.start()
     try:
-        return run_continuous(config)
+        return run_continuous(config, send_fn=send_fn)
     except KeyboardInterrupt:
         # Fallback if a signal races past our handlers.
         print("Agent stopped.", file=sys.stderr)
         return 0
+    finally:
+        if runtime is not None:
+            runtime.stop()
 
 
 def main(argv: list[str] | None = None) -> int:
