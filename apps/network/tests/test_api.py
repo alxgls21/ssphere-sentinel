@@ -398,8 +398,8 @@ class NetworkBatchValidationTests(TestCase):
     def test_storage_failure_is_marked_retryable(self):
         measurement = self._valid()
         with patch.object(
-            NetworkMeasurement.objects, "create", side_effect=IntegrityError("fk")
-        ):
+            NetworkMeasurement.objects, "bulk_create", side_effect=IntegrityError("fk")
+        ), patch.object(NetworkMeasurement, "save", side_effect=IntegrityError("fk")):
             response = self._post_measurements([measurement])
         entry = response.json()["network_results"][0]
         self.assertEqual(entry["result"], "rejected")

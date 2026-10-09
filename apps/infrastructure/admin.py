@@ -40,6 +40,7 @@ class DockerHostStateInline(admin.StackedInline):
         "status",
         "collected_at",
         "received_at",
+        "last_discovered_at",
     )
 
     def has_add_permission(self, request, obj=None) -> bool:
@@ -58,9 +59,16 @@ class DockerContainerInline(admin.TabularInline):
         "state",
         "health",
         "present",
-        "last_seen_at",
+        "last_seen",
     )
     readonly_fields = fields
+
+    def get_queryset(self, request):
+        return super().get_queryset(request).select_related("server__docker_host")
+
+    @admin.display(description="Last seen")
+    def last_seen(self, obj: DockerContainer):
+        return obj.effective_last_seen_at
 
     def has_add_permission(self, request, obj=None) -> bool:
         return False
@@ -80,6 +88,7 @@ class ServerAdmin(admin.ModelAdmin):
         "updated_at",
     )
     list_filter = ("status", "operating_system")
+    list_select_related = ("docker_host",)
     search_fields = ("name", "hostname", "ip_address", "description")
     readonly_fields = ("id", "effective_status", "created_at", "updated_at")
     ordering = ("name",)
@@ -179,6 +188,7 @@ class DockerHostStateAdmin(admin.ModelAdmin):
         "status",
         "collected_at",
         "received_at",
+        "last_discovered_at",
     )
 
     def has_add_permission(self, request) -> bool:
@@ -198,9 +208,10 @@ class DockerContainerAdmin(admin.ModelAdmin):
         "state",
         "health",
         "present",
-        "last_seen_at",
+        "last_seen",
     )
     list_filter = ("present", "state", "health", "server")
+    list_select_related = ("server__docker_host",)
     search_fields = ("name", "container_id", "image", "server__name")
     readonly_fields = (
         "server",
@@ -212,13 +223,17 @@ class DockerContainerAdmin(admin.ModelAdmin):
         "container_created_at",
         "started_at",
         "present",
-        "last_seen_at",
+        "last_seen",
         "received_at",
     )
 
     @admin.display(description="ID")
     def short_id(self, obj: DockerContainer) -> str:
         return obj.container_id[:12]
+
+    @admin.display(description="Last seen")
+    def last_seen(self, obj: DockerContainer):
+        return obj.effective_last_seen_at
 
     def has_add_permission(self, request) -> bool:
         return False

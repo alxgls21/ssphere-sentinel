@@ -42,10 +42,16 @@ class NetworkTarget(models.Model):
     )
     customer_name = models.CharField(max_length=255, blank=True)
     circuit_identifier = models.CharField(max_length=255, blank=True)
+    # SET_NULL keeps the target (and its measurement history) when the agent
+    # is deleted; reassign it to a new agent to resume monitoring.
     assigned_agent = models.ForeignKey(
         Agent,
-        on_delete=models.CASCADE,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
         related_name="network_targets",
+        # Covered by the (assigned_agent, enabled) index.
+        db_index=False,
     )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
@@ -91,11 +97,18 @@ class NetworkMeasurement(models.Model):
         NetworkTarget,
         on_delete=models.CASCADE,
         related_name="measurements",
+        # Covered by the (target, -measured_at) index.
+        db_index=False,
     )
+    # Reporting agent; NULL once that agent has been deleted (history is kept).
     agent = models.ForeignKey(
         Agent,
-        on_delete=models.CASCADE,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
         related_name="network_measurements",
+        # Covered by the (agent, -measured_at) index.
+        db_index=False,
     )
     measured_at = models.DateTimeField()
     received_at = models.DateTimeField()
