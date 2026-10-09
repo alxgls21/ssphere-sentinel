@@ -46,9 +46,16 @@ class MeasurementRejection:
 
     measurement_id: str | None
     reason: str
+    # True only for server-side storage failures that may succeed on resend.
+    # Validation failures are permanent: resending the same data cannot pass.
+    retryable: bool = False
 
-    def as_dict(self) -> dict[str, str | None]:
-        return {"measurement_id": self.measurement_id, "reason": self.reason}
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            "measurement_id": self.measurement_id,
+            "reason": self.reason,
+            "retryable": self.retryable,
+        }
 
 
 @dataclass(frozen=True)
@@ -62,6 +69,30 @@ class NetworkIngestResult:
     created: int
     duplicates: int
     rejections: tuple[MeasurementRejection, ...]
+    created_ids: tuple[str, ...] = ()
+    duplicate_ids: tuple[str, ...] = ()
+
+    def results(self) -> list[dict[str, Any]]:
+        """Per-measurement acknowledgement, one entry per identifiable ID.
+
+        Lets agents remove exactly the measurements that are stored
+        (``created``/``duplicate``) and decide per rejection whether to resend.
+        Rejections without a parseable ID, and repeats of an ID already listed
+        (for example a duplicate inside one report), are omitted so every ID
+        appears at most once.
+        """
+        entries: list[dict[str, Any]] = []
+        seen: set[str] = set()
+        for result, ids in (("created", self.created_ids), ("duplicate", self.duplicate_ids)):
+            for measurement_id in ids:
+                seen.add(measurement_id)
+                entries.append({"measurement_id": measurement_id, "result": result})
+        for rejection in self.rejections:
+            if rejection.measurement_id is None or rejection.measurement_id in seen:
+                continue
+            seen.add(rejection.measurement_id)
+            entries.append({"result": "rejected", **rejection.as_dict()})
+        return entries
 
     @property
     def accepted(self) -> int:
@@ -157,8 +188,8 @@ def apply_network_report(
     rather than being counted as a duplicate.
     """
     received = received_at if received_at is not None else timezone.now()
-    created = 0
-    duplicates = 0
+    created_ids: list[str] = []
+    duplicate_ids: list[str] = []
     rejections = list(report.rejections)
     for item in report.measurements:
         try:
@@ -176,7 +207,7 @@ def apply_network_report(
                     successful_probes=item.successful_probes,
                     failure_reason=item.failure_reason,
                 )
-            created += 1
+            created_ids.append(str(item.measurement_id))
         except IntegrityError:
             owner_id = (
                 NetworkMeasurement.objects.filter(pk=item.measurement_id)
@@ -184,18 +215,25 @@ def apply_network_report(
                 .first()
             )
             if owner_id == agent.id:
-                duplicates += 1
+                duplicate_ids.append(str(item.measurement_id))
                 continue
-            reason = (
-                "measurement could not be stored"
-                if owner_id is None
-                else "measurement_id conflict"
-            )
-            rejections.append(MeasurementRejection(str(item.measurement_id), reason))
+            if owner_id is None:
+                rejection = MeasurementRejection(
+                    str(item.measurement_id),
+                    "measurement could not be stored",
+                    retryable=True,
+                )
+            else:
+                rejection = MeasurementRejection(
+                    str(item.measurement_id), "measurement_id conflict"
+                )
+            rejections.append(rejection)
     return NetworkIngestResult(
-        created=created,
-        duplicates=duplicates,
+        created=len(created_ids),
+        duplicates=len(duplicate_ids),
         rejections=tuple(rejections),
+        created_ids=tuple(created_ids),
+        duplicate_ids=tuple(duplicate_ids),
     )
 
 

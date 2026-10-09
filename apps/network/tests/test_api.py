@@ -2,8 +2,10 @@ import json
 import uuid
 from datetime import timedelta
 from io import StringIO
+from unittest.mock import patch
 
 from django.core.management import call_command
+from django.db import IntegrityError
 from django.test import Client, TestCase, override_settings
 from django.urls import reverse
 from django.utils import timezone
@@ -244,7 +246,13 @@ class NetworkBatchValidationTests(TestCase):
         self.assertEqual(body["network_rejected"], 1)
         self.assertEqual(
             body["network_rejections"],
-            [{"measurement_id": disabled["measurement_id"], "reason": "target is disabled"}],
+            [
+                {
+                    "measurement_id": disabled["measurement_id"],
+                    "reason": "target is disabled",
+                    "retryable": False,
+                }
+            ],
         )
         self.assertIn("1 measurement(s) rejected", body["network_detail"])
         self.assertEqual(NetworkMeasurement.objects.count(), 9)
@@ -294,6 +302,7 @@ class NetworkBatchValidationTests(TestCase):
                 {
                     "measurement_id": first["measurement_id"],
                     "reason": "duplicate measurement_id in report",
+                    "retryable": False,
                 }
             ],
         )
@@ -333,7 +342,13 @@ class NetworkBatchValidationTests(TestCase):
         self.assertEqual(body["network_duplicates"], 0)
         self.assertEqual(
             body["network_rejections"],
-            [{"measurement_id": shared_id, "reason": "measurement_id conflict"}],
+            [
+                {
+                    "measurement_id": shared_id,
+                    "reason": "measurement_id conflict",
+                    "retryable": False,
+                }
+            ],
         )
         self.assertEqual(NetworkMeasurement.objects.get().agent, other_agent)
 
@@ -350,6 +365,52 @@ class NetworkBatchValidationTests(TestCase):
         self.assertEqual(ServerTelemetry.objects.get().cpu_percent, 33.0)
         self.server.refresh_from_db()
         self.assertGreater(self.server.last_seen_at, earlier)
+
+    def test_results_identify_every_measurement_exactly(self):
+        stored = self._valid()
+        self._post_measurements([stored])
+        new = self._valid()
+        rejected = valid_measurement(target_id=str(self.disabled.id))
+        response = self._post_measurements([stored, new, rejected, "garbage"])
+        results = {
+            entry["measurement_id"]: entry for entry in response.json()["network_results"]
+        }
+        self.assertEqual(len(results), 3)
+        self.assertEqual(results[new["measurement_id"]], {
+            "measurement_id": new["measurement_id"], "result": "created",
+        })
+        self.assertEqual(results[stored["measurement_id"]]["result"], "duplicate")
+        self.assertEqual(results[rejected["measurement_id"]], {
+            "measurement_id": rejected["measurement_id"],
+            "result": "rejected",
+            "reason": "target is disabled",
+            "retryable": False,
+        })
+
+    def test_results_list_each_id_once_for_in_report_duplicates(self):
+        first = self._valid()
+        response = self._post_measurements([first, dict(first)])
+        results = response.json()["network_results"]
+        self.assertEqual(
+            results, [{"measurement_id": first["measurement_id"], "result": "created"}]
+        )
+
+    def test_storage_failure_is_marked_retryable(self):
+        measurement = self._valid()
+        with patch.object(
+            NetworkMeasurement.objects, "create", side_effect=IntegrityError("fk")
+        ):
+            response = self._post_measurements([measurement])
+        entry = response.json()["network_results"][0]
+        self.assertEqual(entry["result"], "rejected")
+        self.assertEqual(entry["reason"], "measurement could not be stored")
+        self.assertTrue(entry["retryable"])
+
+    def test_results_empty_list_for_empty_report(self):
+        response = self._post_measurements([])
+        body = response.json()
+        self.assertEqual(body["network"], "accepted")
+        self.assertEqual(body["network_results"], [])
 
     def test_target_lookups_do_not_scale_with_batch_size(self):
         measurements = [self._valid() for _ in range(MAX_MEASUREMENTS_PER_REPORT)]

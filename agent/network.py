@@ -71,7 +71,7 @@ class NetworkMonitor:
                 continue
 
             self._last_probed[target.id] = now
-            measurements.append(_measurement_payload(target, result))
+            measurements.append(build_measurement(target, result))
 
         return {
             "version": NETWORK_PAYLOAD_VERSION,
@@ -102,10 +102,15 @@ def collect_network() -> dict[str, Any]:
     return get_network_monitor().collect_due_measurements()
 
 
-def _measurement_payload(
+def build_measurement(
     target: NetworkTargetConfig,
     result: ProbeResult,
 ) -> dict[str, Any]:
+    """Build one measurement with a new, stable ``measurement_id``.
+
+    The ID is generated once per probe and reused on every resend so the
+    server can deduplicate retries.
+    """
     return {
         "measurement_id": str(uuid.uuid4()),
         "target_id": str(target.id),
