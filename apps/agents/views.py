@@ -102,6 +102,7 @@ def agent_heartbeat(request):
             response["network_duplicates"] = result.duplicates
             response["network_accepted"] = result.accepted
             response["network_rejected"] = result.rejected
+            response["network_results"] = result.results()
             if result.rejections:
                 response["network_rejections"] = [
                     rejection.as_dict() for rejection in result.rejections
