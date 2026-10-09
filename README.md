@@ -310,12 +310,26 @@ Example fragment:
 
 Server storage is **latest-state only** (`DockerHostState` + `DockerContainer`):
 
-- Containers in a successful (`available`) discovery are upserted by
-  `container_id` and marked `present=True`.
+- Containers in a successful (`available`) discovery are matched by
+  `(server, container_id)` and marked `present=True`.
 - Containers missing from that authoritative list are marked `present=False`
-  (not hard-deleted).
+  (not hard-deleted). A container that reappears is marked present again.
 - If discovery failed/unavailable, existing container rows are left unchanged
   (the agent did not obtain an authoritative list).
+- Container rows are only written when something changes (new container,
+  changed name/image/state/health/timestamps, appearance or disappearance).
+  An unchanged container costs no database write.
+- `DockerHostState.last_discovered_at` records the last successful discovery.
+  Every present container was seen at that time; the admin "Last seen" column
+  shows it. For absent containers `last_seen_at` is the last discovery that
+  still listed them. (The stored `last_seen_at` of a *present* container is
+  the time its row last changed.)
+- Reports for the same server are serialized with a row lock on its
+  `DockerHostState`, so concurrent heartbeats cannot interleave container
+  updates; the last report to commit wins.
+
+Long-absent containers are removed by a cleanup command (see
+[Data retention and history](#data-retention-and-history)).
 
 No Docker control/actions in this release. Inspect Docker state in Django admin.
 
@@ -519,12 +533,9 @@ In Django admin, a target's change page shows the latest measurement and a
 link to that target's filtered measurement history (it no longer embeds the
 history inline).
 
-Retention defaults to 30 days:
-
-```bash
-# SENTINEL_NETWORK_MEASUREMENT_RETENTION_DAYS=30
-python manage.py purge_network_measurements
-```
+Measurements are kept for 30 days by default and purged by a scheduled
+command; delayed measurements are accepted for up to 8 days (see
+[Data retention and history](#data-retention-and-history)).
 
 Network reports are isolated from liveness, host telemetry, and Docker: an
 invalid network section does not block those subsystems.
@@ -540,6 +551,170 @@ invalid network section does not block those subsystems.
 
 SLA calculations, alarms, and remote target configuration are not implemented
 yet.
+
+## Data retention and history
+
+Configuration (server environment, all in days):
+
+| Variable | Default | Meaning |
+| --- | --- | --- |
+| `SENTINEL_NETWORK_MEASUREMENT_RETENTION_DAYS` | `30` | Network measurements with `measured_at` older than this are purged |
+| `SENTINEL_NETWORK_MEASUREMENT_MAX_AGE_DAYS` | `8` | Oldest `measured_at` accepted from an agent (delayed delivery); never more than the retention period |
+| `SENTINEL_DOCKER_ABSENT_CONTAINER_RETENTION_DAYS` | `30` | Containers absent from successful discoveries for longer than this are deleted |
+
+Cleanup commands (never run automatically, in particular not on heartbeats):
+
+```bash
+python manage.py purge_network_measurements      [--days N] [--batch-size N] [--dry-run]
+python manage.py purge_absent_docker_containers  [--days N] [--batch-size N] [--dry-run]
+```
+
+Both delete in batches (default 5000 rows, max 100000) with one short
+transaction per batch, so they do not hold long locks or create one huge
+transaction, and an interrupted run keeps the batches already deleted.
+`--dry-run` only counts. The cutoff is exclusive: a row exactly at the cutoff
+is kept.
+
+Docker cleanup only deletes rows with `present=False`. Containers only become
+absent after a **successful** discovery that no longer lists them, so a Docker
+outage, a permission problem, or an agent that stopped reporting never makes
+containers eligible for deletion. A deleted container that comes back is
+simply recreated as a new row.
+
+### Scheduling the cleanup
+
+Run the commands daily from cron or a systemd timer, as the same user and with
+the same environment as the Django application.
+
+cron (`crontab -e`):
+
+```cron
+# m h dom mon dow
+15 3 * * * cd /opt/ssphere-sentinel && set -a && . ./.env && set +a && .venv/bin/python manage.py purge_network_measurements && .venv/bin/python manage.py purge_absent_docker_containers
+```
+
+systemd (`/etc/systemd/system/sentinel-retention.service` and `.timer`):
+
+```ini
+[Unit]
+Description=SSphere Sentinel data retention
+
+[Service]
+Type=oneshot
+User=sentinel
+WorkingDirectory=/opt/ssphere-sentinel
+EnvironmentFile=/opt/ssphere-sentinel/.env
+ExecStart=/opt/ssphere-sentinel/.venv/bin/python manage.py purge_network_measurements
+ExecStart=/opt/ssphere-sentinel/.venv/bin/python manage.py purge_absent_docker_containers
+```
+
+```ini
+[Unit]
+Description=Daily SSphere Sentinel data retention
+
+[Timer]
+OnCalendar=*-*-* 03:15:00
+RandomizedDelaySec=15m
+Persistent=true
+
+[Install]
+WantedBy=timers.target
+```
+
+```bash
+systemctl enable --now sentinel-retention.timer
+```
+
+With Docker Compose, run the same commands through
+`docker compose exec web python manage.py …` from the host's cron or timer.
+
+### Delayed and out-of-range measurements
+
+The agent queues measurements locally and may deliver them late (after a
+server outage or network failure). The server accepts a measurement when its
+`measured_at` is:
+
+- no more than 5 minutes in the future (clock-skew allowance), and
+- no older than `SENTINEL_NETWORK_MEASUREMENT_MAX_AGE_DAYS` (capped at the
+  retention period, since older rows would be purged immediately).
+
+Out-of-range measurements are rejected individually with `retryable: false`
+(`measured_at is too far in the future` / `measured_at is older than the
+accepted history window`); the agent logs and drops them instead of retrying.
+They are never dropped silently. Keep the agent's `SENTINEL_QUEUE_MAX_AGE_SECONDS`
+(default 7 days) below the server window (default 8 days) so that delayed
+measurements the agent still holds are accepted.
+
+### Downtime vs. monitoring unavailable vs. missing data
+
+These are different situations and must not be conflated (relevant for future
+SLA reporting, which is not implemented yet):
+
+- **Target down:** a stored measurement with `success=false` (and a
+  `failure_reason` such as `timeout` or `connection_refused`). The agent was
+  running and could not reach the target.
+- **Monitoring unavailable:** a stored measurement whose `failure_reason` is
+  `permission_denied` or `unsupported` says the probe itself could not run
+  (for example ICMP without privileges); it is not evidence that the target
+  was down. No measurements at all while the agent's server is offline (see
+  liveness below) also means monitoring was unavailable.
+- **Missing measurements:** gaps in the history with no stored rows. They can
+  mean monitoring was unavailable, measurements were rejected or dropped (age
+  window, agent queue limits), or are still queued on the agent and not yet
+  delivered. A gap is "unknown", not "down".
+
+### Agent deletion and historical data
+
+- Deleting an **agent** (or the server it belongs to) keeps all network
+  targets and measurements. Targets become unassigned (`assigned_agent`
+  empty) and stop accepting reports until reassigned; measurements keep their
+  target and lose the agent reference (`agent` empty).
+- **Recreating** an agent: create a new agent, then assign the existing
+  targets to it. Target UUIDs do not change, so the agent-local targets file
+  stays valid. If the old agent's queue is resent, measurements already stored
+  for the same target are acknowledged as duplicates; they keep their original
+  (now empty) agent attribution.
+- Deleting a **target** deliberately deletes its measurement history.
+- Deleting an agent with a large history rewrites the `agent` column of all
+  its measurements in one transaction. To retire an agent temporarily, prefer
+  disabling it (`enabled=false`), which keeps everything unchanged.
+
+### Guarantees and limitations
+
+- A measurement is reported as `created` only after it has been stored, and
+  the response is only sent after the database transaction commits. If the
+  database fails, the heartbeat returns an error and the agent keeps the
+  measurements queued.
+- `measurement_id` is the idempotency key: resending stored measurements never
+  creates duplicates, including under concurrent reports.
+- History is only as complete as the agent queue allows (see the agent queue
+  limits above) and as long as the retention period.
+- There is no partitioning: the measurement table grows with
+  targets × frequency × retention. Retention keeps it bounded.
+
+## Ingest and admin performance
+
+Measured on PostgreSQL 18 (statement counts per heartbeat request, including
+authentication and liveness):
+
+| Heartbeat | Before | After |
+| --- | --- | --- |
+| Heartbeat with host telemetry | 11 | 6 |
+| Docker, 50 unchanged containers | 212 (50 rows rewritten) | 10 (no container writes) |
+| Docker, 50 changed containers | 212 | 11 |
+| Network, 100 new measurements | 308 | 12 |
+| Network, 100 duplicates | 508 | 9 |
+
+Docker containers are synchronized with one query for existing rows, one bulk
+INSERT for new containers, bulk UPDATEs for changed ones and one UPDATE for
+newly absent ones. Network measurements are checked for existing IDs in one
+query and stored with one multi-row INSERT; only if that INSERT conflicts (for
+example with a concurrent report) does the server fall back to per-row inserts
+to classify each measurement exactly.
+
+Admin changelists (servers, Docker containers, network targets, network
+measurements) use a fixed number of queries regardless of the number of rows
+shown, and the measurement list skips the extra full-table count.
 
 ## Server liveness / offline detection
 
@@ -618,7 +793,7 @@ curl -X POST http://localhost:8000/api/v1/agent/heartbeat/ \
 
 ```text
 apps/                  Django applications
-  core/                Health endpoint
+  core/                Health endpoint, batched retention helper
   infrastructure/      Monitored servers, telemetry, Docker state
   agents/              Agent registration and heartbeat API
   network/             Network targets and measurement history

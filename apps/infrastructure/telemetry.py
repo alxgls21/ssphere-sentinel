@@ -7,7 +7,7 @@ from datetime import datetime, timedelta
 from datetime import timezone as dt_timezone
 from typing import Any
 
-from django.db import transaction
+from django.db import IntegrityError, transaction
 from django.utils import timezone
 from django.utils.dateparse import parse_datetime
 
@@ -78,13 +78,13 @@ def validate_telemetry_payload(raw: Any) -> ValidatedTelemetry:
     )
 
 
-@transaction.atomic
 def upsert_server_telemetry(
     server: Server,
     validated: ValidatedTelemetry,
     *,
     received_at: datetime | None = None,
-) -> ServerTelemetry:
+) -> None:
+    """Overwrite the server's telemetry snapshot (one UPDATE once it exists)."""
     received = received_at if received_at is not None else timezone.now()
     defaults = {
         "cpu_percent": validated.cpu_percent,
@@ -98,11 +98,15 @@ def upsert_server_telemetry(
         "collected_at": validated.collected_at,
         "received_at": received,
     }
-    telemetry, _created = ServerTelemetry.objects.update_or_create(
-        server=server,
-        defaults=defaults,
-    )
-    return telemetry
+    snapshot = ServerTelemetry.objects.filter(server=server)
+    if snapshot.update(**defaults):
+        return
+    try:
+        with transaction.atomic():
+            ServerTelemetry.objects.create(server=server, **defaults)
+    except IntegrityError:
+        # A concurrent first report created the row; overwrite it instead.
+        snapshot.update(**defaults)
 
 
 def _parse_collected_at(value: Any) -> datetime:

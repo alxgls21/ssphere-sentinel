@@ -105,6 +105,12 @@ class DockerHostState(models.Model):
     status = models.CharField(max_length=32, choices=Status.choices)
     collected_at = models.DateTimeField()
     received_at = models.DateTimeField()
+    # Every present container was seen at this time; see DockerContainer.
+    last_discovered_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="When the last successful (authoritative) discovery was received.",
+    )
 
     class Meta:
         verbose_name = "Docker host state"
@@ -115,7 +121,13 @@ class DockerHostState(models.Model):
 
 
 class DockerContainer(models.Model):
-    """Latest-known Docker container for a server (identified by container ID)."""
+    """Latest-known Docker container for a server (identified by container ID).
+
+    Rows are only written when a container appears, changes, or disappears.
+    ``last_seen_at`` is therefore exact for absent containers, while a present
+    container was also seen at the server's ``DockerHostState.last_discovered_at``
+    (see ``effective_last_seen_at``).
+    """
 
     class State(models.TextChoices):
         RUNNING = "running", "Running"
@@ -137,6 +149,8 @@ class DockerContainer(models.Model):
         Server,
         on_delete=models.CASCADE,
         related_name="docker_containers",
+        # Covered by the (server, container_id) unique index.
+        db_index=False,
     )
     container_id = models.CharField(max_length=64)
     name = models.CharField(max_length=255)
@@ -167,4 +181,17 @@ class DockerContainer(models.Model):
     def __str__(self) -> str:
         marker = "" if self.present else " (absent)"
         return f"{self.name} [{self.container_id[:12]}]{marker}"
+
+    @property
+    def effective_last_seen_at(self):
+        """Latest time Docker discovery reported this container."""
+        if not self.present:
+            return self.last_seen_at
+        try:
+            discovered = self.server.docker_host.last_discovered_at
+        except DockerHostState.DoesNotExist:
+            discovered = None
+        if discovered is None or discovered < self.last_seen_at:
+            return self.last_seen_at
+        return discovered
 

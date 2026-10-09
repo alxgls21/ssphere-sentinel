@@ -52,6 +52,28 @@ if SENTINEL_NETWORK_MEASUREMENT_RETENTION_DAYS <= 0:
         "SENTINEL_NETWORK_MEASUREMENT_RETENTION_DAYS must be a positive integer"
     )
 
+# Oldest measured_at accepted for delayed measurements (agent queue backlog).
+# Default leaves a day of margin over the agent's default 7-day queue age;
+# the effective window never exceeds the retention period.
+SENTINEL_NETWORK_MEASUREMENT_MAX_AGE_DAYS = env_int(
+    "SENTINEL_NETWORK_MEASUREMENT_MAX_AGE_DAYS",
+    default=8,
+)
+if SENTINEL_NETWORK_MEASUREMENT_MAX_AGE_DAYS <= 0:
+    raise RuntimeError(
+        "SENTINEL_NETWORK_MEASUREMENT_MAX_AGE_DAYS must be a positive integer"
+    )
+
+# How long containers that disappeared from successful discoveries are kept.
+SENTINEL_DOCKER_ABSENT_CONTAINER_RETENTION_DAYS = env_int(
+    "SENTINEL_DOCKER_ABSENT_CONTAINER_RETENTION_DAYS",
+    default=30,
+)
+if SENTINEL_DOCKER_ABSENT_CONTAINER_RETENTION_DAYS <= 0:
+    raise RuntimeError(
+        "SENTINEL_DOCKER_ABSENT_CONTAINER_RETENTION_DAYS must be a positive integer"
+    )
+
 DEBUG = env_bool("DJANGO_DEBUG", default=False)
 ALLOWED_HOSTS = [
     host.strip()

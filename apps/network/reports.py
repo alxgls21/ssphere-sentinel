@@ -8,6 +8,7 @@ from datetime import timezone as dt_timezone
 from typing import Any
 from uuid import UUID
 
+from django.conf import settings
 from django.db import IntegrityError, transaction
 from django.utils import timezone
 from django.utils.dateparse import parse_datetime
@@ -25,6 +26,18 @@ ALLOWED_FAILURE_REASONS = frozenset(
 
 class NetworkValidationError(Exception):
     """Raised when a network payload is invalid."""
+
+
+def measurement_acceptance_window() -> timedelta:
+    """How old a delayed measurement may be and still be stored.
+
+    Capped at the retention period: older rows would be purged right away.
+    """
+    days = min(
+        settings.SENTINEL_NETWORK_MEASUREMENT_MAX_AGE_DAYS,
+        settings.SENTINEL_NETWORK_MEASUREMENT_RETENTION_DAYS,
+    )
+    return timedelta(days=days)
 
 
 @dataclass(frozen=True)
@@ -149,6 +162,7 @@ def validate_network_payload(
         }
     )
 
+    oldest_allowed = timezone.now() - measurement_acceptance_window()
     seen_ids: set[UUID] = set()
     validated: list[ValidatedMeasurement] = []
     rejections: list[MeasurementRejection] = []
@@ -156,7 +170,9 @@ def validate_network_payload(
         peeked_id = _peek_uuid(item, "measurement_id")
         safe_id = str(peeked_id) if peeked_id is not None else None
         try:
-            measurement = _validate_measurement(item, agent=agent, targets=targets)
+            measurement = _validate_measurement(
+                item, agent=agent, targets=targets, oldest_allowed=oldest_allowed
+            )
         except NetworkValidationError as exc:
             rejections.append(MeasurementRejection(safe_id, str(exc)))
             continue
@@ -181,53 +197,43 @@ def apply_network_report(
     *,
     received_at: datetime | None = None,
 ) -> NetworkIngestResult:
-    """Insert validated measurements one by one and report the outcome.
+    """Store validated measurements and classify every one of them.
 
-    A ``measurement_id`` already stored for the same agent counts as an
-    idempotent duplicate. Any other insert failure is reported as a rejection
-    rather than being counted as a duplicate.
+    IDs that already exist are classified up front (one query); the rest are
+    inserted with a single multi-row INSERT. Only if that INSERT fails (for
+    example a concurrent report stored the same ID) are the rows inserted one
+    by one, so each measurement still gets an exact outcome. ``created`` is
+    only reported for rows the INSERT actually stored.
     """
     received = received_at if received_at is not None else timezone.now()
     created_ids: list[str] = []
     duplicate_ids: list[str] = []
     rejections = list(report.rejections)
+
+    stored = _stored_measurements([item.measurement_id for item in report.measurements])
+    pending: list[ValidatedMeasurement] = []
     for item in report.measurements:
+        if item.measurement_id not in stored:
+            pending.append(item)
+            continue
+        owner_id, target_id = stored[item.measurement_id]
+        if _is_same_measurement(item, agent, owner_id, target_id):
+            duplicate_ids.append(str(item.measurement_id))
+        else:
+            rejections.append(_conflict(item))
+
+    if pending:
+        rows = [_measurement_row(item, agent, received) for item in pending]
         try:
             with transaction.atomic():
-                NetworkMeasurement.objects.create(
-                    id=item.measurement_id,
-                    target_id=item.target_id,
-                    agent=agent,
-                    measured_at=item.measured_at,
-                    received_at=received,
-                    success=item.success,
-                    latency_ms=item.latency_ms,
-                    packet_loss_percentage=item.packet_loss_percentage,
-                    probe_count=item.probe_count,
-                    successful_probes=item.successful_probes,
-                    failure_reason=item.failure_reason,
-                )
-            created_ids.append(str(item.measurement_id))
+                NetworkMeasurement.objects.bulk_create(rows)
         except IntegrityError:
-            owner_id = (
-                NetworkMeasurement.objects.filter(pk=item.measurement_id)
-                .values_list("agent_id", flat=True)
-                .first()
+            _insert_individually(
+                pending, agent, received, created_ids, duplicate_ids, rejections
             )
-            if owner_id == agent.id:
-                duplicate_ids.append(str(item.measurement_id))
-                continue
-            if owner_id is None:
-                rejection = MeasurementRejection(
-                    str(item.measurement_id),
-                    "measurement could not be stored",
-                    retryable=True,
-                )
-            else:
-                rejection = MeasurementRejection(
-                    str(item.measurement_id), "measurement_id conflict"
-                )
-            rejections.append(rejection)
+        else:
+            created_ids.extend(str(item.measurement_id) for item in pending)
+
     return NetworkIngestResult(
         created=len(created_ids),
         duplicates=len(duplicate_ids),
@@ -235,6 +241,93 @@ def apply_network_report(
         created_ids=tuple(created_ids),
         duplicate_ids=tuple(duplicate_ids),
     )
+
+
+def _stored_measurements(ids: list[UUID]) -> dict[UUID, tuple[UUID | None, UUID]]:
+    """Map already-stored measurement IDs to their (agent_id, target_id)."""
+    if not ids:
+        return {}
+    return {
+        pk: (agent_id, target_id)
+        for pk, agent_id, target_id in NetworkMeasurement.objects.filter(pk__in=ids)
+        .order_by()
+        .values_list("pk", "agent_id", "target_id")
+    }
+
+
+def _measurement_row(
+    item: ValidatedMeasurement, agent: Agent, received: datetime
+) -> NetworkMeasurement:
+    return NetworkMeasurement(
+        id=item.measurement_id,
+        target_id=item.target_id,
+        agent=agent,
+        measured_at=item.measured_at,
+        received_at=received,
+        success=item.success,
+        latency_ms=item.latency_ms,
+        packet_loss_percentage=item.packet_loss_percentage,
+        probe_count=item.probe_count,
+        successful_probes=item.successful_probes,
+        failure_reason=item.failure_reason,
+    )
+
+
+def _is_same_measurement(
+    item: ValidatedMeasurement,
+    agent: Agent,
+    owner_id: UUID | None,
+    target_id: UUID,
+) -> bool:
+    """Whether an already-stored row is this agent's earlier copy of ``item``.
+
+    Rows whose agent was deleted (``agent_id`` NULL) count as the same
+    measurement when they belong to the same target, so a recreated agent
+    resending its queue is acknowledged instead of retried forever.
+    """
+    if owner_id == agent.id:
+        return True
+    return owner_id is None and target_id == item.target_id
+
+
+def _conflict(item: ValidatedMeasurement) -> MeasurementRejection:
+    return MeasurementRejection(str(item.measurement_id), "measurement_id conflict")
+
+
+def _insert_individually(
+    items: list[ValidatedMeasurement],
+    agent: Agent,
+    received: datetime,
+    created_ids: list[str],
+    duplicate_ids: list[str],
+    rejections: list[MeasurementRejection],
+) -> None:
+    """Fallback after a failed bulk INSERT: one savepoint per measurement."""
+    for item in items:
+        try:
+            with transaction.atomic():
+                _measurement_row(item, agent, received).save(force_insert=True)
+        except IntegrityError:
+            stored = (
+                NetworkMeasurement.objects.filter(pk=item.measurement_id)
+                .values_list("agent_id", "target_id")
+                .first()
+            )
+            if stored is None:
+                # Not a duplicate (e.g. the target was deleted meanwhile).
+                rejections.append(
+                    MeasurementRejection(
+                        str(item.measurement_id),
+                        "measurement could not be stored",
+                        retryable=True,
+                    )
+                )
+            elif _is_same_measurement(item, agent, *stored):
+                duplicate_ids.append(str(item.measurement_id))
+            else:
+                rejections.append(_conflict(item))
+        else:
+            created_ids.append(str(item.measurement_id))
 
 
 def _peek_uuid(raw: Any, field: str) -> UUID | None:
@@ -252,6 +345,7 @@ def _validate_measurement(
     *,
     agent: Agent,
     targets: dict[UUID, NetworkTarget],
+    oldest_allowed: datetime,
 ) -> ValidatedMeasurement:
     if not isinstance(raw, dict):
         raise NetworkValidationError("each measurement must be an object")
@@ -271,6 +365,10 @@ def _validate_measurement(
         raise NetworkValidationError("target is disabled")
 
     measured_at = _parse_timestamp(raw.get("measured_at"), field="measured_at")
+    if measured_at < oldest_allowed:
+        raise NetworkValidationError(
+            "measured_at is older than the accepted history window"
+        )
 
     success = raw.get("success")
     if not isinstance(success, bool):

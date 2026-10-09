@@ -8,6 +8,8 @@ from datetime import timezone as dt_timezone
 from typing import Any
 
 from django.db import transaction
+from django.db.models import F, Value
+from django.db.models.functions import Greatest
 from django.utils import timezone
 from django.utils.dateparse import parse_datetime
 
@@ -118,46 +120,121 @@ def apply_docker_report(
     *,
     received_at: datetime | None = None,
 ) -> None:
-    """Persist host state; sync containers only for authoritative discoveries."""
+    """Persist host state; sync containers only for authoritative discoveries.
+
+    Reports for one server are serialized by locking its ``DockerHostState``
+    row, so concurrent heartbeats cannot interleave container changes.
+    """
     received = received_at if received_at is not None else timezone.now()
+    host_values = {
+        "available": report.available,
+        "status": report.status,
+        "collected_at": report.collected_at,
+        "received_at": received,
+    }
+    host = _lock_host_state(server, host_values)
 
-    DockerHostState.objects.update_or_create(
-        server=server,
-        defaults={
-            "available": report.available,
-            "status": report.status,
-            "collected_at": report.collected_at,
-            "received_at": received,
-        },
-    )
+    if report.authoritative:
+        _sync_containers(
+            server,
+            report.containers,
+            received=received,
+            previous_discovery=host.last_discovered_at,
+        )
+        host_values["last_discovered_at"] = received
+    # Non-authoritative reports must not mark containers absent.
 
-    if not report.authoritative:
-        # Non-authoritative reports must not mark containers absent.
-        return
+    for field, value in host_values.items():
+        setattr(host, field, value)
+    host.save(update_fields=list(host_values))
 
-    seen_ids: list[str] = []
-    for item in report.containers:
-        seen_ids.append(item.container_id)
-        DockerContainer.objects.update_or_create(
-            server=server,
-            container_id=item.container_id,
-            defaults={
-                "name": item.name,
-                "image": item.image,
-                "state": item.state,
-                "health": item.health,
-                "container_created_at": item.created_at,
-                "started_at": item.started_at,
-                "present": True,
-                "last_seen_at": received,
-                "received_at": received,
-            },
+
+def _lock_host_state(server: Server, values: dict[str, Any]) -> DockerHostState:
+    locked = DockerHostState.objects.select_for_update().filter(server=server)
+    host = locked.first()
+    if host is None:
+        # get_or_create absorbs a concurrent first report for the same server.
+        DockerHostState.objects.get_or_create(server=server, defaults=values)
+        host = locked.get()
+    return host
+
+
+_SYNCED_CONTAINER_FIELDS = (
+    "name",
+    "image",
+    "state",
+    "health",
+    "container_created_at",
+    "started_at",
+    "present",
+)
+BULK_UPDATE_BATCH_SIZE = 200
+
+
+def _sync_containers(
+    server: Server,
+    containers: tuple[ValidatedDockerContainer, ...],
+    *,
+    received: datetime,
+    previous_discovery: datetime | None,
+) -> None:
+    """Create new, update changed, and mark missing containers absent.
+
+    Unchanged containers are not written: a present container is known to have
+    been seen at ``DockerHostState.last_discovered_at``.
+    """
+    existing = {
+        row.container_id: row
+        for row in DockerContainer.objects.filter(server=server)
+    }
+    to_create: list[DockerContainer] = []
+    to_update: list[DockerContainer] = []
+    for item in containers:
+        values = {
+            "name": item.name,
+            "image": item.image,
+            "state": item.state,
+            "health": item.health,
+            "container_created_at": item.created_at,
+            "started_at": item.started_at,
+            "present": True,
+        }
+        row = existing.pop(item.container_id, None)
+        if row is None:
+            to_create.append(
+                DockerContainer(
+                    server=server,
+                    container_id=item.container_id,
+                    last_seen_at=received,
+                    received_at=received,
+                    **values,
+                )
+            )
+            continue
+        if all(getattr(row, field) == value for field, value in values.items()):
+            continue
+        for field, value in values.items():
+            setattr(row, field, value)
+        row.last_seen_at = received
+        row.received_at = received
+        to_update.append(row)
+
+    if to_create:
+        DockerContainer.objects.bulk_create(to_create)
+    if to_update:
+        DockerContainer.objects.bulk_update(
+            to_update,
+            [*_SYNCED_CONTAINER_FIELDS, "last_seen_at", "received_at"],
+            batch_size=BULK_UPDATE_BATCH_SIZE,
         )
 
-    missing = DockerContainer.objects.filter(server=server, present=True)
-    if seen_ids:
-        missing = missing.exclude(container_id__in=seen_ids)
-    missing.update(present=False, received_at=received)
+    missing = [row.pk for row in existing.values() if row.present]
+    if missing:
+        changes: dict[str, Any] = {"present": False, "received_at": received}
+        if previous_discovery is not None:
+            # Present containers were last seen in the previous discovery.
+            changes["last_seen_at"] = Greatest(F("last_seen_at"), Value(previous_discovery))
+        DockerContainer.objects.filter(pk__in=missing).update(**changes)
 
 
 def _validate_container(raw: Any) -> ValidatedDockerContainer:
