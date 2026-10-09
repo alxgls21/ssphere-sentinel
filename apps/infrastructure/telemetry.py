@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime, timedelta
+from datetime import timezone as dt_timezone
 from typing import Any
 
 from django.db import transaction
@@ -107,11 +108,14 @@ def upsert_server_telemetry(
 def _parse_collected_at(value: Any) -> datetime:
     if not isinstance(value, str) or not value.strip():
         raise TelemetryValidationError("collected_at must be an ISO-8601 timestamp")
-    parsed = parse_datetime(value.strip())
+    try:
+        parsed = parse_datetime(value.strip())
+    except ValueError:
+        parsed = None
     if parsed is None:
         raise TelemetryValidationError("collected_at must be an ISO-8601 timestamp")
     if timezone.is_naive(parsed):
-        parsed = timezone.make_aware(parsed, timezone.utc)
+        parsed = timezone.make_aware(parsed, dt_timezone.utc)
     now = timezone.now()
     if parsed > now + MAX_FUTURE_SKEW:
         raise TelemetryValidationError("collected_at is too far in the future")

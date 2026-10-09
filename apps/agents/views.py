@@ -32,7 +32,9 @@ def agent_heartbeat(request):
 
     Subsystems (telemetry, docker, network) are validated and applied
     independently. Invalid subsystem data does not block liveness or other
-    valid subsystems.
+    valid subsystems. Network measurements are also validated individually:
+    ``network`` is ``accepted``, ``partial`` or ``rejected`` and the response
+    carries accepted/rejected counts.
     """
     result = authenticate_agent(request)
     if result.agent is None:
@@ -94,10 +96,20 @@ def agent_heartbeat(request):
     if "network" in payload:
         try:
             network_report = validate_network_payload(payload["network"], agent=agent)
-            created, duplicates = apply_network_report(agent, network_report)
-            response["network"] = "accepted"
-            response["network_created"] = created
-            response["network_duplicates"] = duplicates
+            result = apply_network_report(agent, network_report)
+            response["network"] = result.status
+            response["network_created"] = result.created
+            response["network_duplicates"] = result.duplicates
+            response["network_accepted"] = result.accepted
+            response["network_rejected"] = result.rejected
+            if result.rejections:
+                response["network_rejections"] = [
+                    rejection.as_dict() for rejection in result.rejections
+                ]
+                response["network_detail"] = (
+                    f"{result.rejected} measurement(s) rejected; "
+                    f"first: {result.rejections[0].reason}"
+                )
         except NetworkValidationError as exc:
             response["network"] = "rejected"
             response["network_detail"] = str(exc)
