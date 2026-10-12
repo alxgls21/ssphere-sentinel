@@ -139,6 +139,12 @@ class DeviceAdminTests(InventoryAdminTestCase):
             "assigned_agent": str(self.agent.pk),
             "enabled": "on",
             "description": "",
+            # Management form of the SNMP configuration inline (apps.snmp):
+            # browsers send these automatically.
+            "snmp_config-TOTAL_FORMS": "0",
+            "snmp_config-INITIAL_FORMS": "0",
+            "snmp_config-MIN_NUM_FORMS": "0",
+            "snmp_config-MAX_NUM_FORMS": "1",
         }
         data.update(overrides)
         return data

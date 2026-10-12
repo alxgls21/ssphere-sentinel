@@ -77,6 +77,7 @@ monitors many agents, one agent per monitored server. Deployment guides:
 | --- | --- |
 | Production server (Docker Compose, Cloudflare Tunnel, reverse proxy, upgrades, backups, migrations) | [docs/server-deployment.md](docs/server-deployment.md) |
 | Agent on Linux hosts (systemd, Docker monitoring, upgrades, troubleshooting) | [docs/agent-deployment.md](docs/agent-deployment.md) |
+| SNMP data model, heartbeat payload, retention (server side) | [docs/snmp.md](docs/snmp.md) |
 | Secret rotation and troubleshooting | [docs/operations.md](docs/operations.md) |
 | Security model, trusted proxy boundary, known limitations | [docs/security.md](docs/security.md) |
 
@@ -691,15 +692,18 @@ Configuration (server environment, all in days):
 | `SENTINEL_NETWORK_MEASUREMENT_RETENTION_DAYS` | `30` | Network measurements with `measured_at` older than this are purged |
 | `SENTINEL_NETWORK_MEASUREMENT_MAX_AGE_DAYS` | `8` | Oldest `measured_at` accepted from an agent (delayed delivery); never more than the retention period |
 | `SENTINEL_DOCKER_ABSENT_CONTAINER_RETENTION_DAYS` | `30` | Containers absent from successful discoveries for longer than this are deleted |
+| `SENTINEL_SNMP_RETENTION_DAYS` | `30` | SNMP polls and interface samples older than this are purged |
+| `SENTINEL_SNMP_MAX_AGE_DAYS` | `8` | Oldest `measured_at` accepted for a delayed SNMP poll; never more than the retention period |
 
 Cleanup commands (never run automatically, in particular not on heartbeats):
 
 ```bash
 python manage.py purge_network_measurements      [--days N] [--batch-size N] [--dry-run]
 python manage.py purge_absent_docker_containers  [--days N] [--batch-size N] [--dry-run]
+python manage.py purge_snmp_data                 [--days N] [--batch-size N] [--dry-run]
 ```
 
-Both delete in batches (default 5000 rows, max 100000) with one short
+All delete in batches (default 5000 rows, max 100000) with one short
 transaction per batch, so they do not hold long locks or create one huge
 transaction, and an interrupted run keeps the batches already deleted.
 `--dry-run` only counts. The cutoff is exclusive: a row exactly at the cutoff
@@ -722,7 +726,7 @@ cron (`crontab -e`):
 
 ```cron
 # m h dom mon dow
-15 3 * * * cd /opt/ssphere-sentinel && set -a && . ./.env && set +a && .venv/bin/python manage.py purge_network_measurements && .venv/bin/python manage.py purge_absent_docker_containers
+15 3 * * * cd /opt/ssphere-sentinel && set -a && . ./.env && set +a && .venv/bin/python manage.py purge_network_measurements && .venv/bin/python manage.py purge_absent_docker_containers && .venv/bin/python manage.py purge_snmp_data
 ```
 
 systemd (`/etc/systemd/system/sentinel-retention.service` and `.timer`):
@@ -738,6 +742,7 @@ WorkingDirectory=/opt/ssphere-sentinel
 EnvironmentFile=/opt/ssphere-sentinel/.env
 ExecStart=/opt/ssphere-sentinel/.venv/bin/python manage.py purge_network_measurements
 ExecStart=/opt/ssphere-sentinel/.venv/bin/python manage.py purge_absent_docker_containers
+ExecStart=/opt/ssphere-sentinel/.venv/bin/python manage.py purge_snmp_data
 ```
 
 ```ini
@@ -907,6 +912,23 @@ page), then add devices and pick the site; assign an agent that can reach the
 device's network. The device list can be filtered by customer, type, agent
 and enabled state, and searched by name, address, site or customer.
 
+## SNMP data (server side)
+
+The server can store SNMP poll results for the devices in the inventory:
+reachability, system information, interfaces with their admin and operational
+status, and per-interface octet, error and discard counters, both raw and as
+per-interval deltas, with history. Agents deliver them in an optional `snmp`
+section of the heartbeat; the section is idempotent, tolerates late and
+repeated deliveries, and a poll is stored completely or not at all.
+
+**The agent-side SNMP collector does not exist yet**, so nothing sends this
+data today and existing agents are unaffected. Credentials are never stored in
+Sentinel: a device's SNMP settings hold only the *name* of a profile in the
+agent's local credentials file.
+
+Everything is in [docs/snmp.md](docs/snmp.md): the data model, the payload,
+the acknowledgement, retention and the expected database growth.
+
 ## Docker Compose deployment
 
 Use Compose for a self-hosted production stack; the full guide (HTTPS with
@@ -985,6 +1007,7 @@ apps/                  Django applications
   agents/              Agent registration and heartbeat API
   network/             Network targets and measurement history
   inventory/           Customers, sites and network devices
+  snmp/                SNMP device settings, interfaces, polls and interface samples
 agent/                 Standalone host agent (no Django imports); own pyproject.toml
 sentinel/              Django project settings and URL routing
 deploy/systemd/        Hardened agent unit, environment template, Docker drop-in

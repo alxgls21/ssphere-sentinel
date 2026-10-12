@@ -102,6 +102,18 @@ if SENTINEL_NETWORK_MEASUREMENT_MAX_AGE_DAYS <= 0:
         "SENTINEL_NETWORK_MEASUREMENT_MAX_AGE_DAYS must be a positive integer"
     )
 
+# How long SNMP polls and interface samples are kept. Cleanup via:
+#   python manage.py purge_snmp_data
+SENTINEL_SNMP_RETENTION_DAYS = env_int("SENTINEL_SNMP_RETENTION_DAYS", default=30)
+if SENTINEL_SNMP_RETENTION_DAYS <= 0:
+    raise RuntimeError("SENTINEL_SNMP_RETENTION_DAYS must be a positive integer")
+
+# Oldest measured_at accepted for delayed SNMP polls (agent queue backlog);
+# the effective window never exceeds the retention period.
+SENTINEL_SNMP_MAX_AGE_DAYS = env_int("SENTINEL_SNMP_MAX_AGE_DAYS", default=8)
+if SENTINEL_SNMP_MAX_AGE_DAYS <= 0:
+    raise RuntimeError("SENTINEL_SNMP_MAX_AGE_DAYS must be a positive integer")
+
 # How long containers that disappeared from successful discoveries are kept.
 SENTINEL_DOCKER_ABSENT_CONTAINER_RETENTION_DAYS = env_int(
     "SENTINEL_DOCKER_ABSENT_CONTAINER_RETENTION_DAYS",
@@ -148,6 +160,7 @@ INSTALLED_APPS = [
     "apps.agents",
     "apps.network",
     "apps.inventory",
+    "apps.snmp",
 ]
 
 MIDDLEWARE = [
