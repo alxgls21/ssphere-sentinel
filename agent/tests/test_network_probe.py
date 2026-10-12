@@ -67,6 +67,17 @@ class NetworkProbeTests(unittest.TestCase):
         result = probe_tcp("127.0.0.1", 443, timeout_seconds=1)
         self.assertEqual(result.failure_reason, FAILURE_NETWORK_ERROR)
 
+    @patch("agent.network_probe.subprocess.run")
+    @patch("agent.network_probe.which", return_value="/sbin/ping")
+    def test_ping_gets_c_locale_and_not_the_agent_environment(self, _which, mock_run):
+        mock_run.return_value = MagicMock(returncode=0, stdout="time=1.5 ms", stderr="")
+        environ = {"PATH": "/usr/bin:/bin", "SENTINEL_AGENT_TOKEN": "secret-token", "LANG": "de_DE.UTF-8"}
+        with patch.dict("agent.network_probe.os.environ", environ, clear=True):
+            result = probe_icmp("127.0.0.1", timeout_seconds=1)
+        self.assertEqual(result.latency_ms, 1.5)
+        child_env = mock_run.call_args.kwargs["env"]
+        self.assertEqual(child_env, {"PATH": "/usr/bin:/bin", "LC_ALL": "C"})
+
     @patch("agent.network_probe.probe_tcp")
     def test_partial_packet_loss(self, mock_tcp):
         mock_tcp.side_effect = [

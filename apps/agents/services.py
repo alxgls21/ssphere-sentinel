@@ -24,21 +24,34 @@ def create_agent(*, server: Server, name: str) -> tuple[Agent, str]:
             f"Server '{server.name}' already has an agent."
         )
 
-    raw_token = generate_token()
+    agent = Agent(server=server, name=name, enabled=True)
+    raw_token = assign_new_token(agent)
     try:
         with transaction.atomic():
-            agent = Agent.objects.create(
-                server=server,
-                name=name,
-                token_hash=hash_token(raw_token),
-                enabled=True,
-            )
+            agent.save(force_insert=True)
     except IntegrityError as exc:
         # A concurrent create_agent for the same server won the race.
         raise AgentAlreadyExistsError(
             f"Server '{server.name}' already has an agent."
         ) from exc
     return agent, raw_token
+
+
+def assign_new_token(agent: Agent) -> str:
+    """Give ``agent`` a new token hash (unsaved) and return the raw token.
+
+    The raw token is returned exactly once and is never stored or logged.
+    """
+    raw_token = generate_token()
+    agent.token_hash = hash_token(raw_token)
+    return raw_token
+
+
+def rotate_token(agent: Agent) -> str:
+    """Replace the agent's token; the previous token stops working at once."""
+    raw_token = assign_new_token(agent)
+    agent.save(update_fields=["token_hash", "updated_at"])
+    return raw_token
 
 
 @transaction.atomic

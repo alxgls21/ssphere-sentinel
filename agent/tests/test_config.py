@@ -21,6 +21,14 @@ class ConfigTests(unittest.TestCase):
             "https://sentinel.example.com/api/v1/agent/heartbeat/",
         )
 
+    def test_credentials_in_url_are_rejected(self):
+        for url in ("https://user:pass@sentinel.example.com", "https://token@sentinel.example.com"):
+            with self.subTest(url=url):
+                with self.assertRaises(ConfigError) as ctx:
+                    load_config({"SENTINEL_URL": url, "SENTINEL_AGENT_TOKEN": "secret-token"})
+                self.assertIn("must not contain credentials", str(ctx.exception))
+                self.assertNotIn("pass", str(ctx.exception))
+
     def test_configurable_heartbeat_interval(self):
         config = load_config(
             {

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import errno
+import os
 import platform
 import re
 import socket
@@ -156,6 +157,7 @@ def probe_icmp(host: str, *, timeout_seconds: float) -> ProbeAttempt:
             timeout=timeout_seconds + 2,
             check=False,
             shell=False,
+            env=_ping_environment(),
         )
     except subprocess.TimeoutExpired:
         return ProbeAttempt(False, None, FAILURE_TIMEOUT)
@@ -186,6 +188,16 @@ def probe_icmp(host: str, *, timeout_seconds: float) -> ProbeAttempt:
     if "unreachable" in lowered:
         return ProbeAttempt(False, None, FAILURE_HOST_UNREACHABLE)
     return ProbeAttempt(False, None, FAILURE_UNKNOWN)
+
+
+def _ping_environment() -> dict[str, str]:
+    """Minimal environment for ping.
+
+    The C locale keeps ping's output in English for the failure-reason and
+    latency parsing below, and the agent's own environment (which holds
+    SENTINEL_AGENT_TOKEN) is not passed to the child process.
+    """
+    return {"PATH": os.environ.get("PATH", os.defpath), "LC_ALL": "C"}
 
 
 def _parse_ping_latency_ms(output: str) -> float | None:
