@@ -1,0 +1,32 @@
+{% extends "admin/base_site.html" %}
+{% load i18n admin_urls %}
+
+{% block bodyclass %}{{ block.super }} app-{{ opts.app_label }} model-{{ opts.model_name }} delete-confirmation{% endblock %}
+
+{% block breadcrumbs %}
+<div class="breadcrumbs">
+<a href="{% url 'admin:index' %}">{% translate 'Home' %}</a>
+&rsaquo; <a href="{% url 'admin:app_list' app_label=opts.app_label %}">{{ opts.app_config.verbose_name }}</a>
+&rsaquo; <a href="{% url opts|admin_urlname:'changelist' %}">{{ opts.verbose_name_plural|capfirst }}</a>
+&rsaquo; <a href="{% url opts|admin_urlname:'change' agent.pk|admin_urlquote %}">{{ agent }}</a>
+&rsaquo; {{ title }}
+</div>
+{% endblock %}
+
+{% block content %}
+<p>Regenerate the authentication token of agent <strong>{{ agent }}</strong>?</p>
+<ul>
+  <li>The current token stops working immediately: the agent's heartbeats are
+    rejected (HTTP 401) until it is configured with the new token. Network
+    measurements stay queued on the agent and are delivered afterwards.</li>
+  <li>The new token is shown once on the next page. It is not stored and cannot
+    be displayed again.</li>
+</ul>
+<form method="post">{% csrf_token %}
+  <input type="hidden" name="{{ action_checkbox_name }}" value="{{ agent.pk }}">
+  <input type="hidden" name="action" value="regenerate_token">
+  <input type="hidden" name="confirm" value="yes">
+  <input type="submit" value="Yes, regenerate the token">
+  <a href="{% url opts|admin_urlname:'changelist' %}" class="button cancel-link">No, take me back</a>
+</form>
+{% endblock %}

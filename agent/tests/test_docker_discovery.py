@@ -2,6 +2,7 @@ import sys
 import unittest
 from unittest.mock import MagicMock, PropertyMock, patch
 
+from agent import docker_discovery
 from agent.docker_discovery import (
     STATUS_AVAILABLE,
     STATUS_ERROR,
@@ -35,6 +36,38 @@ class NormalizeTests(unittest.TestCase):
 
 
 class DockerDiscoveryTests(unittest.TestCase):
+    def setUp(self):
+        docker_discovery._logged_state = None
+        self.addCleanup(setattr, docker_discovery, "_logged_state", None)
+
+    def test_unavailable_docker_is_logged_once_per_state_change(self):
+        client = MagicMock()
+        client.containers.list.return_value = []
+        with self.assertLogs("sentinel_agent", level="INFO") as logs:
+            for _ in range(3):
+                self._collect(from_env_side_effect=PermissionError("permission denied"))
+            self._collect(client=client)
+            self._collect(client=client)
+            self._collect(from_env_side_effect=PermissionError("permission denied"))
+        self.assertEqual(
+            logs.output,
+            [
+                "WARNING:sentinel_agent:Docker discovery unavailable (permission_denied)",
+                "INFO:sentinel_agent:Docker discovery available",
+                "WARNING:sentinel_agent:Docker discovery unavailable (permission_denied)",
+            ],
+        )
+
+    def test_missing_sdk_is_reported_once_at_info(self):
+        with patch.dict(sys.modules, {"docker": None}), self.assertLogs(
+            "sentinel_agent", level="INFO"
+        ) as logs:
+            first = collect_docker()
+            collect_docker()
+        self.assertEqual(first["status"], STATUS_UNAVAILABLE)
+        self.assertEqual(len(logs.output), 1)
+        self.assertIn("INFO:sentinel_agent:Docker discovery disabled: Docker SDK not installed", logs.output[0])
+
     def test_docker_unavailable(self):
         result = self._collect(from_env_side_effect=FileNotFoundError("no socket"))
         self.assertFalse(result["available"])

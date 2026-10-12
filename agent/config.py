@@ -57,6 +57,10 @@ def load_config(
         raise ConfigError(
             f"{ENV_SENTINEL_URL} must be an absolute http(s) URL"
         )
+    if "@" in parsed.netloc:
+        # Credentials belong in SENTINEL_AGENT_TOKEN, never in a URL (it is
+        # logged at startup).
+        raise ConfigError(f"{ENV_SENTINEL_URL} must not contain credentials")
 
     interval_raw = env.get(ENV_HEARTBEAT_INTERVAL)
     if interval_raw is None or not str(interval_raw).strip():

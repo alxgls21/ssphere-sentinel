@@ -1,0 +1,64 @@
+# Standalone host agent distribution (ssphere-sentinel-agent).
+#
+# The agent lives in this directory as the importable package ``agent`` and is
+# packaged on its own so monitored hosts never install Django, Gunicorn or a
+# PostgreSQL driver. The server distribution is defined in ../pyproject.toml.
+#
+#   pip install ./agent              # agent only (heartbeats, telemetry, network probes)
+#   pip install "./agent[docker]"    # plus optional Docker discovery
+
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ssphere-sentinel-agent"
+dynamic = ["version"]
+description = "Lightweight host agent for SSphere Sentinel: heartbeats, host telemetry, network probes and optional Docker discovery"
+readme = "README.md"
+license-files = ["LICENSE"]
+requires-python = ">=3.11"
+authors = [{ name = "Alexandros Goulas" }]
+dependencies = [
+    "psutil>=6.0",
+]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Environment :: No Input/Output (Daemon)",
+    "Intended Audience :: System Administrators",
+    "Operating System :: MacOS",
+    "Operating System :: POSIX :: Linux",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+    "Topic :: System :: Monitoring",
+]
+
+[project.optional-dependencies]
+# Docker discovery is optional: without the SDK the agent reports Docker as
+# unavailable and everything else keeps working.
+docker = [
+    "docker>=7.0",
+]
+
+[project.scripts]
+sentinel-agent = "agent.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/alxgls21/ssphere-sentinel"
+Documentation = "https://github.com/alxgls21/ssphere-sentinel/blob/main/docs/agent-deployment.md"
+Source = "https://github.com/alxgls21/ssphere-sentinel/tree/main/agent"
+
+[tool.setuptools]
+# This directory *is* the ``agent`` package; tests/ is not shipped.
+package-dir = { "agent" = "." }
+packages = ["agent"]
+
+[tool.setuptools.package-data]
+agent = ["network_targets.example.json"]
+
+[tool.setuptools.dynamic]
+version = { attr = "agent.__version__" }

@@ -69,7 +69,12 @@ def post(
             text = raw.decode("utf-8", errors="replace")
             return HttpResponse(status=response.status, body=text)
     except urllib.error.HTTPError as exc:
-        raw = exc.read() if hasattr(exc, "read") else b""
+        # The error wraps the open response; close it so the socket is
+        # released now rather than by the garbage collector.
+        try:
+            raw = exc.read()
+        finally:
+            exc.close()
         text = raw.decode("utf-8", errors="replace") if raw else ""
         return HttpResponse(status=exc.code, body=text)
     except TimeoutError as exc:

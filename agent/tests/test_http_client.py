@@ -1,7 +1,9 @@
 """Regression tests: the agent never follows redirects with its bearer token."""
 
+import gc
 import threading
 import unittest
+import warnings
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 from agent.config import Config
@@ -74,6 +76,15 @@ class RedirectTests(unittest.TestCase):
                 self.assertEqual(response.status, status)
         # The token never reached the redirect target.
         self.assertEqual(self.elsewhere.seen, [])
+
+    def test_error_responses_are_closed(self):
+        self.origin.redirect_status = 401
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always", ResourceWarning)
+            response = post_json(self._origin_url() + "/x/", payload={}, timeout=5)
+            gc.collect()
+        self.assertEqual(response.status, 401)
+        self.assertEqual([w for w in caught if issubclass(w.category, ResourceWarning)], [])
 
     def test_redirected_heartbeat_fails_and_keeps_measurements_queued(self):
         queue = MeasurementQueue(None)

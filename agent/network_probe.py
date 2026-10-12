@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import errno
+import logging
+import os
 import platform
 import re
 import socket
@@ -13,6 +15,8 @@ from dataclasses import dataclass
 from shutil import which
 
 from agent.network_config import NetworkTargetConfig, validate_hostname_or_ip
+
+logger = logging.getLogger("sentinel_agent")
 
 FAILURE_TIMEOUT = "timeout"
 FAILURE_CONNECTION_REFUSED = "connection_refused"
@@ -25,6 +29,11 @@ FAILURE_UNKNOWN = "unknown"
 
 # Symbolic names: the numeric values differ between Linux and macOS.
 _UNREACHABLE_ERRNOS = frozenset({errno.EHOSTUNREACH, errno.ENETUNREACH, errno.EHOSTDOWN})
+
+# Linux: groups allowed to open unprivileged ICMP ("ping") sockets.
+PING_GROUP_RANGE_FILE = "/proc/sys/net/ipv4/ping_group_range"
+_icmp_warning_lock = threading.Lock()
+_icmp_warning_logged = False
 
 
 @dataclass(frozen=True)
@@ -156,6 +165,7 @@ def probe_icmp(host: str, *, timeout_seconds: float) -> ProbeAttempt:
             timeout=timeout_seconds + 2,
             check=False,
             shell=False,
+            env=_ping_environment(),
         )
     except subprocess.TimeoutExpired:
         return ProbeAttempt(False, None, FAILURE_TIMEOUT)
@@ -178,6 +188,7 @@ def probe_icmp(host: str, *, timeout_seconds: float) -> ProbeAttempt:
         )
 
     if "permission denied" in lowered or "operation not permitted" in lowered:
+        _warn_icmp_not_permitted(output)
         return ProbeAttempt(False, None, FAILURE_PERMISSION_DENIED)
     if "unknown host" in lowered or "name or service not known" in lowered:
         return ProbeAttempt(False, None, FAILURE_DNS_FAILURE)
@@ -186,6 +197,49 @@ def probe_icmp(host: str, *, timeout_seconds: float) -> ProbeAttempt:
     if "unreachable" in lowered:
         return ProbeAttempt(False, None, FAILURE_HOST_UNREACHABLE)
     return ProbeAttempt(False, None, FAILURE_UNKNOWN)
+
+
+def _warn_icmp_not_permitted(output: str) -> None:
+    """Explain once per process why ICMP probes fail.
+
+    Each affected probe is still recorded as a ``permission_denied``
+    measurement; the journal only needs the cause once.
+    """
+    global _icmp_warning_logged
+    with _icmp_warning_lock:
+        if _icmp_warning_logged:
+            return
+        _icmp_warning_logged = True
+    logger.warning(
+        "ICMP probes are not permitted (%s). Without CAP_NET_RAW, ping needs "
+        "unprivileged ICMP sockets for the agent's group%s; allow them with "
+        "deploy/systemd/enable-unprivileged-icmp.sh (docs/agent-deployment.md)",
+        " ".join(output.split())[:200],
+        _ping_group_range_hint(),
+    )
+
+
+def _ping_group_range_hint() -> str:
+    try:
+        with open(PING_GROUP_RANGE_FILE, encoding="ascii") as handle:
+            low, high = handle.read().split()
+    except (OSError, ValueError):
+        return ""  # not Linux, or unreadable
+    groups = sorted({os.getegid(), *os.getgroups()})
+    return (
+        f" (net.ipv4.ping_group_range is {low} {high}; "
+        f"agent groups: {', '.join(str(gid) for gid in groups)})"
+    )
+
+
+def _ping_environment() -> dict[str, str]:
+    """Minimal environment for ping.
+
+    The C locale keeps ping's output in English for the failure-reason and
+    latency parsing below, and the agent's own environment (which holds
+    SENTINEL_AGENT_TOKEN) is not passed to the child process.
+    """
+    return {"PATH": os.environ.get("PATH", os.defpath), "LC_ALL": "C"}
 
 
 def _parse_ping_latency_ms(output: str) -> float | None:

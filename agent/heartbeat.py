@@ -108,7 +108,7 @@ def send_heartbeat(
         raise
 
     if 200 <= response.status < 300:
-        logger.info("Heartbeat accepted by Sentinel")
+        logger.debug("Heartbeat accepted by Sentinel")
         log_subsystem_status(response.body)
         if network_delivery is not None:
             network_delivery.acknowledge(batch, response.body)
@@ -156,7 +156,7 @@ def log_subsystem_status(body: str) -> dict[str, str]:
         if subsystem == "network":
             _log_network_status(status, data)
         elif status == "accepted":
-            logger.info("Sentinel accepted %s", subsystem)
+            logger.debug("Sentinel accepted %s", subsystem)
         else:
             logger.warning(
                 "Sentinel %s %s: %s",
@@ -171,7 +171,7 @@ def _log_network_status(status: str, data: dict[str, Any]) -> None:
     accepted = data.get("network_accepted")
     rejected = data.get("network_rejected")
     if status == "accepted":
-        logger.info("Sentinel accepted network measurements (accepted=%s)", accepted)
+        logger.debug("Sentinel accepted network measurements (accepted=%s)", accepted)
         return
 
     logger.warning(

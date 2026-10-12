@@ -1,36 +1,36 @@
 #!/bin/sh
-set -e
+# Container entrypoint: wait for PostgreSQL, apply migrations, then exec the
+# command (Gunicorn by default) so it replaces this shell and receives SIGTERM
+# directly for a graceful shutdown.
+set -eu
 
-echo "Waiting for database..."
+echo "entrypoint: waiting for the database at ${POSTGRES_HOST:-db}:${POSTGRES_PORT:-5432}" >&2
 python - <<'PY'
 import os
+import sys
 import time
 
 import psycopg
 
-host = os.environ.get("POSTGRES_HOST", "db")
-port = os.environ.get("POSTGRES_PORT", "5432")
-dbname = os.environ["POSTGRES_DB"]
-user = os.environ["POSTGRES_USER"]
-password = os.environ["POSTGRES_PASSWORD"]
-
-for attempt in range(30):
+for attempt in range(1, 31):
     try:
         with psycopg.connect(
-            host=host,
-            port=port,
-            dbname=dbname,
-            user=user,
-            password=password,
+            host=os.environ.get("POSTGRES_HOST", "db"),
+            port=os.environ.get("POSTGRES_PORT", "5432"),
+            dbname=os.environ["POSTGRES_DB"],
+            user=os.environ["POSTGRES_USER"],
+            password=os.environ["POSTGRES_PASSWORD"],
             connect_timeout=3,
         ):
-            print("Database is ready.")
             break
-    except psycopg.OperationalError:
-        if attempt == 29:
-            raise
+    except psycopg.OperationalError as exc:
+        if attempt == 30:
+            print(f"entrypoint: database unavailable: {exc}", file=sys.stderr)
+            sys.exit(1)
         time.sleep(1)
 PY
 
+echo "entrypoint: applying database migrations" >&2
 python manage.py migrate --noinput
+
 exec "$@"

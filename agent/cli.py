@@ -7,21 +7,15 @@ import logging
 import sys
 from functools import partial
 
-from agent.config import load_config
+from agent import __version__
+from agent.config import Config, load_config
 from agent.errors import ConfigError, redact
 from agent.heartbeat import send_heartbeat
+from agent.logs import LOGGER_NAME, configure_logging
 from agent.network_runtime import NetworkRuntime
 from agent.runner import run_continuous
 
-logger = logging.getLogger("sentinel_agent")
-
-
-def _configure_logging() -> None:
-    logging.basicConfig(
-        level=logging.WARNING,
-        format="%(levelname)s: %(message)s",
-        stream=sys.stderr,
-    )
+logger = logging.getLogger(LOGGER_NAME)
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -38,7 +32,7 @@ def _build_parser() -> argparse.ArgumentParser:
         "run",
         help=(
             "Run continuously in the foreground, sending heartbeats on an "
-            "interval (for systemd or similar later)"
+            "interval (for systemd or another supervisor)"
         ),
     )
     return parser
@@ -97,6 +91,7 @@ def run_agent() -> int:
         return 1
 
     runtime = _build_network_runtime()
+    _log_startup(config, runtime)
     if runtime is None:
         send_fn = send_heartbeat
     else:
@@ -106,15 +101,34 @@ def run_agent() -> int:
         return run_continuous(config, send_fn=send_fn)
     except KeyboardInterrupt:
         # Fallback if a signal races past our handlers.
-        print("Agent stopped.", file=sys.stderr)
+        logger.info("Agent stopped")
         return 0
     finally:
         if runtime is not None:
             runtime.stop()
 
 
+def _log_startup(config: Config, runtime: NetworkRuntime | None) -> None:
+    """One summary of what this agent process will do (never the token)."""
+    logger.info(
+        "SSphere Sentinel agent %s starting: server %s, heartbeat every %ds",
+        __version__,
+        config.sentinel_url,
+        config.heartbeat_interval,
+    )
+    if runtime is None:
+        logger.info("Network monitoring: no enabled targets configured")
+        return
+    queue = runtime.queue
+    logger.info(
+        "Network monitoring: %d enabled target(s), queue %s",
+        runtime.scheduler.target_count,
+        queue.path if queue.persistent else "in memory (not persistent)",
+    )
+
+
 def main(argv: list[str] | None = None) -> int:
-    _configure_logging()
+    configure_logging()
     parser = _build_parser()
     args = parser.parse_args(argv)
 

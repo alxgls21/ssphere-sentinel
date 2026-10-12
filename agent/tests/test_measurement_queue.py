@@ -278,6 +278,7 @@ class CorruptionTests(QueueTestCase):
             def close(self):
                 pass
 
+        queue._conn.close()
         queue._conn = BrokenConnection()
         with self.assertLogs("sentinel_agent", level="WARNING"):
             with self.assertRaises(QueueError):

@@ -1,0 +1,13 @@
+# The image only needs what the Dockerfile copies. Keep secrets, local state
+# and unrelated sources out of the build context.
+*
+!Dockerfile
+!manage.py
+!gunicorn.conf.py
+!entrypoint.sh
+!requirements/
+!sentinel/
+!apps/
+**/__pycache__
+**/*.py[cod]
+**/tests/

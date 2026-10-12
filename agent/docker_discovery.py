@@ -48,6 +48,7 @@ def collect_docker() -> dict[str, Any]:
     try:
         import docker  # type: ignore[import-untyped]
     except ImportError:
+        _log_state("sdk_missing")
         return _status_payload(
             available=False,
             status=STATUS_UNAVAILABLE,
@@ -65,6 +66,7 @@ def collect_docker() -> dict[str, Any]:
             # instead of failing the whole discovery.
             for container in client.containers.list(all=True, ignore_removed=True)
         ]
+        _log_state(STATUS_AVAILABLE)
         return _status_payload(
             available=True,
             status=STATUS_AVAILABLE,
@@ -73,7 +75,7 @@ def collect_docker() -> dict[str, Any]:
         )
     except Exception as exc:  # noqa: BLE001 - classify and continue
         status = _classify_docker_error(exc)
-        logger.warning("Docker discovery unavailable (%s)", status)
+        _log_state(status)
         return _status_payload(
             available=False,
             status=status,
@@ -86,6 +88,27 @@ def collect_docker() -> dict[str, Any]:
                 client.close()
             except Exception:  # noqa: BLE001
                 pass
+
+
+# Last Docker state that was logged; discovery runs on every heartbeat, so
+# only changes are logged.
+_logged_state: str | None = None
+
+
+def _log_state(state: str) -> None:
+    global _logged_state
+    if state == _logged_state:
+        return
+    _logged_state = state
+    if state == STATUS_AVAILABLE:
+        logger.info("Docker discovery available")
+    elif state == "sdk_missing":
+        logger.info(
+            "Docker discovery disabled: Docker SDK not installed "
+            "(install ssphere-sentinel-agent[docker] to enable it)"
+        )
+    else:
+        logger.warning("Docker discovery unavailable (%s)", state)
 
 
 def normalize_state(raw: str | None) -> str:

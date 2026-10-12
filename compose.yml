@@ -1,6 +1,26 @@
+# SSphere Sentinel server: Django (Gunicorn) + PostgreSQL.
+#
+#   cp .env.example .env        # then set every secret (docs/server-deployment.md)
+#   docker compose up -d --build
+#
+# PostgreSQL is only reachable on the internal Compose network. The web port
+# is published on SENTINEL_HTTP_BIND (default: all interfaces). In production,
+# terminate TLS in front of it (reverse proxy or Cloudflare Tunnel, see
+# compose.tunnel.yml) and set SENTINEL_HTTP_BIND=127.0.0.1.
+#
+# Keep the service names and the postgres_data volume name: renaming them
+# would start a new, empty database volume.
+
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "5"
+
 services:
   db:
     image: postgres:16-alpine
+    restart: unless-stopped
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-sentinel}
       POSTGRES_USER: ${POSTGRES_USER:-sentinel}
@@ -13,19 +33,39 @@ services:
       timeout: 5s
       retries: 10
       start_period: 5s
+    # The image stops PostgreSQL with a fast shutdown; give it time to finish
+    # instead of being killed after Docker's default 10 seconds.
+    stop_grace_period: 1m
+    security_opt:
+      - no-new-privileges:true
+    logging: *default-logging
 
   web:
     build: .
-    ports:
-      - "8000:8000"
+    restart: unless-stopped
+    # Minimal init as PID 1: forwards SIGTERM to Gunicorn and reaps children.
+    init: true
     env_file:
       - .env
     environment:
       POSTGRES_HOST: db
       POSTGRES_PORT: 5432
+    ports:
+      - "${SENTINEL_HTTP_BIND:-0.0.0.0}:${SENTINEL_HTTP_PORT:-8000}:8000"
     depends_on:
       db:
         condition: service_healthy
+    # The application writes nothing to disk; /tmp is the only scratch space.
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    # Gunicorn finishes in-flight requests for up to 30 seconds on SIGTERM.
+    stop_grace_period: 40s
+    logging: *default-logging
 
 volumes:
   postgres_data:
