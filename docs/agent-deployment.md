@@ -115,11 +115,14 @@ sudo sh enable-unprivileged-icmp.sh
 
 The script writes `/etc/sysctl.d/60-ssphere-sentinel-agent-icmp.conf`
 (`net.ipv4.ping_group_range = <gid> <gid>` for the `sentinel-agent` group),
-applies it immediately, and systemd re-applies it at every boot. It changes
-nothing if the group is already allowed, and it never replaces a range that is
-already configured for other groups (it stops and asks you to extend that
-range yourself). See [security.md](security.md#unprivileged-icmp) for exactly
-what this permits.
+applies it immediately, and checks that the kernel now allows the group;
+systemd re-applies it at every boot. It changes nothing if the group is
+already allowed, and it never replaces a range that is already active or set
+in another sysctl file (it stops and asks you to extend that range yourself).
+If the kernel does not accept the setting (for example inside a container), it
+removes the file again and exits with an error. Each outcome prints one line;
+an exit status other than 0 always comes with an `error:` message. See
+[security.md](security.md#unprivileged-icmp) for exactly what this permits.
 
 Without this step ICMP measurements are recorded with
 `failure_reason=permission_denied` and the journal shows once:
