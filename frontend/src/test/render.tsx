@@ -25,6 +25,9 @@ export function createTestApi(overrides: Partial<SentinelApi> = {}): SentinelApi
     listAlerts: unstubbed('listAlerts'),
     listEvents: unstubbed('listEvents'),
     getEntityIndex: unstubbed('getEntityIndex'),
+    listServers: unstubbed('listServers'),
+    getServer: unstubbed('getServer'),
+    getServerSeries: unstubbed('getServerSeries'),
     ...overrides,
   }
 }

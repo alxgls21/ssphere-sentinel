@@ -103,7 +103,7 @@ is 11px. Ligatures are off so `->` and `!=` read literally.
 
 `ui/` (domain-agnostic): `Panel`, `StatusGlyph`, `StatusTag`, controls kit
 (`Button`, `IconButton`, `Chip`, `SegmentedControl`, `Select`, `Tooltip`,
-`Menu`, `Kbd`), meters (`SegmentedBar`, `CellMeter`, `Sparkline`),
+`Menu`, `Kbd`), meters (`SegmentedBar`, `CellMeter`, `Sparkline`), `SearchField`,
 `EntityCells`, provenance chips (`MockChip`, `PlannedChip`, `SourceTag`),
 states (`Skeleton`, `EmptyState`, `ErrorState`).
 `charts/`: ECharts theme built from the tokens at runtime, `ChartFrame`,
@@ -162,6 +162,25 @@ Adding a chart, in order:
    visibility hook, the navigation and the table.
 4. **Prove it**: add the chart to `CHARTS` in `chartContract.test.tsx`, and a
    specimen to `/_ds` (the gallery already shows a second chart built this way).
+
+## Lists and tables
+
+The Servers screen sets the pattern every inventory screen follows.
+
+- **A table, not a grid of cards**, with 28px rows, a 2px severity edge at the
+  left, status first (shape + word), the name as a real link, and the whole row as
+  a bigger pointer target. Worst first by default.
+- **Sortable headers** are buttons inside the `th`, with `aria-sort`. Rows that
+  cannot supply a value (offline, never reported) sort last in either direction.
+- **Search and status chips** sit above the panel; all of it, with the sort, lives
+  in the URL. Chips count what each would show for the current search.
+- **Columns yield to room** (container queries), not to the window: the site and
+  uptime go before a number does. On a phone the same list is cards, with a sort menu.
+- **No reading is said, not blanked.** A host that is offline or never reported
+  shows one sentence in place of three empty meters.
+- **Detail pages** are panels too: summary, a chart through `ChartFrame`, a
+  table. An offline host gets a notice first; its last reading stays visible and is
+  labelled as the last reading.
 
 ## Motion
 

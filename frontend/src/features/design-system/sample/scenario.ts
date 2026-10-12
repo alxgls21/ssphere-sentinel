@@ -28,6 +28,9 @@ export const GALLERY_API: SentinelApi = {
   listAlerts: () => Promise.resolve(SAMPLE_ALERTS),
   listEvents: refuse('listEvents'),
   getEntityIndex: refuse('getEntityIndex'),
+  listServers: refuse('listServers'),
+  getServer: refuse('getServer'),
+  getServerSeries: refuse('getServerSeries'),
 }
 
 /** Used only when the page is mounted without the app's PrefsProvider. */

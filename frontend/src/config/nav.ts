@@ -50,7 +50,7 @@ export const NAV_ITEMS: readonly NavItem[] = [
     chord: 's',
     description: 'Server inventory, CPU, memory, disk and uptime',
     feature: 'servers',
-    designed: false,
+    designed: true,
   },
   {
     id: 'docker',

@@ -52,6 +52,15 @@ class AgentMetadataTests(unittest.TestCase):
         all_optional = {requirement_name(r) for reqs in extras.values() for r in reqs}
         self.assertFalse(all_optional & SERVER_ONLY)
 
+    def test_snmp_library_is_an_optional_extra(self):
+        extras = self.project["optional-dependencies"]
+        self.assertEqual({requirement_name(r) for r in extras["snmp"]}, {"pysnmp", "cryptography"})
+        # Never a required dependency: hosts without SNMP stay psutil-only.
+        self.assertFalse({"pysnmp", "cryptography", "pyasn1"} & {requirement_name(r) for r in self.project["dependencies"]})
+        # pysnmp's API changes between minor releases: the extra stays within one.
+        pysnmp = next(r for r in extras["snmp"] if requirement_name(r) == "pysnmp")
+        self.assertIn("<", pysnmp)
+
     def test_cli_and_package_layout(self):
         self.assertEqual(self.project["name"], "ssphere-sentinel-agent")
         self.assertEqual(self.project["scripts"], {"sentinel-agent": "agent.cli:main"})
@@ -190,8 +199,11 @@ class BuildAndInstallTests(unittest.TestCase):
         self.assertFalse([n for n in names if "/tests/" in n or n.startswith("agent/tests")])
         self.assertIn("agent/network_targets.example.json", names)
         requires = sorted(line.split(": ", 1)[1] for line in metadata.splitlines() if line.startswith("Requires-Dist: "))
-        self.assertEqual([requirement_name(r) for r in requires], ["docker", "psutil"])
+        self.assertEqual([requirement_name(r) for r in requires], ["cryptography", "docker", "psutil", "pysnmp"])
         self.assertIn('extra == "docker"', next(r for r in requires if r.startswith("docker")))
+        for name in ("cryptography", "pysnmp"):
+            self.assertIn('extra == "snmp"', next(r for r in requires if r.startswith(name)))
+        self.assertNotIn("extra", next(r for r in requires if r.startswith("psutil")))
         self.assertIn("sentinel-agent = agent.cli:main", entry_points)
 
     def test_server_wheel_contents(self):
@@ -237,6 +249,37 @@ class BuildAndInstallTests(unittest.TestCase):
             capture_output=True, text=True, check=False, cwd=self.tmp,
         )
         self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_snmp_extra_installs_the_snmp_library_and_the_agent_reports_it_available(self):
+        bin_dir = self._venv("agent-snmp")
+        self._pip(bin_dir, "install", f"ssphere-sentinel-agent[snmp] @ {self.agent_wheel.as_uri()}")
+        result = subprocess.run(
+            [
+                str(bin_dir / "python"),
+                "-c",
+                "from agent.snmp_fetch import check_snmp_available; from agent.snmp_config import SnmpCredential;"
+                "check_snmp_available([SnmpCredential(name='p', version='3', username='u', auth_protocol='SHA-256',"
+                " auth_password='x'*8, priv_protocol='AES-128', priv_password='y'*8)])",
+            ],
+            capture_output=True, text=True, check=False, cwd=self.tmp,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_snmp_is_reported_unavailable_without_the_extra(self):
+        bin_dir = self._venv("agent-no-snmp")
+        self._pip(bin_dir, "install", str(self.agent_wheel))
+        result = subprocess.run(
+            [
+                str(bin_dir / "python"),
+                "-c",
+                "from agent.snmp_fetch import check_snmp_available, SnmpUnavailableError\n"
+                "try:\n    check_snmp_available([])\nexcept SnmpUnavailableError as e:\n    print(e)\n"
+                "else:\n    raise SystemExit('should be unavailable')",
+            ],
+            capture_output=True, text=True, check=False, cwd=self.tmp,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("[snmp]", result.stdout)
 
 
 if __name__ == "__main__":

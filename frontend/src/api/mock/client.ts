@@ -4,6 +4,7 @@ import type { RequestOptions, Scope } from '../types'
 import { deriveActivity } from './activity'
 import { listAttention } from './attention'
 import { entityIndex, fleetLoad, healthBreakdown, scopeOptions, summarize } from './derive'
+import { buildServerSeries, listServers, serverDetail } from './servers'
 import { buildEstate, scopeEstate, type Estate, type FleetProfile } from './fixtures'
 import { hash01, hashString } from './random'
 import type { MockScenario } from './scenario'
@@ -87,7 +88,12 @@ export function createMockApi(options: MockApiOptions = {}): SentinelApi {
           return
         }
         answered.add(method)
-        resolve(compute({ now: readClock(), anchor }))
+        try {
+          resolve(compute({ now: readClock(), anchor }))
+        } catch (error) {
+          // A builder may refuse (an unknown id is a 404): that is the request failing, not the mock crashing.
+          reject(error)
+        }
       }, delayFor(method))
     })
   }
@@ -147,5 +153,19 @@ export function createMockApi(options: MockApiOptions = {}): SentinelApi {
 
     getEntityIndex: (request) =>
       scoped('getEntityIndex', request, (estate, { now }) => entityIndex(estate, now)),
+
+    listServers: (request) =>
+      scoped('listServers', request, ({ fleet }, { now }) => listServers(fleet, now)),
+
+    getServer: (id, request) =>
+      respond('getServer', request?.signal, (clock) =>
+        serverDetail(estateAt(clock).fleet, id, clock.now),
+      ),
+
+    getServerSeries: (request) =>
+      respond('getServerSeries', request.signal, (clock) => {
+        const { server } = serverDetail(estateAt(clock).fleet, request.serverId, clock.now).item
+        return buildServerSeries(server, request.range, clock.now)
+      }),
   }
 }

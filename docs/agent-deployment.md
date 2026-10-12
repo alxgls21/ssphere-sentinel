@@ -11,7 +11,8 @@ server (no Django, Gunicorn or PostgreSQL driver).
 | Virtual environment (code, read-only for the service) | `/opt/ssphere-sentinel-agent/venv` |
 | Configuration and token (root only, `0600`) | `/etc/ssphere-sentinel-agent/agent.env` |
 | Network targets file (`root:sentinel-agent`, `0640`) | `/etc/ssphere-sentinel-agent/network_targets.json` |
-| Persistent measurement queue (`0700` directory) | `/var/lib/ssphere-sentinel-agent/` |
+| SNMP devices and credentials files, if SNMP is used (`root:sentinel-agent`, `0640`) | `/etc/ssphere-sentinel-agent/snmp_devices.json`, `snmp_credentials.json` |
+| Persistent queue of measurements and SNMP polls (`0700` directory) | `/var/lib/ssphere-sentinel-agent/` |
 | Unit file | `/etc/systemd/system/sentinel-agent.service` |
 | Unprivileged ICMP for the agent's group (if needed) | `/etc/sysctl.d/60-ssphere-sentinel-agent-icmp.conf` |
 | Logs | journald: `journalctl -u sentinel-agent` |
@@ -220,6 +221,58 @@ sockets work the same way through `DOCKER_HOST`.
 The journal shows `Docker discovery available` once it works, or
 `Docker discovery unavailable (permission_denied)` once per state change.
 
+## SNMP monitoring (optional)
+
+The agent can poll network devices (switches, routers, firewalls) over SNMPv2c
+and SNMPv3 and report their reachability, interfaces and counters. It is off
+unless you configure it, and the full reference (every setting, the credential
+rules, counters, limits) is in [snmp.md](snmp.md). On the agent host:
+
+1. Create the device in Sentinel (**Inventory → Devices**, assigned to this
+   agent, with an SNMP section naming a credential profile) and note its UUID.
+2. Install the extra (it adds `pysnmp` and `cryptography`):
+
+   ```bash
+   sudo /opt/ssphere-sentinel-agent/venv/bin/pip install \
+       "ssphere-sentinel-agent[snmp] @ git+https://github.com/alxgls21/ssphere-sentinel@<tag>#subdirectory=agent"
+   ```
+
+3. Write the credentials file and the devices file (formats in
+   [snmp.md](snmp.md#quick-start)). The credentials file holds community strings and
+   SNMPv3 keys, so give it the same permissions as the targets file and no wider:
+
+   ```bash
+   sudo install -m 0640 -o root -g sentinel-agent snmp_credentials.json /etc/ssphere-sentinel-agent/snmp_credentials.json
+   sudo install -m 0640 -o root -g sentinel-agent snmp_devices.json /etc/ssphere-sentinel-agent/snmp_devices.json
+   ```
+
+   The agent refuses a credentials file that other users can access, that group or
+   others can write, that is a symlink, or that belongs to another user.
+
+4. Enable it in `agent.env` and restart:
+
+   ```ini
+   SENTINEL_SNMP_DEVICES_FILE=/etc/ssphere-sentinel-agent/snmp_devices.json
+   SENTINEL_SNMP_CREDENTIALS_FILE=/etc/ssphere-sentinel-agent/snmp_credentials.json
+   ```
+
+   ```bash
+   sudo systemctl restart sentinel-agent
+   ```
+
+The journal then shows `SNMP monitoring: N enabled device(s), 4 concurrent poll(s)
+at most`, followed by one warning per weak credential profile (SNMPv2c, default
+communities, authentication without privacy, SHA-1), and once per device that is
+unreachable. Use SNMPv3 with SHA-256 or stronger and AES, and read-only SNMP users.
+
+Network requirements: UDP to each device's SNMP port (161), outbound from the
+agent host; the unit's `RestrictAddressFamilies` already includes IPv4 and IPv6.
+With the default pool of four workers, SNMP adds about 50 to 60 MB to the agent's
+memory (measured on macOS; `MemoryMax=256M` leaves room).
+
+The server must be a release with SNMP support before the agent sends its first
+poll; until then polls stay queued and the rest of the agent is unaffected.
+
 ## Upgrades
 
 ```bash
@@ -228,7 +281,7 @@ sudo /opt/ssphere-sentinel-agent/venv/bin/pip install --upgrade \
 sudo systemctl restart sentinel-agent
 ```
 
-(Add `[docker]` after the package name if you use Docker monitoring.) Compare
+(Add `[docker]` and/or `[snmp]`, as `[docker,snmp]`, after the package name if you use Docker or SNMP monitoring.) Compare
 the new release's `deploy/systemd/sentinel-agent.service` with the installed
 one; if it changed, reinstall it and run `sudo systemctl daemon-reload` before
 the restart. Queued measurements survive the restart and are sent afterwards.
@@ -277,6 +330,9 @@ or targets. `systemd-analyze security sentinel-agent` summarizes the sandbox.
 | ICMP measurements with `permission_denied`; `ICMP probes are not permitted` in the journal | Unprivileged ICMP is not allowed for the agent's group (the warning shows the current `net.ipv4.ping_group_range` and the agent's groups). Run `sudo sh enable-unprivileged-icmp.sh` ([step 4](#4-allow-icmp-probes)); no restart is needed. Do not add `CAP_NET_RAW` to the unit instead. |
 | `Network queue storage unavailable ... using in-memory queue` | The state directory was created with wrong ownership. `sudo systemctl stop sentinel-agent && sudo chown -R sentinel-agent: /var/lib/ssphere-sentinel-agent && sudo chmod 0700 /var/lib/ssphere-sentinel-agent`, then start. |
 | `Network target configuration error` | Invalid targets file or unreadable by `sentinel-agent` (needs `0640 root:sentinel-agent`). |
+| `SNMP monitoring disabled: ...` | The message says why: a configuration error (the file and field are named, never a secret), a credentials file with too-open permissions, or `pysnmp is not installed` (install the `[snmp]` extra). The rest of the agent keeps running. |
+| `SNMP device ... is unreachable: timeout` | No answer from the device: wrong address or port, a firewall, or (SNMPv2c) a wrong community, which devices answer with silence. `auth_failure` means a wrong SNMPv3 user, key or protocol. See [snmp.md](snmp.md#unreachable-devices). |
+| `Sentinel could not accept N SNMP poll(s) yet` | The device is not created, assigned to this agent, enabled or configured for SNMP in Sentinel. Polls are kept and retried; fix the device in the admin. |
 | Service restarts in a loop | `journalctl -u sentinel-agent -n 50`; usually a configuration error (`Agent failed: SENTINEL_URL is not set`). |
 
 ## Uninstall

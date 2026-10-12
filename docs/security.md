@@ -91,6 +91,30 @@ the system (`ProtectSystem=strict`), no access to home directories, a private
 directory (`/var/lib/ssphere-sentinel-agent`, mode `0700`) is writable. The
 token file is root-only and read by systemd before privileges are dropped.
 
+### SNMP credentials
+
+SNMP monitoring ([snmp.md](snmp.md)) is the one place where the agent holds
+credentials for *other* systems: community strings and SNMPv3 keys.
+
+- They live only in the agent's credentials file, which Sentinel never reads or
+  stores. The server's device settings hold the profile *name* and nothing else.
+- The agent refuses a credentials file that is a symlink, is owned by another
+  user, is accessible to other users or is writable by group or others, and
+  names the problem without printing any content. Recommended: `root:sentinel-agent`,
+  mode `0640`.
+- A secret is never queued, logged or sent: the queue and the heartbeat carry a
+  fixed whitelist of poll fields, error messages repeat only the key and the rule,
+  and library messages are scrubbed of every secret first.
+- SNMPv1, MD5 authentication and DES privacy are refused. SNMPv3 with SHA-2
+  authentication and AES privacy is the recommended setup; SNMPv2c sends its
+  community in clear text, and the agent warns about it (and about the default
+  communities, authentication without privacy and SHA-1) at every start.
+- The agent polls only the devices in its own local file, so the server cannot
+  make it contact an arbitrary address. SNMP is read-only: the agent never sends
+  SET requests.
+- The SNMP library is an optional dependency (`[snmp]`); an agent without it
+  carries none of this code path's dependencies.
+
 ### Unprivileged ICMP
 
 ICMP probes run the system `ping` inside the same sandbox, so `ping` gets no
@@ -150,8 +174,12 @@ account to the `docker` group.
   pinning.
 - The health endpoints are public and reveal whether the database is
   reachable.
-- The agent's local queue stores measurement results (not credentials) in
-  plain SQLite, readable by root and the service account.
+- The agent's local queue stores measurement results and SNMP polls (not
+  credentials) in plain SQLite, readable by root and the service account.
+- The SNMP credentials file is readable by the service account (and root), so a
+  compromise of the agent exposes the SNMP credentials of the devices it polls.
+  Use read-only SNMP users with views limited to IF-MIB and SNMPv2-MIB, and
+  per-agent credentials, so that one leak does not expose every device.
 - Database backups contain password and token hashes and all monitoring
   data; protect and encrypt them.
 - The container image is not signed and no SBOM is published.

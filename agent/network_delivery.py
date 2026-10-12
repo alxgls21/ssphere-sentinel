@@ -107,8 +107,10 @@ class NetworkDelivery:
     def _back_off(self, reason: str, count: int) -> None:
         with self._lock:
             self._consecutive_failures += 1
+            # The exponent is capped: after about a week of failures (a server
+            # that never learns SNMP, say) 2 ** n no longer fits a float.
             delay = min(
-                BATCH_BACKOFF_BASE_SECONDS * (2 ** (self._consecutive_failures - 1)),
+                BATCH_BACKOFF_BASE_SECONDS * (2 ** min(self._consecutive_failures - 1, 16)),
                 BATCH_BACKOFF_MAX_SECONDS,
             )
             self._backoff_until = self._time_fn() + delay

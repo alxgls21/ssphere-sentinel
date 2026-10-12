@@ -19,13 +19,6 @@ interface Gap {
 }
 
 const GAPS: Partial<Record<NavItem['id'], Gap>> = {
-  servers: {
-    missing: [
-      'A read API for servers and their latest telemetry (list and detail).',
-      'A Site link on servers, so they can be grouped by site.',
-    ],
-    doc: 'docs/agent-deployment.md',
-  },
   docker: {
     missing: [
       'A read API for containers and Docker hosts.',

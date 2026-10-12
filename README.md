@@ -59,13 +59,16 @@ monitors many agents, one agent per monitored server. Deployment guides:
 - **Network checks** (ICMP ping and TCP connect) run on their own schedule,
   per target (default every 60 seconds), independently of heartbeats; see
   [Network monitoring](#network-monitoring-v01).
-- **Local queue**: each network measurement is written to a local SQLite queue
-  first and sent with the following heartbeats. It is removed only when the
+- **SNMP polls** of network devices (optional; needs the `[snmp]` extra and a
+  devices file) run on their own scheduler, per device (default every 300
+  seconds), also independently of heartbeats; see [SNMP monitoring](#snmp-monitoring).
+- **Local queue**: each network measurement and each SNMP poll is written to a
+  local SQLite queue first and sent with the following heartbeats. It is removed only when the
   server acknowledges it (stored or permanently rejected). If the server is
   unreachable, measurements stay queued and are resent with backoff once it
   is back.
-- **Limits**: only network measurements are queued; telemetry and Docker
-  state are sent live, so a missed heartbeat simply has none. The queue is
+- **Limits**: only network measurements and SNMP polls are queued; telemetry
+  and Docker state are sent live, so a missed heartbeat simply has none. The queue is
   bounded (default 10,000 measurements and 7 days; the oldest are dropped
   first) and logs every drop. A measurement the server answers 10 times
   without storing it is also dropped; failed connections do not count as
@@ -77,7 +80,7 @@ monitors many agents, one agent per monitored server. Deployment guides:
 | --- | --- |
 | Production server (Docker Compose, Cloudflare Tunnel, reverse proxy, upgrades, backups, migrations) | [docs/server-deployment.md](docs/server-deployment.md) |
 | Agent on Linux hosts (systemd, Docker monitoring, upgrades, troubleshooting) | [docs/agent-deployment.md](docs/agent-deployment.md) |
-| SNMP data model, heartbeat payload, retention (server side) | [docs/snmp.md](docs/snmp.md) |
+| SNMP monitoring: agent collector, credentials, data model, heartbeat payload, retention | [docs/snmp.md](docs/snmp.md) |
 | Secret rotation and troubleshooting | [docs/operations.md](docs/operations.md) |
 | Security model, trusted proxy boundary, known limitations | [docs/security.md](docs/security.md) |
 
@@ -85,7 +88,8 @@ monitors many agents, one agent per monitored server. Deployment guides:
 
 - **Server:** Python 3.12+ and **PostgreSQL 16+** (local install for
   virtualenv development, or via Compose)
-- **Agent:** Python 3.11+ on Linux or macOS; only depends on `psutil`
+- **Agent:** Python 3.11+ on Linux or macOS; only depends on `psutil` (the
+  Docker SDK and the SNMP library are optional extras)
 - **pip** / a virtual environment
 - **Docker + Docker Compose** — only if you prefer the Compose stack
 
@@ -96,7 +100,7 @@ The repository contains two Python distributions:
 | Distribution | Defined in | Contents | Dependencies |
 | --- | --- | --- | --- |
 | `ssphere-sentinel` (server) | `pyproject.toml` | `sentinel`, `apps` | Django 5.2, Gunicorn, psycopg, WhiteNoise |
-| `ssphere-sentinel-agent` | `agent/pyproject.toml` | `agent`, `sentinel-agent` CLI | `psutil`; extra `[docker]` adds the Docker SDK |
+| `ssphere-sentinel-agent` | `agent/pyproject.toml` | `agent`, `sentinel-agent` CLI | `psutil`; extra `[docker]` adds the Docker SDK, extra `[snmp]` adds `pysnmp` and `cryptography` |
 
 The Docker image does not install the server distribution: it installs the
 exact, hash-pinned dependency versions from `requirements/server.txt`
@@ -186,7 +190,8 @@ set -a && source .env && set +a
 - `pip install -e .` installs the server and its dependencies.
 - `pip install -e ./agent` installs the agent and the `sentinel-agent`
   console script (add `[docker]` for Docker discovery:
-  `pip install -e "./agent[docker]"`).
+  `pip install -e "./agent[docker]"`, and `[snmp]` for SNMP monitoring:
+  `pip install -e "./agent[snmp]"`).
 
 Upgrading an existing virtualenv created before the server and agent were
 split into separate distributions: run `pip uninstall -y ssphere-sentinel`
@@ -596,6 +601,11 @@ Configuration (all optional):
 | `SENTINEL_QUEUE_MAX_AGE_SECONDS` | `604800` (7 days; 3600–2,592,000) | Unsent measurements older than this are discarded |
 | `SENTINEL_NETWORK_MAX_CONCURRENT_PROBES` | `4` (1–16) | Probe worker threads |
 
+SNMP monitoring has its own settings ([docs/snmp.md](docs/snmp.md#configuration)):
+`SENTINEL_SNMP_DEVICES_FILE`, `SENTINEL_SNMP_CREDENTIALS_FILE`,
+`SENTINEL_SNMP_MAX_CONCURRENT_POLLS`, `SENTINEL_SNMP_QUEUE_MAX_POLLS` and
+`SENTINEL_SNMP_QUEUE_MAX_BYTES`. SNMP polls share this queue file and its age limit.
+
 Invalid values are logged and replaced by the default. No queue file is
 created unless at least one enabled network target is configured (or a queue
 file already exists from an earlier run).
@@ -912,22 +922,33 @@ page), then add devices and pick the site; assign an agent that can reach the
 device's network. The device list can be filtered by customer, type, agent
 and enabled state, and searched by name, address, site or customer.
 
-## SNMP data (server side)
+## SNMP monitoring
 
-The server can store SNMP poll results for the devices in the inventory:
-reachability, system information, interfaces with their admin and operational
-status, and per-interface octet, error and discard counters, both raw and as
-per-interval deltas, with history. Agents deliver them in an optional `snmp`
-section of the heartbeat; the section is idempotent, tolerates late and
-repeated deliveries, and a poll is stored completely or not at all.
+Sentinel monitors network devices over SNMPv2c and SNMPv3. The **agent** polls
+the devices from inside their network and reports through its heartbeat; the
+**server** stores reachability, system information, interfaces with their admin
+and operational status, and per-interface octet, error and discard counters,
+both raw and as per-interval deltas, with history.
 
-**The agent-side SNMP collector does not exist yet**, so nothing sends this
-data today and existing agents are unaffected. Credentials are never stored in
-Sentinel: a device's SNMP settings hold only the *name* of a profile in the
-agent's local credentials file.
+- **Optional.** Install the agent with the `[snmp]` extra and give it a devices
+  file and a credentials file. Agents without them, and heartbeats without an
+  `snmp` section, behave exactly as before.
+- **Secure by design.** SNMPv3 with SHA-2 authentication and AES privacy is the
+  recommended setup; SNMPv1, MD5 and DES are refused. Community strings and
+  SNMPv3 keys stay in a file on the agent host. Sentinel stores only the *name* of
+  a credential profile and never receives or stores a secret, and nothing secret
+  is queued, logged or sent.
+- **Robust delivery.** Polls go to the same persistent local queue as network
+  measurements and leave it only when the server acknowledges them; the
+  server tolerates late and repeated deliveries and stores a poll completely or
+  not at all. A device that cannot be reached is recorded as such (with a
+  reason), not skipped.
+- **Bounded.** A fixed worker pool (default 4) polls many devices; every
+  request has a timeout and retries, and every poll has a deadline.
 
-Everything is in [docs/snmp.md](docs/snmp.md): the data model, the payload,
-the acknowledgement, retention and the expected database growth.
+The quick start, every setting, the counter and delta rules, the payload, the
+acknowledgements, retention and the expected database growth are in
+[docs/snmp.md](docs/snmp.md).
 
 ## Docker Compose deployment
 

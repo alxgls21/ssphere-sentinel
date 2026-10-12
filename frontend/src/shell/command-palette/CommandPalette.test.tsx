@@ -623,13 +623,14 @@ describe('keyboard', () => {
   })
 
   it.each([
-    ['edge-gw-02', '/servers'],
+    // A server has a page of its own.
+    ['edge-gw-02', '/servers/s2'],
     ['worker-restart', '/docker'],
     ['wan-uplink', '/network'],
     ['sw-core-01', '/snmp'],
     ['Piraeus Port', '/customers'],
     ['Acme Corp', '/customers'],
-  ])('Enter on %s opens %s, the screen of its domain', async (name, path) => {
+  ])('Enter on %s opens %s, the page or screen that owns it', async (name, path) => {
     const { user } = setup()
     await openLoaded(user)
     await user.type(combobox(), name)
