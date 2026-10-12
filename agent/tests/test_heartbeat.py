@@ -160,7 +160,7 @@ class HeartbeatTests(unittest.TestCase):
 
         self.assertEqual(str(ctx.exception), "server returned HTTP 500")
 
-    @patch("agent.http_client.urllib.request.urlopen")
+    @patch("agent.http_client._opener.open")
     def test_connection_failure(self, mock_urlopen):
         import urllib.error
 
@@ -177,7 +177,7 @@ class HeartbeatTests(unittest.TestCase):
         self.assertIn("connection failed", str(ctx.exception))
         self.assertNotIn(self.config.agent_token, str(ctx.exception))
 
-    @patch("agent.http_client.urllib.request.urlopen")
+    @patch("agent.http_client._opener.open")
     def test_timeout(self, mock_urlopen):
         import urllib.error
 
@@ -194,7 +194,7 @@ class HeartbeatTests(unittest.TestCase):
         self.assertEqual(str(ctx.exception), "request timed out")
         self.assertNotIn(self.config.agent_token, str(ctx.exception))
 
-    @patch("agent.http_client.urllib.request.urlopen")
+    @patch("agent.http_client._opener.open")
     def test_user_agent_header_is_sent(self, mock_urlopen):
         class FakeResponse:
             status = 200
@@ -390,3 +390,18 @@ class HeartbeatResponseHandlingTests(unittest.TestCase):
     def test_error_status_still_raises(self):
         with self.assertRaises(HeartbeatError):
             self._send('{"network": "accepted"}', status=500)
+
+class InsecureHttpWarningTests(unittest.TestCase):
+    @patch("agent.heartbeat.post_json")
+    def test_http_warning_is_logged_once_not_per_heartbeat(self, mock_post):
+        from agent.heartbeat import _warn_insecure_http
+
+        _warn_insecure_http.cache_clear()
+        self.addCleanup(_warn_insecure_http.cache_clear)
+        mock_post.return_value = HttpResponse(status=200, body="{}")
+        config = Config(sentinel_url="http://sentinel.internal", agent_token="t")
+        with self.assertLogs("sentinel_agent", level="WARNING") as logs:
+            for _ in range(3):
+                send_heartbeat(config, collect_fn=lambda: {}, docker_fn=lambda: {})
+        http_warnings = [line for line in logs.output if "uses HTTP" in line]
+        self.assertEqual(len(http_warnings), 1)

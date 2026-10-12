@@ -1,7 +1,9 @@
 from io import StringIO
+from unittest.mock import patch
 
 from django.core.management import call_command
 from django.core.management.base import CommandError
+from django.db.models import QuerySet
 from django.test import TestCase
 
 from apps.agents.models import Agent
@@ -51,3 +53,13 @@ class CreateAgentCommandTests(TestCase):
                 name="another-agent",
                 stdout=StringIO(),
             )
+
+    def test_concurrent_duplicate_is_reported_as_command_error(self):
+        call_command("create_agent", server=str(self.server.id), name="first", stdout=StringIO())
+        # Simulate losing the race: the pre-check saw no agent, the INSERT conflicts.
+        with patch.object(QuerySet, "exists", return_value=False):
+            with self.assertRaisesMessage(CommandError, "already has an agent"):
+                call_command(
+                    "create_agent", server=str(self.server.id), name="second", stdout=StringIO()
+                )
+        self.assertEqual(Agent.objects.get(server=self.server).name, "first")

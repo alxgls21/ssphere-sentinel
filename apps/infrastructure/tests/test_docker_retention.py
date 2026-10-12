@@ -1,7 +1,7 @@
 from datetime import timedelta
 from io import StringIO
 
-from django.core.management import call_command
+from django.core.management import CommandError, call_command
 from django.test import TestCase, override_settings
 from django.utils import timezone
 
@@ -82,6 +82,9 @@ class AbsentContainerCleanupTests(TestCase):
 
     def test_invalid_options_are_refused(self):
         self._container(1, present=False, age_days=40)
-        self.assertIn("positive integer", self._purge(days=0))
-        self.assertIn("--batch-size must be between", self._purge(batch_size=0))
+        # CommandError gives cron/systemd a non-zero exit status.
+        with self.assertRaisesMessage(CommandError, "positive integer"):
+            self._purge(days=0)
+        with self.assertRaisesMessage(CommandError, "--batch-size must be between"):
+            self._purge(batch_size=0)
         self.assertEqual(DockerContainer.objects.count(), 1)

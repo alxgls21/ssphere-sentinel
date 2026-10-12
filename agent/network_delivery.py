@@ -11,10 +11,10 @@ from typing import Any
 
 from agent.acknowledgement import Acknowledgement, parse_acknowledgement
 from agent.measurement_queue import MeasurementQueue, QueueError
+from agent.network import NETWORK_PAYLOAD_VERSION
 
 logger = logging.getLogger("sentinel_agent")
 
-NETWORK_PAYLOAD_VERSION = 1
 # Must not exceed the server's MAX_MEASUREMENTS_PER_REPORT.
 MAX_BATCH_SIZE = 100
 BATCH_BACKOFF_BASE_SECONDS = 30.0

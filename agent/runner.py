@@ -10,16 +10,10 @@ import time
 from collections.abc import Callable
 
 from agent.config import Config
-from agent.errors import AgentError
+from agent.errors import redact
 from agent.heartbeat import send_heartbeat
 
 logger = logging.getLogger("sentinel_agent")
-
-
-def _redact(text: str, secret: str) -> str:
-    if secret and secret in text:
-        return text.replace(secret, "***")
-    return text
 
 
 def run_continuous(
@@ -60,12 +54,8 @@ def run_continuous(
             try:
                 send_fn(config)
                 print("Heartbeat successful.")
-            except AgentError as exc:
-                message = _redact(str(exc), config.agent_token)
-                print(f"Heartbeat failed: {message}", file=sys.stderr)
-                logger.warning("Heartbeat failed: %s", message)
             except Exception as exc:  # noqa: BLE001 - keep the loop alive
-                message = _redact(str(exc), config.agent_token)
+                message = redact(str(exc), config.agent_token)
                 print(f"Heartbeat failed: {message}", file=sys.stderr)
                 logger.warning("Heartbeat failed: %s", message)
 

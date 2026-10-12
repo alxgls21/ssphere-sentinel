@@ -21,6 +21,21 @@ class HttpResponse:
     body: str
 
 
+class _NoRedirectHandler(urllib.request.HTTPRedirectHandler):
+    """Refuse to follow redirects.
+
+    urllib would re-send the ``Authorization`` header to whatever host the
+    ``Location`` names (even over plain HTTP) and silently turn the POST into
+    a body-less GET. A 3xx is returned to the caller as a failed request.
+    """
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        return None
+
+
+_opener = urllib.request.build_opener(_NoRedirectHandler)
+
+
 def post(
     url: str,
     *,
@@ -31,7 +46,8 @@ def post(
     """Send an HTTP POST and return status/body.
 
     Raises HeartbeatError on transport failures and timeouts. Non-2xx
-    responses are returned to the caller for handling.
+    responses (including redirects, which are never followed) are returned
+    to the caller for handling.
     """
     request_headers = {
         "User-Agent": USER_AGENT,
@@ -48,7 +64,7 @@ def post(
     )
 
     try:
-        with urllib.request.urlopen(request, timeout=timeout) as response:
+        with _opener.open(request, timeout=timeout) as response:
             raw = response.read()
             text = raw.decode("utf-8", errors="replace")
             return HttpResponse(status=response.status, body=text)

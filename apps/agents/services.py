@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from django.db import transaction
+from django.db import IntegrityError, transaction
 from django.utils import timezone
 
 from apps.agents.models import Agent
@@ -25,12 +25,19 @@ def create_agent(*, server: Server, name: str) -> tuple[Agent, str]:
         )
 
     raw_token = generate_token()
-    agent = Agent.objects.create(
-        server=server,
-        name=name,
-        token_hash=hash_token(raw_token),
-        enabled=True,
-    )
+    try:
+        with transaction.atomic():
+            agent = Agent.objects.create(
+                server=server,
+                name=name,
+                token_hash=hash_token(raw_token),
+                enabled=True,
+            )
+    except IntegrityError as exc:
+        # A concurrent create_agent for the same server won the race.
+        raise AgentAlreadyExistsError(
+            f"Server '{server.name}' already has an agent."
+        ) from exc
     return agent, raw_token
 
 

@@ -4,21 +4,19 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime, timedelta
-from datetime import timezone as dt_timezone
 from typing import Any
 from uuid import UUID
 
 from django.conf import settings
 from django.db import IntegrityError, transaction
 from django.utils import timezone
-from django.utils.dateparse import parse_datetime
 
 from apps.agents.models import Agent
+from apps.core.validation import parse_timestamp, require_integer, require_number
 from apps.network.models import NetworkMeasurement, NetworkTarget
 
 SUPPORTED_NETWORK_VERSION = 1
 MAX_MEASUREMENTS_PER_REPORT = 100
-MAX_FUTURE_SKEW = timedelta(minutes=5)
 ALLOWED_FAILURE_REASONS = frozenset(
     value for value, _label in NetworkMeasurement.FailureReason.choices
 )
@@ -314,7 +312,9 @@ def _insert_individually(
                 .first()
             )
             if stored is None:
-                # Not a duplicate (e.g. the target was deleted meanwhile).
+                # Not a duplicate. (A target deleted meanwhile does not land
+                # here: PostgreSQL checks the deferred FK at commit, so the
+                # whole request fails and nothing is acknowledged.)
                 rejections.append(
                     MeasurementRejection(
                         str(item.measurement_id),
@@ -364,7 +364,9 @@ def _validate_measurement(
     if not target.enabled:
         raise NetworkValidationError("target is disabled")
 
-    measured_at = _parse_timestamp(raw.get("measured_at"), field="measured_at")
+    measured_at = parse_timestamp(
+        raw.get("measured_at"), field="measured_at", error=NetworkValidationError
+    )
     if measured_at < oldest_allowed:
         raise NetworkValidationError(
             "measured_at is older than the accepted history window"
@@ -378,15 +380,18 @@ def _validate_measurement(
     successful_probes = _require_int(
         raw, "successful_probes", minimum=0, maximum=probe_count
     )
-    packet_loss = _require_float(
-        raw, "packet_loss_percentage", minimum=0.0, maximum=100.0
+    packet_loss = _require_number(
+        raw.get("packet_loss_percentage"),
+        field="packet_loss_percentage",
+        minimum=0.0,
+        maximum=100.0,
     )
 
     latency_raw = raw.get("latency_ms")
     if latency_raw is None:
         latency_ms = None
     else:
-        latency_ms = _require_float_value(
+        latency_ms = _require_number(
             latency_raw, field="latency_ms", minimum=0.0, maximum=600_000.0
         )
 
@@ -444,57 +449,13 @@ def _parse_uuid(value: Any, *, field: str) -> UUID:
         raise NetworkValidationError(f"{field} must be a UUID string") from exc
 
 
-def _parse_timestamp(value: Any, *, field: str) -> datetime:
-    if not isinstance(value, str) or not value.strip():
-        raise NetworkValidationError(f"{field} must be an ISO-8601 timestamp")
-    try:
-        parsed = parse_datetime(value.strip())
-    except ValueError:
-        parsed = None
-    if parsed is None:
-        raise NetworkValidationError(f"{field} must be an ISO-8601 timestamp")
-    if timezone.is_naive(parsed):
-        parsed = timezone.make_aware(parsed, dt_timezone.utc)
-    if parsed > timezone.now() + MAX_FUTURE_SKEW:
-        raise NetworkValidationError(f"{field} is too far in the future")
-    return parsed
-
-
 def _require_int(raw: dict[str, Any], field: str, *, minimum: int, maximum: int) -> int:
-    value = raw.get(field)
-    if isinstance(value, bool) or not isinstance(value, int):
-        raise NetworkValidationError(f"{field} must be an integer")
-    if value < minimum or value > maximum:
-        raise NetworkValidationError(
-            f"{field} must be between {minimum} and {maximum}"
-        )
-    return value
-
-
-def _require_float(
-    raw: dict[str, Any],
-    field: str,
-    *,
-    minimum: float,
-    maximum: float,
-) -> float:
-    return _require_float_value(
-        raw.get(field), field=field, minimum=minimum, maximum=maximum
+    return require_integer(
+        raw.get(field), field=field, error=NetworkValidationError, minimum=minimum, maximum=maximum
     )
 
 
-def _require_float_value(
-    value: Any,
-    *,
-    field: str,
-    minimum: float,
-    maximum: float,
-) -> float:
-    if isinstance(value, bool) or not isinstance(value, (int, float)):
-        raise NetworkValidationError(f"{field} must be a number")
-    number = float(value)
-    if number < minimum or number > maximum:
-        raise NetworkValidationError(
-            f"{field} must be between {minimum} and {maximum}"
-        )
-    return number
+def _require_number(value: Any, *, field: str, minimum: float, maximum: float) -> float:
+    return require_number(
+        value, field=field, error=NetworkValidationError, minimum=minimum, maximum=maximum
+    )
