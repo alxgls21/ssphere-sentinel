@@ -87,6 +87,41 @@ the system (`ProtectSystem=strict`), no access to home directories, a private
 directory (`/var/lib/ssphere-sentinel-agent`, mode `0700`) is writable. The
 token file is root-only and read by systemd before privileges are dropped.
 
+### Unprivileged ICMP
+
+ICMP probes run the system `ping` inside the same sandbox, so `ping` gets no
+capability either: its `CAP_NET_RAW` file capability (Debian, Ubuntu) is not
+applied under `NoNewPrivileges=yes` and the empty bounding set. It uses the
+kernel's unprivileged ICMP echo sockets instead, which the deployment allows
+for the `sentinel-agent` group only (`net.ipv4.ping_group_range = <gid> <gid>`,
+written by `deploy/systemd/enable-unprivileged-icmp.sh`).
+
+What a process in that group can do with it (Linux "ping sockets",
+`socket(AF_INET[6], SOCK_DGRAM, IPPROTO_ICMP[V6])`):
+
+- send ICMP/ICMPv6 **echo requests** to any destination, and receive the echo
+  replies (and related ICMP errors) for its own socket;
+- nothing else: the kernel rejects every other ICMP message type, builds the
+  IP header itself (only local source addresses, no spoofing), ties the echo
+  identifier to the socket like a port, and delivers only the replies that
+  match it. It cannot capture other traffic or craft arbitrary packets.
+
+Compared with `CAP_NET_RAW`, which would also allow raw IP sockets (arbitrary
+packets, spoofed sources, receiving copies of other ICMP traffic) for the
+whole agent process, this is strictly narrower. Remaining implications:
+
+- The setting is host-wide (per network namespace): any process running with
+  the `sentinel-agent` group gets it, not only the service. The account has
+  no login shell, and nothing else should run with that group.
+- It exposes the kernel's ping-socket code to that group. Many distributions
+  enable it for all groups by default; the deployment enables it for one.
+- A compromised agent could send ICMP echo traffic, as it can already send
+  TCP and UDP traffic.
+
+If `ping_group_range` already allows the group (for example a distribution
+that allows all groups), the helper changes nothing. The agent never needs
+root or `CAP_NET_RAW`: do not add capabilities to the unit to make ICMP work.
+
 **Docker monitoring** requires access to the Docker API, which is
 equivalent to root on that host. It is disabled by default; prefer the
 read-only socket proxy described in the agent guide over adding the service

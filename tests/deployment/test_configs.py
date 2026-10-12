@@ -3,6 +3,7 @@ regress silently (non-root, no Docker socket by default, no secrets)."""
 
 from __future__ import annotations
 
+import os
 import re
 import unittest
 from pathlib import Path
@@ -45,6 +46,20 @@ class AgentUnitTests(unittest.TestCase):
         self.assertEqual(self.value("Service.CapabilityBoundingSet"), "")
         self.assertEqual(self.value("Service.AmbientCapabilities"), "")
         self.assertEqual(self.value("Service.NoNewPrivileges"), "yes")
+
+    def test_icmp_uses_unprivileged_sockets_not_capabilities(self):
+        # ping must not regain CAP_NET_RAW through the unit or a shipped drop-in.
+        for path in SYSTEMD.glob("*"):
+            if path.suffix in {".service", ".conf"}:
+                directives = unit_directives(path)
+                for key in ("Service.CapabilityBoundingSet", "Service.AmbientCapabilities"):
+                    self.assertNotIn("CAP_NET_RAW", " ".join(directives.get(key, [])), path.name)
+        helper = SYSTEMD / "enable-unprivileged-icmp.sh"
+        self.assertTrue(os.access(helper, os.X_OK), "helper must be executable")
+        self.assertIn("net.ipv4.ping_group_range = $gid $gid", helper.read_text())
+        # The end-to-end CI test applies the shipped helper, not its own fix.
+        e2e = (ROOT / ".github" / "scripts" / "agent-systemd-e2e.sh").read_text()
+        self.assertIn("sh deploy/systemd/enable-unprivileged-icmp.sh", e2e)
 
     def test_docker_socket_access_is_not_granted_by_default(self):
         self.assertNotIn("Service.SupplementaryGroups", self.unit)

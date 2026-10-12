@@ -621,9 +621,13 @@ invalid network section does not block those subsystems.
 - Only probe destinations you are authorized to monitor.
 - Targets come from the agent-local file, not from unauthenticated input.
 - Hostnames/IPs are validated; probes never use `shell=True`.
-- ICMP may require privileges / capabilities; if unavailable the agent reports
-  `permission_denied` / `unsupported` and TCP targets continue to work.
-- Root is not required for TCP monitoring.
+- Root and capabilities are never required. ICMP uses `ping`, which needs
+  either its `CAP_NET_RAW` file capability (blocked by the hardened systemd
+  unit) or unprivileged ICMP sockets for the agent's group
+  (`net.ipv4.ping_group_range`, disabled by default on Debian and Ubuntu; see
+  [Allow ICMP probes](docs/agent-deployment.md#4-allow-icmp-probes)). If ICMP
+  is not permitted the agent records `permission_denied` (`unsupported`
+  without `ping`), logs the cause once, and TCP targets continue to work.
 
 SLA calculations, alarms, and remote target configuration are not implemented
 yet.

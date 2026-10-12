@@ -13,10 +13,11 @@ server (no Django, Gunicorn or PostgreSQL driver).
 | Network targets file (`root:sentinel-agent`, `0640`) | `/etc/ssphere-sentinel-agent/network_targets.json` |
 | Persistent measurement queue (`0700` directory) | `/var/lib/ssphere-sentinel-agent/` |
 | Unit file | `/etc/systemd/system/sentinel-agent.service` |
+| Unprivileged ICMP for the agent's group (if needed) | `/etc/sysctl.d/60-ssphere-sentinel-agent-icmp.conf` |
 | Logs | journald: `journalctl -u sentinel-agent` |
 
 The shipped files are in [`deploy/systemd/`](../deploy/systemd/): the unit, an
-environment template and an opt-in Docker drop-in. Replace `<tag>` below with
+environment template, the ICMP helper script and an opt-in Docker drop-in. Replace `<tag>` below with
 the release you deploy (for example `v0.2.0`).
 
 ## Requirements
@@ -29,7 +30,9 @@ the release you deploy (for example `v0.2.0`).
   - Ubuntu 22.04: `sudo apt install python3.11 python3.11-venv`, then use
     `python3.11` instead of `python3` below
   - RHEL 9 and compatible: `sudo dnf install python3.12`, then use `python3.12`
-- `ping` (`iputils-ping` on Debian/Ubuntu) for ICMP targets.
+- `ping` (`iputils-ping` on Debian/Ubuntu) for ICMP targets, and unprivileged
+  ICMP allowed for the agent's group ([step 4](#4-allow-icmp-probes)); Debian
+  and Ubuntu disable it by default.
 - `git`, only if you install directly from the repository.
 - Outbound HTTPS from the host to the Sentinel server.
 
@@ -66,7 +69,7 @@ its own code.
 Fetch the deployment files for the same release:
 
 ```bash
-for file in sentinel-agent.service agent.env.example docker-monitoring.conf; do
+for file in sentinel-agent.service agent.env.example enable-unprivileged-icmp.sh docker-monitoring.conf; do
     curl -fsSLO "https://raw.githubusercontent.com/alxgls21/ssphere-sentinel/<tag>/deploy/systemd/$file"
 done
 ```
@@ -94,7 +97,35 @@ sudo install -m 0640 -o root -g sentinel-agent network_targets.json \
     /etc/ssphere-sentinel-agent/network_targets.json
 ```
 
-## 4. Start
+## 4. Allow ICMP probes
+
+Skip this step if the agent has no ICMP targets.
+
+The unit gives the agent **no Linux capabilities** (`NoNewPrivileges=yes`, an
+empty `CapabilityBoundingSet=`), so `ping` cannot use the `CAP_NET_RAW` file
+capability it relies on on Debian and Ubuntu. Instead it uses the kernel's
+unprivileged ICMP sockets, which only groups within
+`net.ipv4.ping_group_range` may open. Debian and Ubuntu leave that range at
+the kernel default `1 0` (no group); some other distributions allow all
+groups. Allow exactly the agent's group:
+
+```bash
+sudo sh enable-unprivileged-icmp.sh
+```
+
+The script writes `/etc/sysctl.d/60-ssphere-sentinel-agent-icmp.conf`
+(`net.ipv4.ping_group_range = <gid> <gid>` for the `sentinel-agent` group),
+applies it immediately, and systemd re-applies it at every boot. It changes
+nothing if the group is already allowed, and it never replaces a range that is
+already configured for other groups (it stops and asks you to extend that
+range yourself). See [security.md](security.md#unprivileged-icmp) for exactly
+what this permits.
+
+Without this step ICMP measurements are recorded with
+`failure_reason=permission_denied` and the journal shows once:
+`WARNING: ICMP probes are not permitted (ping: socket: Operation not permitted ...)`.
+
+## 5. Start
 
 ```bash
 sudo install -m 0644 sentinel-agent.service /etc/systemd/system/sentinel-agent.service
@@ -107,7 +138,7 @@ restarts it 10 seconds after a crash. On `systemctl stop` the agent stops
 probing, lets running probes finish, keeps queued measurements on disk and
 exits cleanly.
 
-## 5. Check
+## 6. Check
 
 ```bash
 systemctl status sentinel-agent
@@ -240,7 +271,7 @@ or targets. `systemd-analyze security sentinel-agent` summarizes the sandbox.
 | `server returned HTTP 301 redirect; redirects are not followed` | `SENTINEL_URL` is not the final address (for example `http://` behind an HTTPS redirect). Use the `https://` URL. |
 | `connection failed: ...` / `request timed out` | DNS, firewall or the server is down. The agent keeps retrying; measurements stay queued. |
 | `Heartbeat failed: server returned HTTP 403` behind Cloudflare | A WAF, Bot Fight Mode or Access rule blocks the agent. Exempt `/api/v1/agent/` (docs/server-deployment.md). |
-| ICMP measurements with `permission_denied` | The sandbox allows unprivileged ICMP only. Check `sysctl net.ipv4.ping_group_range`; allow all groups with `echo 'net.ipv4.ping_group_range = 0 2147483647' \| sudo tee /etc/sysctl.d/60-ping.conf && sudo sysctl --system`. |
+| ICMP measurements with `permission_denied`; `ICMP probes are not permitted` in the journal | Unprivileged ICMP is not allowed for the agent's group (the warning shows the current `net.ipv4.ping_group_range` and the agent's groups). Run `sudo sh enable-unprivileged-icmp.sh` ([step 4](#4-allow-icmp-probes)); no restart is needed. Do not add `CAP_NET_RAW` to the unit instead. |
 | `Network queue storage unavailable ... using in-memory queue` | The state directory was created with wrong ownership. `sudo systemctl stop sentinel-agent && sudo chown -R sentinel-agent: /var/lib/ssphere-sentinel-agent && sudo chmod 0700 /var/lib/ssphere-sentinel-agent`, then start. |
 | `Network target configuration error` | Invalid targets file or unreadable by `sentinel-agent` (needs `0640 root:sentinel-agent`). |
 | Service restarts in a loop | `journalctl -u sentinel-agent -n 50`; usually a configuration error (`Agent failed: SENTINEL_URL is not set`). |
@@ -253,6 +284,10 @@ sudo rm -rf /etc/systemd/system/sentinel-agent.service /etc/systemd/system/senti
 sudo systemctl daemon-reload
 sudo rm -rf /opt/ssphere-sentinel-agent /etc/ssphere-sentinel-agent /var/lib/ssphere-sentinel-agent
 sudo userdel sentinel-agent
+# If step 4 wrote it: remove the ICMP drop-in and restore the kernel default.
+sudo rm -f /etc/sysctl.d/60-ssphere-sentinel-agent-icmp.conf
+sudo sysctl -w net.ipv4.ping_group_range="1 0"
+sudo sysctl --system
 ```
 
 Removing `/var/lib/ssphere-sentinel-agent` deletes measurements that were not

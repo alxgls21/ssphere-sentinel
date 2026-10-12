@@ -6,6 +6,10 @@
 #
 # Adjust with a drop-in (sudo systemctl edit sentinel-agent) instead of editing
 # this file. Docker monitoring is opt-in: see docker-monitoring.conf.
+#
+# The agent has no capabilities, and neither has ping: ICMP probes need
+# unprivileged ICMP sockets for the agent's group (net.ipv4.ping_group_range),
+# which enable-unprivileged-icmp.sh configures. Do not add CAP_NET_RAW.
 
 [Unit]
 Description=SSphere Sentinel agent
