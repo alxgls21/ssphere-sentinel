@@ -346,3 +346,52 @@ export interface EntityIndex {
   generatedAt: Iso
   items: EntityIndexItem[]
 }
+
+/* ------------------------------------------------------------ servers screen */
+
+/** One server as the list and the detail page show it: the record, its health and where it lives. */
+export interface ServerListItem {
+  server: Server
+  /** Heartbeat status combined with the resource thresholds (src/lib/status.ts). */
+  health: HealthStatus
+  customerName?: string
+  siteName?: string
+  /** Containers last reported by the host's Docker agent. */
+  containers: { total: number; counts: StatusCounts }
+}
+
+export interface ServerList {
+  generatedAt: Iso
+  items: ServerListItem[]
+}
+
+export interface ServerContainer {
+  container: DockerContainer
+  status: HealthStatus
+}
+
+export interface ServerDetail {
+  generatedAt: Iso
+  item: ServerListItem
+  containers: ServerContainer[]
+}
+
+export interface ServerSeriesOptions extends Pick<RequestOptions, 'signal'> {
+  serverId: string
+  range: RangeKey
+}
+
+/**
+ * CPU, memory and disk history of one server, one entry per bucket (parallel
+ * arrays, null = no sample). MOCK-ONLY: the backend keeps one telemetry row per
+ * server, so there is no history to read until it stores samples.
+ */
+export interface ServerSeries {
+  generatedAt: Iso
+  bucketMs: number
+  /** Bucket start, epoch ms. */
+  t: number[]
+  cpu: (number | null)[]
+  memory: (number | null)[]
+  disk: (number | null)[]
+}

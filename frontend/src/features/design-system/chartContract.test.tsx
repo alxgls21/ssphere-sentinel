@@ -2,11 +2,13 @@ import { act, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import type { ReactElement } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import type { ServerSeries } from '@/api/types'
 import type { ChartOption } from '@/charts/echarts'
 import { fakeCharts, resetFakeCharts } from '@/charts/testing/fakeEcharts'
 import { CHART_COLOR_TOKENS } from '@/charts/theme'
 import LatencyChart from '@/features/overview/latency/LatencyChart'
 import { makeSeries } from '@/features/overview/latency/testSeries'
+import ServerHistoryChart from '@/features/servers/ServerHistoryChart'
 import { renderApp } from '@/test/render'
 import BandwidthChart from './sample/BandwidthChart'
 import { SAMPLE_BANDWIDTH } from './sample/bandwidth'
@@ -31,6 +33,15 @@ interface ChartCase {
   cursorLabel: string
 }
 
+const HISTORY: ServerSeries = {
+  generatedAt: '2026-10-12T14:00:00Z',
+  bucketMs: 60_000,
+  t: [0, 1, 2, 3, 4].map((minute) => Date.parse('2026-10-12T13:56:00Z') + minute * 60_000),
+  cpu: [10, 20, 30, 40, 50],
+  memory: [50, 51, 52, 53, 54],
+  disk: [70, 70, 71, 71, 72],
+}
+
 const CHARTS: readonly ChartCase[] = [
   {
     name: 'network latency (two grids)',
@@ -45,6 +56,13 @@ const CHARTS: readonly ChartCase[] = [
     count: SAMPLE_BANDWIDTH.t.length,
     series: ['in', 'out'],
     cursorLabel: 'Bandwidth cursor',
+  },
+  {
+    name: 'server resource history (three grids)',
+    element: () => <ServerHistoryChart name="ath-db-01" series={HISTORY} range="1h" />,
+    count: HISTORY.t.length,
+    series: ['cpu', 'memory', 'disk'],
+    cursorLabel: 'Resource history cursor',
   },
 ]
 

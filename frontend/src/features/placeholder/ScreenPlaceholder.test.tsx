@@ -6,7 +6,7 @@ import { renderApp } from '@/test/render'
 import { NotFoundPage } from './NotFoundPage'
 import { ScreenPlaceholder } from './ScreenPlaceholder'
 
-const SCREENS = NAV_ITEMS.filter((item) => item.id !== 'overview')
+const SCREENS = NAV_ITEMS.filter((item) => !item.designed)
 
 describe('ScreenPlaceholder', () => {
   it.each(SCREENS.map((item) => [item.label, item] as const))(
@@ -68,12 +68,12 @@ describe('ScreenPlaceholder', () => {
       if (screen.queryByRole('heading', { name: 'Documentation' })) documented.add(item.id)
       unmount()
     }
-    expect([...documented].sort()).toEqual(['docker', 'network', 'servers', 'snmp'])
+    expect([...documented].sort()).toEqual(['docker', 'network', 'snmp'])
   })
 
   it('links back to Overview, keeping the scope and range of the view', () => {
-    const servers = SCREENS[0] as (typeof SCREENS)[number]
-    renderApp(<ScreenPlaceholder item={servers} />, { route: '/servers?range=6h&customer=acme' })
+    const first = SCREENS[0] as (typeof SCREENS)[number]
+    renderApp(<ScreenPlaceholder item={first} />, { route: '/docker?range=6h&customer=acme' })
     expect(screen.getByRole('link', { name: 'Back to Overview' })).toHaveAttribute(
       'href',
       '/?range=6h&customer=acme',

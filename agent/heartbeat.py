@@ -13,6 +13,7 @@ from agent.docker_discovery import collect_docker
 from agent.errors import HeartbeatError
 from agent.http_client import post_json
 from agent.network_delivery import DeliveryBatch, NetworkDelivery
+from agent.snmp_delivery import SnmpBatch, SnmpDelivery
 from agent.telemetry import collect_telemetry
 
 logger = logging.getLogger("sentinel_agent")
@@ -21,6 +22,7 @@ SUBSYSTEM_DETAIL_KEYS = {
     "telemetry": "detail",
     "docker": "docker_detail",
     "network": "network_detail",
+    "snmp": "snmp_detail",
 }
 MAX_LOGGED_TEXT_LENGTH = 200
 MAX_LOGGED_REJECTIONS = 5
@@ -31,13 +33,15 @@ def build_heartbeat_payload(
     collect_fn: Callable[[], dict[str, Any]] | None = None,
     docker_fn: Callable[[], dict[str, Any]] | None = None,
     network_fn: Callable[[], dict[str, Any]] | None = None,
+    snmp_fn: Callable[[], dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     """Build the JSON body for a heartbeat request.
 
-    Telemetry, Docker, and network collectors are independent. Failures in one
-    are logged locally; other subsystems and liveness still proceed. Without
-    ``network_fn`` the heartbeat carries no network section: measurements are
-    only ever sent from the persistent queue (see ``NetworkDelivery``).
+    Telemetry, Docker, network and SNMP collectors are independent. Failures
+    in one are logged locally; other subsystems and liveness still proceed.
+    Without ``network_fn`` (``snmp_fn``) the heartbeat carries no network
+    (SNMP) section: they are only ever sent from the persistent queue (see
+    ``NetworkDelivery`` and ``SnmpDelivery``).
     """
     # Resolved at call time (not as default arguments) so the module-level
     # collectors can be replaced, e.g. patched in tests.
@@ -63,6 +67,14 @@ def build_heartbeat_payload(
         except Exception as exc:  # noqa: BLE001
             logger.warning("Network collection failed: %s", exc)
 
+    if snmp_fn is not None:
+        try:
+            snmp_payload = snmp_fn()
+            if snmp_payload.get("polls"):
+                payload["snmp"] = snmp_payload
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("SNMP collection failed: %s", exc)
+
     return payload
 
 
@@ -74,12 +86,14 @@ def send_heartbeat(
     docker_fn: Callable[[], dict[str, Any]] | None = None,
     network_fn: Callable[[], dict[str, Any]] | None = None,
     network_delivery: NetworkDelivery | None = None,
+    snmp_delivery: SnmpDelivery | None = None,
 ) -> None:
-    """POST a heartbeat (with optional telemetry/Docker/network) to Sentinel.
+    """POST a heartbeat (with optional telemetry/Docker/network/SNMP) to Sentinel.
 
     With ``network_delivery``, the network section is a batch from the
     persistent queue (``network_fn`` is ignored) and queued measurements are
     removed only according to the server's explicit acknowledgement.
+    ``snmp_delivery`` does the same for the ``snmp`` section.
     """
     if uses_insecure_http(config):
         _warn_insecure_http(config.sentinel_url)
@@ -89,11 +103,18 @@ def send_heartbeat(
         batch = network_delivery.prepare_batch()
         network_fn = batch.section
 
+    snmp_batch = SnmpBatch()
+    snmp_fn = None
+    if snmp_delivery is not None:
+        snmp_batch = snmp_delivery.prepare_batch()
+        snmp_fn = snmp_batch.section
+
     headers = {"Authorization": f"Bearer {config.agent_token}"}
     payload = build_heartbeat_payload(
         collect_fn=collect_fn,
         docker_fn=docker_fn,
         network_fn=network_fn,
+        snmp_fn=snmp_fn,
     )
     kwargs: dict[str, Any] = {"payload": payload}
     if timeout is not None:
@@ -105,6 +126,8 @@ def send_heartbeat(
     except Exception:
         if network_delivery is not None:
             network_delivery.record_failure(batch, "request failed")
+        if snmp_delivery is not None:
+            snmp_delivery.record_failure(snmp_batch, "request failed")
         raise
 
     if 200 <= response.status < 300:
@@ -112,10 +135,14 @@ def send_heartbeat(
         log_subsystem_status(response.body)
         if network_delivery is not None:
             network_delivery.acknowledge(batch, response.body)
+        if snmp_delivery is not None:
+            snmp_delivery.acknowledge(snmp_batch, response.body)
         return
 
     if network_delivery is not None:
         network_delivery.record_failure(batch, f"HTTP {response.status}")
+    if snmp_delivery is not None:
+        snmp_delivery.record_failure(snmp_batch, f"HTTP {response.status}")
     if 300 <= response.status < 400:
         raise HeartbeatError(
             f"server returned HTTP {response.status} redirect; redirects are not "
@@ -155,6 +182,8 @@ def log_subsystem_status(body: str) -> dict[str, str]:
         statuses[subsystem] = status
         if subsystem == "network":
             _log_network_status(status, data)
+        elif subsystem == "snmp":
+            _log_snmp_status(status, data)
         elif status == "accepted":
             logger.debug("Sentinel accepted %s", subsystem)
         else:
@@ -195,6 +224,38 @@ def _log_network_status(status: str, data: dict[str, Any]) -> None:
     if len(rejections) > MAX_LOGGED_REJECTIONS:
         logger.warning(
             "%d more network measurement rejection(s) not shown",
+            len(rejections) - MAX_LOGGED_REJECTIONS,
+        )
+
+
+def _log_snmp_status(status: str, data: dict[str, Any]) -> None:
+    accepted = data.get("snmp_accepted")
+    rejected = data.get("snmp_rejected")
+    if status == "accepted":
+        logger.debug("Sentinel accepted SNMP polls (accepted=%s)", accepted)
+        return
+
+    logger.warning(
+        "Sentinel %s SNMP polls (accepted=%s, rejected=%s): %s",
+        _safe_text(status),
+        accepted if isinstance(accepted, int) else "unknown",
+        rejected if isinstance(rejected, int) else "unknown",
+        _safe_text(data.get("snmp_detail")),
+    )
+    rejections = data.get("snmp_rejections")
+    if not isinstance(rejections, list):
+        return
+    for rejection in rejections[:MAX_LOGGED_REJECTIONS]:
+        if not isinstance(rejection, dict):
+            continue
+        logger.warning(
+            "SNMP poll %s rejected: %s",
+            _safe_text(rejection.get("poll_id")),
+            _safe_text(rejection.get("reason")),
+        )
+    if len(rejections) > MAX_LOGGED_REJECTIONS:
+        logger.warning(
+            "%d more SNMP poll rejection(s) not shown",
             len(rejections) - MAX_LOGGED_REJECTIONS,
         )
 

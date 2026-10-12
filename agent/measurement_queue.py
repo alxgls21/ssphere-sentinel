@@ -1,14 +1,22 @@
-"""Persistent, bounded local queue for network measurements (stdlib sqlite3).
+"""Persistent, bounded local queue for network measurements and SNMP polls (stdlib sqlite3).
 
 Measurements are written here as soon as a probe finishes and are removed only
 when the Sentinel server explicitly acknowledges them (or rejects them
 permanently). The queue never stores the agent token or request headers: only
 the whitelisted measurement fields that are sent to the server anyway.
 
+SNMP polls live in a second table of the same file (``pending_snmp``) with the
+same rules. The table is additive: it needs no schema-version bump, an older
+agent simply ignores it, and this agent creates it in a queue file written by
+an older one.
+
 Bounds:
 - at most ``max_measurements`` rows (overflow policy: drop the oldest rows),
+- at most ``max_snmp_polls`` SNMP polls and ``max_snmp_bytes`` of their payload
+  (same policy; a poll can carry hundreds of interfaces, so bytes count too),
 - rows older than ``max_age_seconds`` are purged,
-- each stored payload is at most ``MAX_PAYLOAD_BYTES``,
+- each stored payload is at most ``MAX_PAYLOAD_BYTES`` (SNMP polls:
+  ``MAX_POLL_PAYLOAD_BYTES``),
 - the SQLite file is capped with ``PRAGMA max_page_count``.
 
 Every drop is logged as a warning; nothing is discarded silently.
@@ -31,12 +39,16 @@ from typing import Any
 from uuid import UUID
 
 from agent.errors import AgentError
+from agent.snmp_payload import MAX_POLL_PAYLOAD_BYTES, SnmpPayloadError, sanitize_poll
 
 logger = logging.getLogger("sentinel_agent")
 
 SCHEMA_VERSION = 1
 MAX_PAYLOAD_BYTES = 2048
+DEFAULT_MAX_SNMP_POLLS = 10_000
+DEFAULT_MAX_SNMP_BYTES = 512 * 1024 * 1024
 MAX_ITEM_ATTEMPTS = 10
+SNMP_DROP_LOG_INTERVAL_SECONDS = 60.0
 RETRY_BASE_SECONDS = 30.0
 RETRY_MAX_SECONDS = 600.0
 BUSY_TIMEOUT_MS = 5000
@@ -69,6 +81,21 @@ CREATE TABLE IF NOT EXISTS pending_measurements (
 );
 CREATE INDEX IF NOT EXISTS pending_measurements_enqueued
     ON pending_measurements (enqueued_at);
+CREATE TABLE IF NOT EXISTS pending_snmp (
+    poll_id TEXT PRIMARY KEY,
+    payload TEXT NOT NULL,
+    interface_count INTEGER NOT NULL DEFAULT 0,
+    payload_bytes INTEGER NOT NULL,
+    enqueued_at REAL NOT NULL,
+    attempts INTEGER NOT NULL DEFAULT 0,
+    next_attempt_at REAL NOT NULL DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS pending_snmp_enqueued
+    ON pending_snmp (enqueued_at);
+-- Lets the byte total be summed from the index alone, without reading the
+-- (large) payloads: every enqueue sums it.
+CREATE INDEX IF NOT EXISTS pending_snmp_bytes
+    ON pending_snmp (payload_bytes);
 """
 
 
@@ -198,13 +225,21 @@ class MeasurementQueue:
         max_measurements: int = 10_000,
         max_age_seconds: float = 7 * 24 * 3600,
         wall_fn: Callable[[], float] = time.time,
+        max_snmp_polls: int = DEFAULT_MAX_SNMP_POLLS,
+        max_snmp_bytes: int = DEFAULT_MAX_SNMP_BYTES,
     ) -> None:
         if max_measurements < 1:
             raise ValueError("max_measurements must be positive")
+        if max_snmp_polls < 1 or max_snmp_bytes < MAX_POLL_PAYLOAD_BYTES:
+            raise ValueError("SNMP queue limits are too small")
         self.path = path
         self.max_measurements = max_measurements
+        self.max_snmp_polls = max_snmp_polls
+        self.max_snmp_bytes = max_snmp_bytes
         self.max_age_seconds = max_age_seconds
         self._wall_fn = wall_fn
+        self._snmp_drop_logged_at = float("-inf")
+        self._snmp_dropped_unreported = 0
         self._lock = threading.Lock()
         self._conn = self._connect()
 
@@ -220,6 +255,8 @@ class MeasurementQueue:
         max_measurements: int = 10_000,
         max_age_seconds: float = 7 * 24 * 3600,
         wall_fn: Callable[[], float] = time.time,
+        max_snmp_polls: int = DEFAULT_MAX_SNMP_POLLS,
+        max_snmp_bytes: int = DEFAULT_MAX_SNMP_BYTES,
     ) -> MeasurementQueue:
         """Open a file-backed queue, recovering from corruption.
 
@@ -230,6 +267,8 @@ class MeasurementQueue:
             "max_measurements": max_measurements,
             "max_age_seconds": max_age_seconds,
             "wall_fn": wall_fn,
+            "max_snmp_polls": max_snmp_polls,
+            "max_snmp_bytes": max_snmp_bytes,
         }
         if path is None:
             return cls(None, **kwargs)
@@ -276,9 +315,9 @@ class MeasurementQueue:
             conn.execute("PRAGMA journal_mode = WAL")
             conn.execute("PRAGMA synchronous = FULL")
             conn.execute(f"PRAGMA page_size = {PAGE_SIZE_BYTES}")
-            max_pages = (
-                self.max_measurements * BYTES_PER_ROW_BUDGET // PAGE_SIZE_BYTES + 256
-            )
+            # SNMP payload bytes plus a quarter for page and index overhead.
+            budget = self.max_measurements * BYTES_PER_ROW_BUDGET + self.max_snmp_bytes * 5 // 4
+            max_pages = budget // PAGE_SIZE_BYTES + 256
             conn.execute(f"PRAGMA max_page_count = {max_pages}")
             conn.executescript(_SCHEMA)
             conn.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
@@ -464,6 +503,160 @@ class MeasurementQueue:
             "SELECT attempts FROM pending_measurements WHERE measurement_id = ?",
             (measurement_id,),
         )
+        return rows[0][0] if rows else None
+
+    # -- SNMP polls (table ``pending_snmp``) ------------------------------------------
+
+    def enqueue_snmp(self, poll: dict[str, Any]) -> bool:
+        """Store one SNMP poll. Returns False if it was already queued.
+
+        Only whitelisted fields are kept (see ``sanitize_poll``), so nothing
+        but what is sent to the server can ever reach the queue file.
+        """
+        try:
+            poll_id, payload, interface_count = sanitize_poll(poll)
+        except SnmpPayloadError as exc:
+            raise QueueError(str(exc)) from exc
+        size = len(payload.encode("utf-8"))
+        now = self._wall_fn()
+        dropped = 0
+        with self._write() as conn:
+            cursor = conn.execute(
+                "INSERT OR IGNORE INTO pending_snmp "
+                "(poll_id, payload, interface_count, payload_bytes, enqueued_at) "
+                "VALUES (?, ?, ?, ?, ?)",
+                (poll_id, payload, interface_count, size, now),
+            )
+            inserted = cursor.rowcount == 1
+            count, total = conn.execute(
+                "SELECT COUNT(*), COALESCE(SUM(payload_bytes), 0) FROM pending_snmp"
+            ).fetchone()
+            while count > 0 and (count > self.max_snmp_polls or total > self.max_snmp_bytes):
+                oldest = conn.execute(
+                    "SELECT poll_id, payload_bytes FROM pending_snmp ORDER BY rowid LIMIT 1"
+                ).fetchone()
+                conn.execute("DELETE FROM pending_snmp WHERE poll_id = ?", (oldest[0],))
+                count -= 1
+                total -= oldest[1]
+                dropped += 1
+        if dropped:
+            self._report_snmp_drops(dropped, now)
+        return inserted
+
+    def _report_snmp_drops(self, dropped: int, now: float) -> None:
+        """Log dropped polls, but at most once a minute: a full queue drops on every enqueue."""
+        self._snmp_dropped_unreported += dropped
+        if now - self._snmp_drop_logged_at < SNMP_DROP_LOG_INTERVAL_SECONDS:
+            return
+        logger.warning(
+            "SNMP queue full (limit %d polls, %d MiB); dropped %d oldest poll(s)",
+            self.max_snmp_polls,
+            self.max_snmp_bytes // (1024 * 1024),
+            self._snmp_dropped_unreported,
+        )
+        self._snmp_dropped_unreported = 0
+        self._snmp_drop_logged_at = now
+
+    def pending_snmp_batch(
+        self, *, max_polls: int, max_interfaces: int, max_bytes: int
+    ) -> list[dict[str, Any]]:
+        """Due polls in insertion order, within the server's per-report limits.
+
+        The first poll is always taken (a stored poll is smaller than every
+        limit); later ones only while the report stays within ``max_polls``,
+        ``max_interfaces`` and ``max_bytes``. Like ``pending_batch``, rows
+        scheduled implausibly far ahead count as due.
+        """
+        now = self._wall_fn()
+        rows = self._read(
+            "SELECT payload, interface_count, payload_bytes FROM pending_snmp "
+            "WHERE next_attempt_at <= ? OR next_attempt_at > ? "
+            "ORDER BY rowid LIMIT ?",
+            (now, now + RETRY_MAX_SECONDS * 2, max_polls),
+        )
+        batch: list[dict[str, Any]] = []
+        interfaces = 0
+        size = 0
+        for payload, interface_count, payload_bytes in rows:
+            if batch and (
+                interfaces + interface_count > max_interfaces or size + payload_bytes > max_bytes
+            ):
+                break
+            try:
+                batch.append(json.loads(payload))
+            except ValueError:
+                logger.warning("Skipping unreadable queued SNMP poll payload")
+                continue
+            interfaces += interface_count
+            size += payload_bytes
+        return batch
+
+    def remove_snmp(self, poll_ids: Iterable[str]) -> int:
+        ids = list(dict.fromkeys(poll_ids))
+        if not ids:
+            return 0
+        removed = 0
+        with self._write() as conn:
+            for chunk in _chunks(ids, 500):
+                placeholders = ",".join("?" * len(chunk))
+                removed += conn.execute(
+                    f"DELETE FROM pending_snmp WHERE poll_id IN ({placeholders})",
+                    chunk,
+                ).rowcount
+        return removed
+
+    def mark_snmp_retry(self, poll_ids: Iterable[str]) -> RetryOutcome:
+        """Increment attempts and back off; drop polls that exhausted retries."""
+        ids = list(dict.fromkeys(poll_ids))
+        if not ids:
+            return RetryOutcome(0, 0)
+        now = self._wall_fn()
+        rescheduled = 0
+        dropped = 0
+        with self._write() as conn:
+            for poll_id in ids:
+                row = conn.execute(
+                    "SELECT attempts FROM pending_snmp WHERE poll_id = ?", (poll_id,)
+                ).fetchone()
+                if row is None:
+                    continue
+                attempts = row[0] + 1
+                if attempts >= MAX_ITEM_ATTEMPTS:
+                    conn.execute("DELETE FROM pending_snmp WHERE poll_id = ?", (poll_id,))
+                    dropped += 1
+                    continue
+                conn.execute(
+                    "UPDATE pending_snmp SET attempts = ?, next_attempt_at = ? WHERE poll_id = ?",
+                    (attempts, now + retry_delay_seconds(attempts), poll_id),
+                )
+                rescheduled += 1
+        if dropped:
+            logger.warning(
+                "Dropped %d SNMP poll(s) after %d unacknowledged attempts",
+                dropped,
+                MAX_ITEM_ATTEMPTS,
+            )
+        return RetryOutcome(rescheduled, dropped)
+
+    def purge_expired_snmp(self) -> int:
+        cutoff = self._wall_fn() - self.max_age_seconds
+        with self._write() as conn:
+            purged = conn.execute(
+                "DELETE FROM pending_snmp WHERE enqueued_at < ?", (cutoff,)
+            ).rowcount
+        if purged:
+            logger.warning(
+                "Dropped %d SNMP poll(s) older than %d seconds",
+                purged,
+                int(self.max_age_seconds),
+            )
+        return purged
+
+    def snmp_count(self) -> int:
+        return self._read("SELECT COUNT(*) FROM pending_snmp")[0][0]
+
+    def snmp_attempts(self, poll_id: str) -> int | None:
+        rows = self._read("SELECT attempts FROM pending_snmp WHERE poll_id = ?", (poll_id,))
         return rows[0][0] if rows else None
 
     def close(self) -> None:

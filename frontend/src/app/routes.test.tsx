@@ -8,6 +8,12 @@ vi.mock('@/shell/command-palette', () => ({ CommandPalette: () => null }))
 vi.mock('@/features/overview/OverviewPage', () => ({
   default: () => <p>overview screen</p>,
 }))
+vi.mock('@/features/servers/ServersListPage', () => ({
+  default: () => <p>servers list screen</p>,
+}))
+vi.mock('@/features/servers/ServerDetailPage', () => ({
+  default: () => <p>server detail screen</p>,
+}))
 vi.mock('@/features/design-system/DesignSystemPage', () => ({
   default: () => <p>design system gallery</p>,
 }))
@@ -26,8 +32,18 @@ describe('AppRoutes', () => {
     expect(screen.getByRole('navigation', { name: 'Primary' })).toBeInTheDocument()
   })
 
-  it('routes every other NAV_ITEMS path to its placeholder', async () => {
-    for (const item of NAV_ITEMS.filter((nav) => nav.id !== 'overview')) {
+  it('lazy-loads the Servers list and a server page inside the shell', async () => {
+    const first = renderShell(<AppRoutes />, { route: '/servers' })
+    expect(await within(main()).findByText('servers list screen')).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'Servers' })).toHaveAttribute('aria-current', 'page')
+    first.unmount()
+    renderShell(<AppRoutes />, { route: '/servers/srv-ath-db-01' })
+    expect(await within(main()).findByText('server detail screen')).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'Servers' })).toHaveAttribute('aria-current', 'page')
+  })
+
+  it('routes every screen that is not designed yet to its placeholder', async () => {
+    for (const item of NAV_ITEMS.filter((nav) => !nav.designed)) {
       const { unmount } = renderShell(<AppRoutes />, { route: item.path })
       expect(
         await within(main()).findByRole('heading', { level: 1, name: item.label }),
@@ -39,11 +55,11 @@ describe('AppRoutes', () => {
   })
 
   it('keeps a screen’s own sub-paths with its screen', async () => {
-    renderShell(<AppRoutes />, { route: '/servers/edge-gw-02' })
+    renderShell(<AppRoutes />, { route: '/docker/some-host' })
     expect(
-      await within(main()).findByRole('heading', { level: 1, name: 'Servers' }),
+      await within(main()).findByRole('heading', { level: 1, name: 'Docker' }),
     ).toBeInTheDocument()
-    expect(screen.getByRole('link', { name: 'Servers' })).toHaveAttribute('aria-current', 'page')
+    expect(screen.getByRole('link', { name: 'Docker' })).toHaveAttribute('aria-current', 'page')
   })
 
   it('titles each page from NAV_ITEMS', async () => {

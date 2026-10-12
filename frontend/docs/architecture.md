@@ -61,7 +61,8 @@ frontend/
     charts/               ECharts setup, theme from the tokens, ChartFrame, shared time-series pieces
     shell/                app frame: sidebar, top bar, status bar, command palette, sheets
     features/
-      overview/           the one designed screen: hero/ queue/ latency/ load/ health/ alerts/ events/
+      overview/           hero/ queue/ latency/ load/ health/ alerts/ events/
+      servers/            list (table, cards, search/filter/sort) and detail (summary, history chart, containers)
       placeholder/        honest "not designed yet" screens
       design-system/      dev-only gallery at /_ds
     test/                 test setup and render helpers
@@ -142,10 +143,36 @@ Presentational thresholds (80/95 %, 2 % loss, 150 ms) live in
 `lib/thresholds.ts`, are judged on the value as displayed, and are labelled
 "UI defaults". When the backend gains a capability, change one registry entry.
 
+## Servers screen
+
+`SentinelApi` gains three methods: `listServers` (the whole fleet in scope),
+`getServer` (one server and its containers, 404 for an unknown id) and
+`getServerSeries` (CPU, RAM and disk history). The list is searched, filtered and
+sorted in the UI (`features/servers/serversModel.ts`, pure and tested) and the
+query lives in the URL (`?q=&status=&sort=&dir=`), like the range and scope.
+Below `md` the table becomes cards (`useMediaQuery`: the DOM differs, so one of
+the two is mounted, never both). The detail page's chart is the third consumer of
+`ChartFrame` and is in the chart contract test.
+
+What the Django API has to provide for this screen (the console needs nothing else):
+
+| Need                       | Today in the backend                         | Gap                                               |
+| -------------------------- | -------------------------------------------- | ------------------------------------------------- |
+| Server list                | `Server` rows with status and `last_seen_at` | A read endpoint (list, filter by scope)           |
+| Latest telemetry           | One `ServerTelemetry` row per server         | Include it in the list payload                    |
+| Site / customer per server | Not linked (`site-links`)                    | A `site` foreign key on `Server`: sample data now |
+| Containers per server      | `DockerContainer` rows with state and health | A read endpoint under the server                  |
+| CPU, RAM, disk history     | Only the latest row is kept                  | Store samples (or aggregate): **mock-only**       |
+
+A real client maps those payloads onto `ServerListItem`, `ServerDetail` and
+`ServerSeries` (`api/types.ts`); health is always derived in `lib/status.ts`, so
+the console and the Overview agree. Until history exists the series method
+returns empty data and the panel says "No history".
+
 ## Routing and navigation
 
-All eight screens are routed from day one. Only **Overview** is designed; the
-others render an explicit placeholder. `config/nav.ts` drives the sidebar, the
+All eight screens are routed from day one. **Overview** and **Servers** (`/servers`,
+`/servers/:id`) are designed; the others render an explicit placeholder. `config/nav.ts` drives the sidebar, the
 palette, the `g <key>` go-to chords and route titles.
 
 Responsive: Tailwind breakpoints `sm 40rem`, `md 48rem`, `lg 64rem`, `xl 80rem`,

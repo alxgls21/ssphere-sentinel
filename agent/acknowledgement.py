@@ -1,9 +1,14 @@
-"""Interpret the server's network acknowledgement for a sent batch.
+"""Interpret the server's acknowledgement of a sent batch (network or SNMP).
 
-The agent only removes a queued measurement when the response identifies it
-explicitly. Anything ambiguous leaves the measurement queued.
+The agent only removes a queued item when the response identifies it
+explicitly. Anything ambiguous leaves the item queued.
 
-Supported response shapes, newest first:
+Both sections use the same envelope, ``<section>``, ``<section>_results``,
+differing in the section name and in the key that identifies an item
+(``measurement_id`` for network, ``poll_id`` for SNMP). SNMP exists only in
+servers that send per-item results, so it has no legacy shapes.
+
+Supported network response shapes, newest first:
 
 1. ``network_results`` (per-measurement): each entry has ``measurement_id`` and
    ``result`` = ``created`` | ``duplicate`` | ``rejected`` (+ ``retryable``).
@@ -30,6 +35,19 @@ LEGACY_RETRYABLE_REASONS = frozenset({"measurement could not be stored"})
 
 
 @dataclass(frozen=True)
+class AckSection:
+    """How one heartbeat section is acknowledged."""
+
+    name: str  # key of the section status in the response, e.g. "network"
+    id_key: str  # key that identifies an item inside ``<name>_results``
+    legacy: bool  # older servers acknowledged it with counts only
+
+
+NETWORK = AckSection("network", "measurement_id", legacy=True)
+SNMP = AckSection("snmp", "poll_id", legacy=False)
+
+
+@dataclass(frozen=True)
 class Acknowledgement:
     stored: frozenset[str] = frozenset()
     permanent: dict[str, str] = field(default_factory=dict)
@@ -42,7 +60,9 @@ class Acknowledgement:
         return self.batch_failure is not None
 
 
-def parse_acknowledgement(body: str, sent_ids: Sequence[str]) -> Acknowledgement:
+def parse_acknowledgement(
+    body: str, sent_ids: Sequence[str], section: AckSection = NETWORK
+) -> Acknowledgement:
     sent = list(dict.fromkeys(sent_ids))
     if not sent:
         return Acknowledgement()
@@ -54,21 +74,29 @@ def parse_acknowledgement(body: str, sent_ids: Sequence[str]) -> Acknowledgement
     if not isinstance(data, dict):
         return Acknowledgement(batch_failure="response is not a JSON object")
 
-    status = data.get("network")
+    status = data.get(section.name)
     if status is None:
-        return Acknowledgement(batch_failure="response has no network acknowledgement")
-    if status not in KNOWN_STATUSES:
-        return Acknowledgement(batch_failure="response has an unknown network status")
+        return Acknowledgement(batch_failure=f"response has no {section.name} acknowledgement")
+    # ``in`` on a frozenset raises for an unhashable value ({"snmp": []}).
+    if not isinstance(status, str) or status not in KNOWN_STATUSES:
+        return Acknowledgement(batch_failure=f"response has an unknown {section.name} status")
 
-    results = data.get("network_results")
+    results = data.get(f"{section.name}_results")
     if results is not None:
-        return _from_results(results, sent)
+        return _from_results(results, sent, section)
+    if not section.legacy:
+        # An envelope problem: the whole section was rejected, nothing is stored.
+        detail = data.get(f"{section.name}_detail")
+        return Acknowledgement(
+            batch_failure=f"{section.name} section rejected"
+            + (f": {detail[:200]}" if isinstance(detail, str) else "")
+        )
     return _from_legacy(data, status, sent)
 
 
-def _from_results(results: object, sent: list[str]) -> Acknowledgement:
+def _from_results(results: object, sent: list[str], section: AckSection) -> Acknowledgement:
     if not isinstance(results, list):
-        return Acknowledgement(batch_failure="network_results is not a list")
+        return Acknowledgement(batch_failure=f"{section.name}_results is not a list")
 
     sent_set = set(sent)
     outcomes: dict[str, tuple[str, str, bool]] = {}
@@ -76,9 +104,11 @@ def _from_results(results: object, sent: list[str]) -> Acknowledgement:
     for entry in results:
         if not isinstance(entry, dict):
             continue
-        measurement_id = entry.get("measurement_id")
+        measurement_id = entry.get(section.id_key)
         result = entry.get("result")
-        if measurement_id not in sent_set or not isinstance(result, str):
+        if not isinstance(measurement_id, str) or measurement_id not in sent_set:
+            continue
+        if not isinstance(result, str):
             continue
         reason = entry.get("reason")
         reason_text = reason if isinstance(reason, str) else ""
@@ -132,7 +162,7 @@ def _from_legacy(data: dict, status: str, sent: list[str]) -> Acknowledgement:
         if not isinstance(entry, dict):
             return Acknowledgement(batch_failure="network_rejections entry is malformed")
         measurement_id = entry.get("measurement_id")
-        if measurement_id not in sent_set:
+        if not isinstance(measurement_id, str) or measurement_id not in sent_set:
             return Acknowledgement(batch_failure="rejection does not match the batch")
         reason = entry.get("reason") if isinstance(entry.get("reason"), str) else ""
         if reason in LEGACY_RETRYABLE_REASONS:

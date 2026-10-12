@@ -9,8 +9,10 @@ of the Django backend**.
 > is simulated and the UI says so (a `MOCK DATA` chip, per-panel `mock` tags,
 > and a dashed `PLANNED` frame on anything the backend has not implemented:
 > alerts, events, SNMP collection, topology, site links).
-> Only the **Overview** screen is designed and built. The other seven screens
-> are routed and show an honest "not designed yet" placeholder.
+> Two screens are designed and built: **Overview** and **Servers** (list, search,
+> filter, sort, and a detail page with CPU/RAM/disk history and the server's
+> containers). The other six screens are routed and show an honest "not designed
+> yet" placeholder.
 
 ## Quick start
 
@@ -53,7 +55,7 @@ color-vision and grayscale simulator.
 ## Keyboard
 
 `Ctrl/Cmd+K` opens the command palette; `?` lists every shortcut. `g` then
-`o s d n p t a c` jumps between screens, `1`–`6` focus a panel, `p` pauses live
+`o s d n p t a c` jumps between screens (`g s` opens Servers), `1`–`6` focus a panel, `p` pauses live
 updates, `r` refreshes. Single-key shortcuts can be turned off in the Display menu or, at any width, from the command palette.
 
 ## Documentation

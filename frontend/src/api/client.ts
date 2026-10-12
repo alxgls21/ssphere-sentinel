@@ -14,6 +14,10 @@ import type {
   RequestOptions,
   ScopeOptions,
   SentinelEvent,
+  ServerDetail,
+  ServerList,
+  ServerSeries,
+  ServerSeriesOptions,
 } from './types'
 
 /**
@@ -58,4 +62,13 @@ export interface SentinelApi {
 
   /** Everything searchable, for the command palette. */
   getEntityIndex(options?: RequestOptions): Promise<EntityIndex>
+
+  /** Every server in scope with its latest telemetry. Search, filter and sort are the UI's: the fleet is small. */
+  listServers(options?: RequestOptions): Promise<ServerList>
+
+  /** One server and its containers. Rejects with ApiError(404) for an unknown id. */
+  getServer(id: string, options?: Pick<RequestOptions, 'signal'>): Promise<ServerDetail>
+
+  /** CPU, memory and disk history. Mock-only (the backend keeps the latest sample only). */
+  getServerSeries(options: ServerSeriesOptions): Promise<ServerSeries>
 }

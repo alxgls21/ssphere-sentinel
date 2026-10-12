@@ -21,9 +21,12 @@ describe('navigation registry', () => {
     for (const item of NAV_ITEMS) if (item.feature) expect(FEATURES[item.feature]).toBeDefined()
   })
 
-  it('lists the Overview first and as the only designed screen', () => {
+  it('lists the Overview first, then the designed screens in order of approval', () => {
     expect(NAV_ITEMS[0]?.id).toBe('overview')
-    expect(NAV_ITEMS.filter((item) => item.designed).map((item) => item.id)).toEqual(['overview'])
+    expect(NAV_ITEMS.filter((item) => item.designed).map((item) => item.id)).toEqual([
+      'overview',
+      'servers',
+    ])
   })
 
   it('resolves a pathname to its screen', () => {

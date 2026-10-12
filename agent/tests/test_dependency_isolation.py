@@ -1,5 +1,5 @@
 """The agent must work on hosts without any server-side dependency and
-without the optional Docker SDK."""
+without the optional Docker SDK and SNMP library."""
 
 import subprocess
 import sys
@@ -8,7 +8,18 @@ import unittest
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-BLOCKED = ("django", "gunicorn", "psycopg", "psycopg_binary", "whitenoise", "docker")
+BLOCKED = (
+    "django",
+    "gunicorn",
+    "psycopg",
+    "psycopg_binary",
+    "whitenoise",
+    "docker",
+    # The optional ``snmp`` extra.
+    "pysnmp",
+    "pyasn1",
+    "cryptography",
+)
 
 SCRIPT = textwrap.dedent(
     """
@@ -38,6 +49,15 @@ SCRIPT = textwrap.dedent(
     payload = collect_docker()
     assert payload["available"] is False, payload
     assert payload["status"] == "unavailable", payload
+
+    from agent.snmp_fetch import SnmpUnavailableError, check_snmp_available
+
+    try:
+        check_snmp_available([])
+    except SnmpUnavailableError as exc:
+        assert "snmp" in str(exc), exc
+    else:
+        raise AssertionError("SNMP must be reported as unavailable without pysnmp")
 
     from agent.cli import main
 

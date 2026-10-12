@@ -11,6 +11,8 @@ from typing import Any
 
 from agent.errors import ConfigError
 from agent.measurement_queue import (
+    DEFAULT_MAX_SNMP_BYTES,
+    DEFAULT_MAX_SNMP_POLLS,
     MeasurementQueue,
     QueueError,
     QueueStorageError,
@@ -32,6 +34,9 @@ ENV_QUEUE_PATH = "SENTINEL_QUEUE_PATH"
 ENV_QUEUE_MAX_MEASUREMENTS = "SENTINEL_QUEUE_MAX_MEASUREMENTS"
 ENV_QUEUE_MAX_AGE_SECONDS = "SENTINEL_QUEUE_MAX_AGE_SECONDS"
 ENV_MAX_CONCURRENT_PROBES = "SENTINEL_NETWORK_MAX_CONCURRENT_PROBES"
+# SNMP polls share the queue file, so their limits are read here with the rest.
+ENV_SNMP_QUEUE_MAX_POLLS = "SENTINEL_SNMP_QUEUE_MAX_POLLS"
+ENV_SNMP_QUEUE_MAX_BYTES = "SENTINEL_SNMP_QUEUE_MAX_BYTES"
 
 DEFAULT_QUEUE_MAX_MEASUREMENTS = 10_000
 DEFAULT_QUEUE_MAX_AGE_SECONDS = 7 * 24 * 3600
@@ -44,6 +49,8 @@ class NetworkRuntimeConfig:
     max_measurements: int = DEFAULT_QUEUE_MAX_MEASUREMENTS
     max_age_seconds: int = DEFAULT_QUEUE_MAX_AGE_SECONDS
     max_concurrent_probes: int = DEFAULT_MAX_CONCURRENT_PROBES
+    max_snmp_polls: int = DEFAULT_MAX_SNMP_POLLS
+    max_snmp_bytes: int = DEFAULT_MAX_SNMP_BYTES
 
 
 def load_runtime_config(environ: dict[str, str] | None = None) -> NetworkRuntimeConfig:
@@ -65,18 +72,28 @@ def load_runtime_config(environ: dict[str, str] | None = None) -> NetworkRuntime
 
     return NetworkRuntimeConfig(
         queue_path=queue_path,
-        max_measurements=_bounded_int(
+        max_measurements=bounded_int(
             env, ENV_QUEUE_MAX_MEASUREMENTS, DEFAULT_QUEUE_MAX_MEASUREMENTS, 100, 1_000_000
         ),
-        max_age_seconds=_bounded_int(
+        max_age_seconds=bounded_int(
             env, ENV_QUEUE_MAX_AGE_SECONDS, DEFAULT_QUEUE_MAX_AGE_SECONDS, 3600, 30 * 24 * 3600
         ),
-        max_concurrent_probes=_bounded_int(
+        max_concurrent_probes=bounded_int(
             env,
             ENV_MAX_CONCURRENT_PROBES,
             DEFAULT_MAX_CONCURRENT_PROBES,
             1,
             MAX_CONCURRENT_PROBES,
+        ),
+        max_snmp_polls=bounded_int(
+            env, ENV_SNMP_QUEUE_MAX_POLLS, DEFAULT_MAX_SNMP_POLLS, 100, 1_000_000
+        ),
+        max_snmp_bytes=bounded_int(
+            env,
+            ENV_SNMP_QUEUE_MAX_BYTES,
+            DEFAULT_MAX_SNMP_BYTES,
+            1024 * 1024,
+            2 * 1024 * 1024 * 1024,
         ),
     )
 
@@ -125,6 +142,8 @@ class NetworkRuntime:
             config.queue_path,
             max_measurements=config.max_measurements,
             max_age_seconds=config.max_age_seconds,
+            max_snmp_polls=config.max_snmp_polls,
+            max_snmp_bytes=config.max_snmp_bytes,
         )
         return cls(targets, queue, max_concurrent_probes=config.max_concurrent_probes)
 
@@ -151,7 +170,7 @@ class NetworkRuntime:
             self.queue.close()
 
 
-def _bounded_int(
+def bounded_int(
     env: dict[str, str], name: str, default: int, minimum: int, maximum: int
 ) -> int:
     raw = (env.get(name) or "").strip()

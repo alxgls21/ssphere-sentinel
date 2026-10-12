@@ -3,6 +3,7 @@ export { Chip, type ChipProps } from './Chip'
 export { IconButton, type IconButtonProps } from './IconButton'
 export { Kbd, ModKbd } from './Kbd'
 export { Menu, type MenuItem, type MenuProps } from './Menu'
+export { SearchField, type SearchFieldProps } from './SearchField'
 export {
   SegmentedControl,
   type SegmentedControlProps,

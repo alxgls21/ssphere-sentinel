@@ -231,7 +231,14 @@ export function usePaletteSource({
     ]
 
     const entities = (index?.items ?? []).map((entity) =>
-      entityItem(entity, ({ kind }) => open(screenOf(kind).path)),
+      entityItem(entity, ({ kind, id }) =>
+        // A server has a page of its own; the other kinds open the screen that owns them.
+        open(
+          kind === 'server'
+            ? `${screenOf(kind).path}/${encodeURIComponent(id)}`
+            : screenOf(kind).path,
+        ),
+      ),
     )
 
     return {
