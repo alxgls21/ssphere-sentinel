@@ -3,17 +3,8 @@ from django.db.models import OuterRef, Subquery
 from django.urls import reverse
 from django.utils.html import format_html
 
-from apps.agents.models import Agent
+from apps.agents.admin_filters import AgentListFilter
 from apps.network.models import NetworkMeasurement, NetworkTarget
-
-
-class AgentListFilter(admin.RelatedFieldListFilter):
-    """Agent filter whose choice labels (``Agent.__str__``) need no per-agent query."""
-
-    def field_choices(self, field, request, model_admin):
-        ordering = self.field_admin_ordering(field, request, model_admin) or ()
-        agents = Agent.objects.select_related("server").order_by(*ordering)
-        return [(agent.pk, str(agent)) for agent in agents]
 
 _TARGET_FIELDS = (
     "name",

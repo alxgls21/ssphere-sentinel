@@ -147,6 +147,7 @@ INSTALLED_APPS = [
     "apps.infrastructure",
     "apps.agents",
     "apps.network",
+    "apps.inventory",
 ]
 
 MIDDLEWARE = [
