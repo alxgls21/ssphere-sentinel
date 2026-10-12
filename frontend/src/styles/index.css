@@ -1,0 +1,300 @@
+@import 'tailwindcss';
+@import './tokens.css';
+
+/* ---------------------------------------------------------------- base */
+
+@layer base {
+  html {
+    font-size: 16px;
+    background: var(--color-bg);
+    color: var(--color-fg);
+    -webkit-text-size-adjust: 100%;
+    text-size-adjust: 100%;
+  }
+
+  body {
+    margin: 0;
+    min-width: 20rem;
+    background: var(--color-bg);
+    color: var(--color-fg);
+    font-family: var(--font-mono);
+    font-size: var(--text-data);
+    line-height: var(--text-data--line-height);
+    /* JetBrains Mono ships code ligatures: "->" and "!=" must read literally. */
+    font-variant-ligatures: none;
+    font-feature-settings: 'zero' 1;
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+
+  #root {
+    min-height: 100dvh;
+  }
+
+  ::selection {
+    background: var(--color-primary-tint);
+    color: var(--color-fg);
+  }
+
+  /* One focus treatment everywhere. Components needing an inset ring override the offset. */
+  :focus-visible {
+    outline: 2px solid var(--color-primary);
+    outline-offset: 2px;
+  }
+  :focus:not(:focus-visible) {
+    outline: none;
+  }
+
+  button,
+  input,
+  select,
+  textarea {
+    font: inherit;
+    color: inherit;
+  }
+
+  button {
+    cursor: pointer;
+  }
+
+  button:disabled,
+  [aria-disabled='true'] {
+    cursor: not-allowed;
+  }
+
+  a {
+    color: inherit;
+    text-decoration: none;
+  }
+
+  /* Thin, recessive scrollbars that match the hairline language. */
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: var(--color-border-strong) transparent;
+  }
+
+  dialog {
+    color: inherit;
+  }
+  dialog::backdrop {
+    background: var(--color-scrim);
+  }
+
+  table {
+    border-collapse: collapse;
+  }
+}
+
+/* Reduced motion: remove all animation and transitions. The Display menu can force this too. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+html[data-motion='reduce'] *,
+html[data-motion='reduce'] *::before,
+html[data-motion='reduce'] *::after {
+  animation-duration: 0.01ms !important;
+  animation-iteration-count: 1 !important;
+  transition-duration: 0.01ms !important;
+  scroll-behavior: auto !important;
+}
+
+/* ------------------------------------------------------ type composites
+ * Family + size + weight + tracking in one class, from the tokens. Rule of
+ * thumb: if a machine produced it or it labels a machine value it is mono;
+ * if a person wrote it, it is sans. */
+
+@utility type-hero {
+  font-family: var(--font-mono);
+  font-size: var(--text-hero);
+  line-height: var(--text-hero--line-height);
+  letter-spacing: var(--text-hero--letter-spacing);
+  font-weight: var(--text-hero--font-weight);
+}
+@utility type-verdict {
+  font-family: var(--font-mono);
+  font-size: var(--text-verdict);
+  line-height: var(--text-verdict--line-height);
+  letter-spacing: var(--text-verdict--letter-spacing);
+  font-weight: var(--text-verdict--font-weight);
+  text-transform: uppercase;
+}
+@utility type-kpi {
+  font-family: var(--font-mono);
+  font-size: var(--text-kpi);
+  line-height: var(--text-kpi--line-height);
+  letter-spacing: var(--text-kpi--letter-spacing);
+  font-weight: var(--text-kpi--font-weight);
+}
+@utility type-title {
+  font-family: var(--font-sans);
+  font-size: var(--text-title);
+  line-height: var(--text-title--line-height);
+  font-weight: var(--text-title--font-weight);
+}
+@utility type-prompt {
+  font-family: var(--font-mono);
+  font-size: var(--text-prompt);
+  line-height: var(--text-prompt--line-height);
+}
+@utility type-body {
+  font-family: var(--font-sans);
+  font-size: var(--text-body);
+  line-height: var(--text-body--line-height);
+  font-weight: 400;
+}
+@utility type-body-strong {
+  font-family: var(--font-sans);
+  font-size: var(--text-body);
+  line-height: var(--text-body--line-height);
+  font-weight: 600;
+}
+@utility type-data {
+  font-family: var(--font-mono);
+  font-size: var(--text-data);
+  line-height: var(--text-data--line-height);
+  font-weight: 400;
+}
+@utility type-data-strong {
+  font-family: var(--font-mono);
+  font-size: var(--text-data);
+  line-height: var(--text-data--line-height);
+  font-weight: 500;
+}
+@utility type-label {
+  font-family: var(--font-mono);
+  font-size: var(--text-label);
+  line-height: var(--text-label--line-height);
+  letter-spacing: var(--text-label--letter-spacing);
+  font-weight: var(--text-label--font-weight);
+  text-transform: uppercase;
+}
+@utility type-tag {
+  font-family: var(--font-mono);
+  font-size: var(--text-tag);
+  line-height: var(--text-tag--line-height);
+  letter-spacing: var(--text-tag--letter-spacing);
+  font-weight: var(--text-tag--font-weight);
+  text-transform: uppercase;
+}
+@utility type-kbd {
+  font-family: var(--font-mono);
+  font-size: var(--text-kbd);
+  line-height: var(--text-kbd--line-height);
+  font-weight: var(--text-kbd--font-weight);
+}
+@utility type-chart {
+  font-family: var(--font-mono);
+  font-size: var(--text-chart);
+  line-height: var(--text-chart--line-height);
+  font-weight: 400;
+}
+
+/* --------------------------------------------------------- provenance
+ * MOCK is a neutral hatched fill (135deg, 3px stripes): no new hue, and it
+ * survives screenshots. PLANNED is a dashed frame (see Panel). */
+
+@utility bg-hatch {
+  background-color: var(--color-raised);
+  background-image: repeating-linear-gradient(
+    135deg,
+    var(--color-hover) 0 3px,
+    transparent 3px 6px
+  );
+}
+
+/* Tabular alignment for columns of numbers; JetBrains Mono digits are already tabular. */
+@utility tnum {
+  font-variant-numeric: tabular-nums;
+}
+
+/* ----------------------------------------------------------- keyframes
+ * Motion only explains change; every animation is removed under reduced motion. */
+
+@keyframes sx-refresh {
+  from {
+    transform: scaleX(0);
+  }
+  to {
+    transform: scaleX(1);
+  }
+}
+
+/* A changed value flashes the selection tint and fades out. */
+@keyframes sx-flash {
+  from {
+    background-color: var(--color-primary-tint);
+  }
+  to {
+    background-color: transparent;
+  }
+}
+
+/* A new critical row: one inset outline that fades. Never a loop. */
+@keyframes sx-crit-in {
+  from {
+    box-shadow: inset 0 0 0 1px var(--color-critical);
+  }
+  to {
+    box-shadow: inset 0 0 0 1px transparent;
+  }
+}
+
+@keyframes sx-skeleton {
+  0%,
+  100% {
+    opacity: 0.45;
+  }
+  50% {
+    opacity: 0.9;
+  }
+}
+
+/* Live cursor while a request is in flight: stepped, never a smooth pulse. */
+@keyframes sx-cursor {
+  0%,
+  49% {
+    opacity: 1;
+  }
+  50%,
+  100% {
+    opacity: 0.15;
+  }
+}
+
+@keyframes sx-overlay-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Fills over the poll interval; the duration comes from --refresh-ms set by the caller. */
+@utility animate-refresh {
+  animation: sx-refresh var(--refresh-ms, 15s) linear forwards;
+}
+@utility animate-skeleton {
+  animation: sx-skeleton 1.6s ease-in-out infinite;
+}
+@utility animate-flash {
+  animation: sx-flash var(--dur-flash) var(--ease-out) 1;
+}
+@utility animate-crit-in {
+  animation: sx-crit-in 1.2s var(--ease-out) 1;
+}
+@utility animate-cursor {
+  animation: sx-cursor 1s steps(1, end) infinite;
+}
+@utility animate-overlay-in {
+  animation: sx-overlay-in var(--dur-base) var(--ease-out) 1;
+}

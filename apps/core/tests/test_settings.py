@@ -33,6 +33,8 @@ print(json.dumps({
     "CSRF_TRUSTED_ORIGINS": s.CSRF_TRUSTED_ORIGINS,
     "MIDDLEWARE": s.MIDDLEWARE,
     "LOG_LEVEL": s.LOG_LEVEL,
+    "SNMP_RETENTION_DAYS": s.SENTINEL_SNMP_RETENTION_DAYS,
+    "SNMP_MAX_AGE_DAYS": s.SENTINEL_SNMP_MAX_AGE_DAYS,
 }))
 """
 
@@ -118,3 +120,17 @@ class ProductionSettingsTests(SimpleTestCase):
         self.assert_refused("must be true or false", DJANGO_DEBUG="maybe")
         self.assert_refused("DJANGO_SECURE_HSTS_SECONDS", DJANGO_SECURE_HSTS_SECONDS="-1")
         self.assert_refused("DJANGO_LOG_LEVEL", DJANGO_LOG_LEVEL="verbose")
+
+    def test_snmp_retention_defaults_and_overrides(self):
+        conf = self.settings_for()
+        self.assertEqual((conf["SNMP_RETENTION_DAYS"], conf["SNMP_MAX_AGE_DAYS"]), (30, 8))
+        conf = self.settings_for(SENTINEL_SNMP_RETENTION_DAYS="90", SENTINEL_SNMP_MAX_AGE_DAYS="14")
+        self.assertEqual((conf["SNMP_RETENTION_DAYS"], conf["SNMP_MAX_AGE_DAYS"]), (90, 14))
+
+    def test_invalid_snmp_retention_settings_are_refused(self):
+        for name in ("SENTINEL_SNMP_RETENTION_DAYS", "SENTINEL_SNMP_MAX_AGE_DAYS"):
+            for value in ("0", "-3"):
+                with self.subTest(name=name, value=value):
+                    self.assert_refused("must be a positive integer", **{name: value})
+            with self.subTest(name=name, value="soon"):
+                self.assert_refused("must be an integer", **{name: "soon"})

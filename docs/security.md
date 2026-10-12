@@ -71,6 +71,10 @@ They return no configuration, version, host or error details.
   Cloudflare Tunnel token is in a separate `.env.tunnel` that only the
   `cloudflared` container reads.
 - PostgreSQL is reachable only on the internal Compose network.
+- SNMP credentials are never stored on the server: devices hold only the name
+  of a credential profile kept in the agent's local files, no model or form has
+  a field for a community string or key, and unknown payload fields are
+  ignored ([snmp.md](snmp.md#credentials-are-never-stored)).
 - With `DJANGO_DEBUG=false` (the default), session and CSRF cookies are
   Secure and HttpOnly (session), the example secret key is refused, and
   `manage.py check --deploy` flags a placeholder `AGENT_TOKEN_PEPPER`

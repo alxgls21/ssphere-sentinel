@@ -21,11 +21,19 @@ MAX_FUTURE_SKEW = timedelta(minutes=5)
 BIGINT_MAX = 2**63 - 1
 
 
-def parse_timestamp(value: Any, *, field: str, error: type[Exception]) -> datetime:
+def parse_timestamp(
+    value: Any,
+    *,
+    field: str,
+    error: type[Exception],
+    future_error: type[Exception] | None = None,
+) -> datetime:
     """Parse an ISO-8601 timestamp; naive values are UTC. Returns UTC.
 
     Values that cannot be represented in UTC (before year 1) are rejected:
-    PostgreSQL would store them but they could not be loaded back.
+    PostgreSQL would store them but they could not be loaded back. A value too
+    far in the future raises ``future_error`` (default: ``error``), so callers
+    can tell it apart: unlike other errors it can become valid by itself.
     """
     if not isinstance(value, str) or not value.strip():
         raise error(f"{field} must be an ISO-8601 timestamp")
@@ -42,7 +50,7 @@ def parse_timestamp(value: Any, *, field: str, error: type[Exception]) -> dateti
     except OverflowError as exc:
         raise error(f"{field} is out of range") from exc
     if parsed > timezone.now() + MAX_FUTURE_SKEW:
-        raise error(f"{field} is too far in the future")
+        raise (future_error or error)(f"{field} is too far in the future")
     return parsed
 
 

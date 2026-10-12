@@ -21,6 +21,11 @@ from apps.network.reports import (
     apply_network_report,
     validate_network_payload,
 )
+from apps.snmp.reports import (
+    SnmpValidationError,
+    apply_snmp_report,
+    validate_snmp_payload,
+)
 
 INVALID_JSON = "invalid JSON body"
 
@@ -32,7 +37,7 @@ def agent_heartbeat(request):
 
     Authentication uses ``Authorization: Bearer <token>``.
 
-    Subsystems (telemetry, docker, network) are validated and applied
+    Subsystems (telemetry, docker, network, snmp) are validated and applied
     independently. Invalid subsystem data does not block liveness or other
     valid subsystems. Network measurements are also validated individually:
     ``network`` is ``accepted``, ``partial`` or ``rejected`` and the response
@@ -93,7 +98,38 @@ def agent_heartbeat(request):
             response["network"] = "rejected"
             response["network_detail"] = str(exc)
 
+    if "snmp" in payload:
+        response.update(_snmp_response(agent, payload["snmp"]))
+
     return JsonResponse(response)
+
+
+def _snmp_response(agent, raw_section) -> dict:
+    """Validate and store the ``snmp`` section; the keys to add to the response.
+
+    Same shape as the network acknowledgement, with a per-poll ``snmp_results``
+    list so the agent can remove exactly the polls that are stored.
+    """
+    try:
+        report = validate_snmp_payload(raw_section, agent=agent)
+        result = apply_snmp_report(agent, report)
+    except SnmpValidationError as exc:
+        return {"snmp": "rejected", "snmp_detail": str(exc)}
+
+    response = {
+        "snmp": result.status,
+        "snmp_created": result.created,
+        "snmp_duplicates": result.duplicates,
+        "snmp_accepted": result.accepted,
+        "snmp_rejected": result.rejected,
+        "snmp_results": result.results(),
+    }
+    if result.rejections:
+        response["snmp_rejections"] = [rejection.as_dict() for rejection in result.rejections]
+        response["snmp_detail"] = (
+            f"{result.rejected} poll(s) rejected; first: {result.rejections[0].reason}"
+        )
+    return response
 
 
 def _parse_body(request) -> tuple[dict, str | None]:

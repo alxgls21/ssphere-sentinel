@@ -1,0 +1,155 @@
+/*
+ * Design tokens: the single source of truth for color, type and geometry.
+ * This is the ONLY file allowed to contain color literals (a test enforces it).
+ * Everything else uses these through Tailwind utilities or var(--...).
+ *
+ * `@theme static` emits every variable to :root even when no utility uses it,
+ * so ECharts and SVG can read the same values with getComputedStyle().
+ * The first group is the mandated brand palette; the rest is derived
+ * (tints are 12% / lines 40% of a hue mixed over the panel color).
+ * Contrast of every pairing is asserted by src/styles/tokens.test.ts.
+ */
+@theme static {
+  --color-*: initial;
+
+  /* Mandated palette */
+  --color-bg: #080b0e; /* FIXED Background */
+  --color-panel: #10161b; /* FIXED Panels */
+  --color-border: #253039; /* FIXED Borders */
+  --color-primary: #64d8e8; /* FIXED Primary (cyan) */
+  --color-healthy: #42d99b; /* FIXED Healthy */
+  --color-warning: #f5bd4f; /* FIXED Warning */
+  --color-critical: #f16b73; /* FIXED Critical */
+  --color-fg: #d5dee5; /* FIXED Text */
+
+  /* Derived */
+  --color-raised: #151d23; /* Derived */
+  --color-hover: #1a242b; /* Derived */
+  --color-primary-tint: #1a2d34; /* Derived (Primary 12% over panel, computed) */
+  --color-border-strong: #3a4853; /* Derived */
+  --color-border-control: #697a86; /* Derived */
+  --color-fg-muted: #a3b1bc; /* Derived */
+  --color-fg-faint: #87969f; /* Derived */
+  --color-fg-disabled: #5f6e79; /* Derived */
+  --color-primary-hover: #86e3f0; /* Derived */
+  --color-primary-press: #4ec4d5; /* Derived */
+  --color-primary-line: #32646d; /* Derived (Primary 40% over panel, computed) */
+  --color-healthy-tint: #162d2a; /* Derived (12% over panel, computed) */
+  --color-warning-tint: #2b2a21; /* Derived (12%) */
+  --color-critical-tint: #2b2026; /* Derived (12%) */
+  --color-healthy-line: #24644e; /* Derived (40%) */
+  --color-warning-line: #6c5930; /* Derived (40%) */
+  --color-critical-line: #6a383e; /* Derived (40%) */
+  --color-series-2: #0486f4; /* Derived chart categorical slot 2 (azure): packet-loss columns, second series, 'out' direct */
+  --color-series-3: #c348a7; /* Derived chart categorical slot 3 (magenta): third entity or series */
+  --color-series-4: #8778fc; /* Derived chart categorical slot 4 (indigo): fourth entity; line/column forms only with dire */
+  --color-series-other: #7e8d99; /* Derived neutral slate: p50 context line, 'Other', de-emphasised series, sparkline history */
+  --color-seq-1: #2b545d; /* Derived one-hue cyan sequential ramp, step 1 (lowest magnitude) */
+  --color-seq-2: #3a7782; /* Derived sequential step 2 */
+  --color-seq-3: #499aa6; /* Derived sequential step 3 */
+  --color-seq-4: #57b9c7; /* Derived sequential step 4; step 5 is --color-primary */
+  --color-chart-grid: #1b252c; /* Derived */
+  --color-scrim: rgba(8, 11, 14, 0.72); /* Derived (bg at 72%, no blur) */
+
+  /* Typography families. Mono is the console voice (anything a machine produced or a
+     label for a machine value); sans is for prose a person wrote. */
+  --font-sans: 'IBM Plex Sans', ui-sans-serif, system-ui, sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+
+  /* Type scale: size / line-height (rem at 1rem = 16px). Composites live in index.css as type-* utilities. */
+  --text-*: initial;
+  --text-hero: 3rem;
+  --text-hero--line-height: 3rem;
+  --text-hero--letter-spacing: -0.04em;
+  --text-hero--font-weight: 500;
+  --text-verdict: 1.5rem;
+  --text-verdict--line-height: 2rem;
+  --text-verdict--letter-spacing: 0.02em;
+  --text-verdict--font-weight: 500;
+  --text-kpi: 1.75rem;
+  --text-kpi--line-height: 2rem;
+  --text-kpi--letter-spacing: -0.03em;
+  --text-kpi--font-weight: 500;
+  --text-title: 1rem;
+  --text-title--line-height: 1.5rem;
+  --text-title--font-weight: 600;
+  --text-prompt: 0.875rem;
+  --text-prompt--line-height: 1.25rem;
+  --text-body: 0.8125rem;
+  --text-body--line-height: 1.25rem;
+  --text-data: 0.75rem;
+  --text-data--line-height: 1rem;
+  --text-label: 0.6875rem;
+  --text-label--line-height: 1rem;
+  --text-label--letter-spacing: 0.08em;
+  --text-label--font-weight: 500;
+  --text-tag: 0.6875rem;
+  --text-tag--line-height: 0.75rem;
+  --text-tag--letter-spacing: 0.06em;
+  --text-tag--font-weight: 500;
+  --text-kbd: 0.6875rem;
+  --text-kbd--line-height: 1rem;
+  --text-kbd--font-weight: 500;
+  --text-chart: 0.6875rem;
+  --text-chart--line-height: 0.875rem;
+
+  /* Geometry. Spacing step = 0.25rem (4px); everything is rem so the root size can scale it. */
+  --spacing: 0.25rem;
+  --radius-*: initial;
+  --radius-sm: 2px;
+  --radius-md: 4px;
+  --shadow-*: initial;
+  --shadow-overlay: 0 12px 32px rgb(0 0 0 / 0.55);
+
+  /* Breakpoints */
+  --breakpoint-*: initial;
+  --breakpoint-sm: 40rem;
+  --breakpoint-md: 48rem;
+  --breakpoint-lg: 64rem;
+  --breakpoint-xl: 80rem;
+  --breakpoint-2xl: 90rem;
+
+  /* Motion */
+  --ease-*: initial;
+  --ease-out: cubic-bezier(0.2, 0.8, 0.2, 1);
+  --animate-*: initial;
+}
+
+/*
+ * Density and hit targets: components read these, never hard-code a row height.
+ * Coarse pointers (touch) always get the large targets.
+ */
+:root {
+  --row-h: 1.75rem;
+  --ctl-h: 1.75rem;
+  --panel-head: 2rem;
+  --pad: 0.75rem;
+  --gap: 0.75rem;
+  --hit: 1.75rem;
+  --dur-fast: 80ms;
+  --dur-base: 120ms;
+  --dur-slide: 160ms;
+  --dur-chart: 300ms;
+  --dur-flash: 600ms;
+  color-scheme: dark;
+}
+
+@media (pointer: coarse) {
+  :root {
+    --row-h: 2.75rem;
+    --ctl-h: 2.75rem;
+    --panel-head: 2.75rem;
+    --hit: 2.75rem;
+  }
+}
+
+/* prefers-contrast: more -> secondary text becomes primary ink, hairlines become control outlines. */
+@media (prefers-contrast: more) {
+  :root {
+    --color-fg-muted: var(--color-fg);
+    --color-fg-faint: var(--color-fg);
+    --color-border: var(--color-border-control);
+    --color-border-strong: var(--color-border-control);
+    --color-chart-grid: var(--color-border-strong);
+  }
+}
