@@ -1,11 +1,12 @@
 # SSphere Sentinel
 
-Self-hosted infrastructure monitoring and backup verification platform.
+Self-hosted infrastructure and network monitoring platform.
 
-SSphere Sentinel will eventually monitor servers, Docker containers, services,
-health checks, and backups. The repository currently provides the project
-foundation: Django + PostgreSQL, agent registration/heartbeat API, and a
-standalone host agent CLI.
+SSphere Sentinel monitors servers through lightweight agents: server liveness
+(heartbeats), host telemetry (CPU, memory, disk, uptime), Docker container
+state, and ICMP/TCP network latency, packet loss and availability with
+history. A Django + PostgreSQL server stores the data and shows it in the
+Django admin; there is no separate dashboard, alerting or SLA reporting yet.
 
 ## Status
 
@@ -20,6 +21,55 @@ Supported ways to run Sentinel:
 3. The standalone **`sentinel-agent`** on monitored hosts, as a hardened
    systemd service ([docs/agent-deployment.md](docs/agent-deployment.md)) —
    **does not require Docker** or any server dependency.
+
+## Architecture
+
+![SSPHERE Sentinel Architecture](docs/assets/architecture.webp)
+
+SSphere Sentinel has two parts:
+
+- **Sentinel Server**: a central Django application with PostgreSQL. It
+  receives agent heartbeats on one REST endpoint
+  (`POST /api/v1/agent/heartbeat/`), stores server liveness, the latest host
+  telemetry and Docker container state, and the history of network
+  measurements, and presents them in the Django admin. Servers, agents and
+  network targets are managed in the admin or with `manage.py` commands.
+- **Sentinel Agent**: a lightweight, standalone Python program
+  (`sentinel-agent`, no Django dependency) on each monitored Linux or macOS
+  host.
+
+Agents always initiate the connection; the server never connects to them.
+Each agent authenticates with its own token (`Authorization: Bearer`; the
+server stores only a hash of it) and uses HTTPS in production deployments.
+
+The server and an agent can run on the same machine (for example
+`SENTINEL_URL=http://127.0.0.1:8000`) or on separate hosts; one server
+monitors many agents, one agent per monitored server. Deployment guides:
+[server](docs/server-deployment.md) · [agent](docs/agent-deployment.md).
+
+## How the Agent Works
+
+![SSPHERE Sentinel Agent Workflow](docs/assets/agent-workflow.webp)
+
+- **Heartbeat** every `SENTINEL_HEARTBEAT_INTERVAL` seconds (default 30). Each
+  heartbeat carries the current [host telemetry](#host-telemetry-v01) (CPU,
+  memory, disk, uptime, collected with psutil) and, when the Docker SDK is
+  installed and the daemon is reachable, the [Docker discovery](#docker-discovery-v01-optional)
+  result (container name, image, state and health; no resource usage).
+- **Network checks** (ICMP ping and TCP connect) run on their own schedule,
+  per target (default every 60 seconds), independently of heartbeats; see
+  [Network monitoring](#network-monitoring-v01).
+- **Local queue**: each network measurement is written to a local SQLite queue
+  first and sent with the following heartbeats. It is removed only when the
+  server acknowledges it (stored or permanently rejected). If the server is
+  unreachable, measurements stay queued and are resent with backoff once it
+  is back.
+- **Limits**: only network measurements are queued; telemetry and Docker
+  state are sent live, so a missed heartbeat simply has none. The queue is
+  bounded (default 10,000 measurements and 7 days; the oldest are dropped
+  first) and logs every drop. A measurement the server answers 10 times
+  without storing it is also dropped; failed connections do not count as
+  attempts. See [Measurement queue and delivery](#measurement-queue-and-delivery).
 
 ## Documentation
 
