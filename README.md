@@ -874,6 +874,39 @@ heartbeats before a server is considered offline. Stored `status` remains
 available for future warning/error states; prefer `effective_status` for
 liveness.
 
+## Inventory: customers, sites and devices
+
+The Django admin has an **Inventory** section for organizing what is
+monitored across several customers and locations:
+
+| Model | Meaning |
+| --- | --- |
+| **Customer** | An organization whose networks are monitored |
+| **Site** | A location of one customer (office, data center, branch) |
+| **Device** | A network device (router, switch, firewall or other) with a management hostname or IP address, an optional site, and optionally the **agent** that can reach it |
+
+Devices are inventory records only for now: nothing polls them yet. All three
+have a UUID (shown read-only in the admin) so that later features can refer
+to them.
+
+Rules enforced on every save, in the admin and in code:
+
+- Names are trimmed and must not be blank. They are unique ignoring case:
+  customer names globally, site names per customer, device names per site
+  (devices without a site are unique among themselves).
+- A management address must be a hostname or a unicast IP address.
+  Whitespace, shell or path characters, ports, URLs and mistyped addresses
+  such as `256.1.1.1` are rejected. It does not have to be unique, because
+  different customers often use the same private address ranges.
+- Nothing is deleted implicitly: a customer that has sites, and a site that
+  has devices, cannot be deleted until they are removed or moved. Deleting an
+  agent only unassigns its devices.
+
+Typical workflow: add the customer, add its sites (inline on the customer
+page), then add devices and pick the site; assign an agent that can reach the
+device's network. The device list can be filtered by customer, type, agent
+and enabled state, and searched by name, address, site or customer.
+
 ## Docker Compose deployment
 
 Use Compose for a self-hosted production stack; the full guide (HTTPS with
@@ -951,6 +984,7 @@ apps/                  Django applications
   infrastructure/      Monitored servers, telemetry, Docker state
   agents/              Agent registration and heartbeat API
   network/             Network targets and measurement history
+  inventory/           Customers, sites and network devices
 agent/                 Standalone host agent (no Django imports); own pyproject.toml
 sentinel/              Django project settings and URL routing
 deploy/systemd/        Hardened agent unit, environment template, Docker drop-in
