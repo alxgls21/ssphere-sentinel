@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import errno
 import platform
+import re
 import socket
 import subprocess
 import threading
@@ -20,6 +22,9 @@ FAILURE_PERMISSION_DENIED = "permission_denied"
 FAILURE_UNSUPPORTED = "unsupported"
 FAILURE_NETWORK_ERROR = "network_error"
 FAILURE_UNKNOWN = "unknown"
+
+# Symbolic names: the numeric values differ between Linux and macOS.
+_UNREACHABLE_ERRNOS = frozenset({errno.EHOSTUNREACH, errno.ENETUNREACH, errno.EHOSTDOWN})
 
 
 @dataclass(frozen=True)
@@ -120,9 +125,7 @@ def probe_tcp(host: str, port: int, *, timeout_seconds: float) -> ProbeAttempt:
     except socket.gaierror:
         return ProbeAttempt(False, None, FAILURE_DNS_FAILURE)
     except OSError as exc:
-        errno = getattr(exc, "errno", None)
-        # Host unreachable / network unreachable common errno values.
-        if errno in {64, 65, 101, 113}:  # EHOSTDOWN/EHOSTUNREACH variants
+        if exc.errno in _UNREACHABLE_ERRNOS:
             return ProbeAttempt(False, None, FAILURE_HOST_UNREACHABLE)
         return ProbeAttempt(False, None, FAILURE_NETWORK_ERROR)
 
@@ -187,8 +190,6 @@ def probe_icmp(host: str, *, timeout_seconds: float) -> ProbeAttempt:
 
 def _parse_ping_latency_ms(output: str) -> float | None:
     # Look for patterns like time=12.3 ms
-    import re
-
     match = re.search(r"time[=<]([0-9]+(?:\.[0-9]+)?)\s*ms", output, re.IGNORECASE)
     if not match:
         return None

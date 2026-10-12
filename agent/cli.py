@@ -8,7 +8,7 @@ import sys
 from functools import partial
 
 from agent.config import load_config
-from agent.errors import AgentError, ConfigError
+from agent.errors import ConfigError, redact
 from agent.heartbeat import send_heartbeat
 from agent.network_runtime import NetworkRuntime
 from agent.runner import run_continuous
@@ -44,12 +44,6 @@ def _build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def _redact(text: str, secret: str) -> str:
-    if secret and secret in text:
-        return text.replace(secret, "***")
-    return text
-
-
 def _build_network_runtime() -> NetworkRuntime | None:
     try:
         return NetworkRuntime.from_environment()
@@ -78,12 +72,8 @@ def run_heartbeat() -> int:
     except ConfigError as exc:
         print(f"Heartbeat failed: {exc}", file=sys.stderr)
         return 1
-    except AgentError as exc:
-        message = _redact(str(exc), token_for_redaction)
-        print(f"Heartbeat failed: {message}", file=sys.stderr)
-        return 1
     except Exception as exc:  # noqa: BLE001 - top-level CLI boundary
-        message = _redact(str(exc), token_for_redaction)
+        message = redact(str(exc), token_for_redaction)
         print(f"Heartbeat failed: {message}", file=sys.stderr)
         return 1
     finally:

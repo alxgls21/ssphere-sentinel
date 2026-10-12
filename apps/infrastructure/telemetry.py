@@ -3,19 +3,16 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime, timedelta
-from datetime import timezone as dt_timezone
+from datetime import datetime
 from typing import Any
 
 from django.db import IntegrityError, transaction
 from django.utils import timezone
-from django.utils.dateparse import parse_datetime
 
+from apps.core.validation import parse_timestamp, require_integer, require_number
 from apps.infrastructure.models import Server, ServerTelemetry
 
 SUPPORTED_TELEMETRY_VERSION = 1
-# Reject collected_at values absurdly far in the future (clock skew allowance).
-MAX_FUTURE_SKEW = timedelta(minutes=5)
 
 
 class TelemetryValidationError(Exception):
@@ -45,25 +42,27 @@ def validate_telemetry_payload(raw: Any) -> ValidatedTelemetry:
             f"unsupported telemetry version (expected {SUPPORTED_TELEMETRY_VERSION})"
         )
 
-    collected_at = _parse_collected_at(raw.get("collected_at"))
+    collected_at = parse_timestamp(
+        raw.get("collected_at"), field="collected_at", error=TelemetryValidationError
+    )
     cpu_percent = _require_percent(raw, "cpu_percent")
 
-    memory_total = _require_positive_int(raw, "memory_total_bytes")
-    memory_used = _require_non_negative_int(raw, "memory_used_bytes")
+    memory_total = _require_int(raw, "memory_total_bytes", minimum=1)
+    memory_used = _require_int(raw, "memory_used_bytes", minimum=0)
     if memory_used > memory_total:
         raise TelemetryValidationError("memory_used_bytes exceeds memory_total_bytes")
     # Accept agent-provided percent only after range check; store recomputed value.
     _require_percent(raw, "memory_percent")
     memory_percent = _recompute_percent(memory_used, memory_total)
 
-    disk_total = _require_positive_int(raw, "disk_total_bytes")
-    disk_used = _require_non_negative_int(raw, "disk_used_bytes")
+    disk_total = _require_int(raw, "disk_total_bytes", minimum=1)
+    disk_used = _require_int(raw, "disk_used_bytes", minimum=0)
     if disk_used > disk_total:
         raise TelemetryValidationError("disk_used_bytes exceeds disk_total_bytes")
     _require_percent(raw, "disk_percent")
     disk_percent = _recompute_percent(disk_used, disk_total)
 
-    uptime_seconds = _require_non_negative_int(raw, "uptime_seconds")
+    uptime_seconds = _require_int(raw, "uptime_seconds", minimum=0)
 
     return ValidatedTelemetry(
         cpu_percent=cpu_percent,
@@ -109,54 +108,20 @@ def upsert_server_telemetry(
         snapshot.update(**defaults)
 
 
-def _parse_collected_at(value: Any) -> datetime:
-    if not isinstance(value, str) or not value.strip():
-        raise TelemetryValidationError("collected_at must be an ISO-8601 timestamp")
-    try:
-        parsed = parse_datetime(value.strip())
-    except ValueError:
-        parsed = None
-    if parsed is None:
-        raise TelemetryValidationError("collected_at must be an ISO-8601 timestamp")
-    if timezone.is_naive(parsed):
-        parsed = timezone.make_aware(parsed, dt_timezone.utc)
-    now = timezone.now()
-    if parsed > now + MAX_FUTURE_SKEW:
-        raise TelemetryValidationError("collected_at is too far in the future")
-    return parsed
-
-
 def _require_percent(raw: dict[str, Any], field: str) -> float:
-    value = raw.get(field)
-    if isinstance(value, bool) or not isinstance(value, (int, float)):
-        raise TelemetryValidationError(f"{field} must be a number")
-    number = float(value)
-    if number < 0.0 or number > 100.0:
-        raise TelemetryValidationError(f"{field} must be between 0 and 100")
-    return number
+    return require_number(
+        raw.get(field), field=field, error=TelemetryValidationError, minimum=0.0, maximum=100.0
+    )
 
 
-def _require_positive_int(raw: dict[str, Any], field: str) -> int:
-    value = _require_int(raw, field)
-    if value <= 0:
-        raise TelemetryValidationError(f"{field} must be greater than 0")
-    return value
-
-
-def _require_non_negative_int(raw: dict[str, Any], field: str) -> int:
-    value = _require_int(raw, field)
-    if value < 0:
-        raise TelemetryValidationError(f"{field} must be >= 0")
-    return value
-
-
-def _require_int(raw: dict[str, Any], field: str) -> int:
-    value = raw.get(field)
-    if isinstance(value, bool) or not isinstance(value, (int, float)):
-        raise TelemetryValidationError(f"{field} must be an integer")
-    if isinstance(value, float) and not value.is_integer():
-        raise TelemetryValidationError(f"{field} must be an integer")
-    return int(value)
+def _require_int(raw: dict[str, Any], field: str, *, minimum: int) -> int:
+    return require_integer(
+        raw.get(field),
+        field=field,
+        error=TelemetryValidationError,
+        minimum=minimum,
+        allow_integral_float=True,
+    )
 
 
 def _recompute_percent(used: int, total: int) -> float:

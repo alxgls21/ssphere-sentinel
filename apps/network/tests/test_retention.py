@@ -3,7 +3,7 @@ from datetime import timedelta
 from io import StringIO
 from unittest.mock import patch
 
-from django.core.management import call_command
+from django.core.management import CommandError, call_command
 from django.test import Client, TestCase, override_settings
 from django.urls import reverse
 from django.utils import timezone
@@ -97,7 +97,15 @@ class BatchedMeasurementRetentionTests(TestCase):
     def test_invalid_batch_size_is_refused(self, _now):
         add_measurements(self.target, [timedelta(days=10)])
         for size in (0, -1, 100_001):
-            self.assertIn("--batch-size must be between", self._purge(batch_size=size))
+            with self.assertRaisesMessage(CommandError, "--batch-size must be between"):
+                self._purge(batch_size=size)
+        self.assertEqual(NetworkMeasurement.objects.count(), 1)
+
+    def test_invalid_days_is_refused(self, _now):
+        add_measurements(self.target, [timedelta(days=10)])
+        for days in (0, -5):
+            with self.assertRaisesMessage(CommandError, "positive integer"):
+                self._purge(days=days)
         self.assertEqual(NetworkMeasurement.objects.count(), 1)
 
     def test_heartbeats_never_trigger_retention(self, _now):

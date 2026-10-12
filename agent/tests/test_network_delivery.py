@@ -146,7 +146,7 @@ class DeliveryTests(unittest.TestCase):
     def test_transport_failure_keeps_everything(self):
         self._enqueue(1)
         with patch(
-            "agent.http_client.urllib.request.urlopen",
+            "agent.http_client._opener.open",
             side_effect=urllib.error.URLError("Connection refused"),
         ), self.assertRaises(HeartbeatError):
             send_heartbeat(

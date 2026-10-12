@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import functools
 import json
 import logging
 from collections.abc import Callable
@@ -11,7 +12,6 @@ from agent.config import Config, uses_insecure_http
 from agent.docker_discovery import collect_docker
 from agent.errors import HeartbeatError
 from agent.http_client import post_json
-from agent.network import collect_network
 from agent.network_delivery import DeliveryBatch, NetworkDelivery
 from agent.telemetry import collect_telemetry
 
@@ -28,15 +28,21 @@ MAX_LOGGED_REJECTIONS = 5
 
 def build_heartbeat_payload(
     *,
-    collect_fn: Callable[[], dict[str, Any]] = collect_telemetry,
-    docker_fn: Callable[[], dict[str, Any]] = collect_docker,
-    network_fn: Callable[[], dict[str, Any]] = collect_network,
+    collect_fn: Callable[[], dict[str, Any]] | None = None,
+    docker_fn: Callable[[], dict[str, Any]] | None = None,
+    network_fn: Callable[[], dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     """Build the JSON body for a heartbeat request.
 
     Telemetry, Docker, and network collectors are independent. Failures in one
-    are logged locally; other subsystems and liveness still proceed.
+    are logged locally; other subsystems and liveness still proceed. Without
+    ``network_fn`` the heartbeat carries no network section: measurements are
+    only ever sent from the persistent queue (see ``NetworkDelivery``).
     """
+    # Resolved at call time (not as default arguments) so the module-level
+    # collectors can be replaced, e.g. patched in tests.
+    collect_fn = collect_fn or collect_telemetry
+    docker_fn = docker_fn or collect_docker
     payload: dict[str, Any] = {}
     try:
         payload["telemetry"] = collect_fn()
@@ -48,13 +54,14 @@ def build_heartbeat_payload(
     except Exception as exc:  # noqa: BLE001
         logger.warning("Docker collection failed: %s", exc)
 
-    try:
-        network_payload = network_fn()
-        # Omit empty measurement lists to keep payloads small/compatible.
-        if network_payload.get("measurements"):
-            payload["network"] = network_payload
-    except Exception as exc:  # noqa: BLE001
-        logger.warning("Network collection failed: %s", exc)
+    if network_fn is not None:
+        try:
+            network_payload = network_fn()
+            # Omit empty measurement lists to keep payloads small/compatible.
+            if network_payload.get("measurements"):
+                payload["network"] = network_payload
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Network collection failed: %s", exc)
 
     return payload
 
@@ -63,9 +70,9 @@ def send_heartbeat(
     config: Config,
     *,
     timeout: float | None = None,
-    collect_fn: Callable[[], dict[str, Any]] = collect_telemetry,
-    docker_fn: Callable[[], dict[str, Any]] = collect_docker,
-    network_fn: Callable[[], dict[str, Any]] = collect_network,
+    collect_fn: Callable[[], dict[str, Any]] | None = None,
+    docker_fn: Callable[[], dict[str, Any]] | None = None,
+    network_fn: Callable[[], dict[str, Any]] | None = None,
     network_delivery: NetworkDelivery | None = None,
 ) -> None:
     """POST a heartbeat (with optional telemetry/Docker/network) to Sentinel.
@@ -75,9 +82,7 @@ def send_heartbeat(
     removed only according to the server's explicit acknowledgement.
     """
     if uses_insecure_http(config):
-        logger.warning(
-            "SENTINEL_URL uses HTTP; HTTPS is expected for normal deployments"
-        )
+        _warn_insecure_http(config.sentinel_url)
 
     batch = DeliveryBatch()
     if network_delivery is not None:
@@ -111,7 +116,18 @@ def send_heartbeat(
 
     if network_delivery is not None:
         network_delivery.record_failure(batch, f"HTTP {response.status}")
+    if 300 <= response.status < 400:
+        raise HeartbeatError(
+            f"server returned HTTP {response.status} redirect; redirects are not "
+            "followed, set SENTINEL_URL to the final https:// address"
+        )
     raise HeartbeatError(f"server returned HTTP {response.status}")
+
+
+@functools.cache
+def _warn_insecure_http(_url: str) -> None:
+    """Warn once per process (per URL) instead of on every heartbeat."""
+    logger.warning("SENTINEL_URL uses HTTP; HTTPS is expected for normal deployments")
 
 
 def log_subsystem_status(body: str) -> dict[str, str]:

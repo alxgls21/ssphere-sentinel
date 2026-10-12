@@ -1,9 +1,13 @@
+import errno
+import os
 import unittest
 from unittest.mock import MagicMock, patch
 from uuid import uuid4
 
 from agent.network_config import NetworkTargetConfig
 from agent.network_probe import (
+    FAILURE_HOST_UNREACHABLE,
+    FAILURE_NETWORK_ERROR,
     FAILURE_PERMISSION_DENIED,
     FAILURE_TIMEOUT,
     FAILURE_UNSUPPORTED,
@@ -48,6 +52,20 @@ class NetworkProbeTests(unittest.TestCase):
         result = probe_tcp("127.0.0.1", 443, timeout_seconds=1)
         self.assertFalse(result.success)
         self.assertEqual(result.failure_reason, FAILURE_TIMEOUT)
+
+    @patch("agent.network_probe.socket.create_connection")
+    def test_tcp_unreachable_is_classified_on_every_platform(self, mock_conn):
+        for code in (errno.EHOSTUNREACH, errno.ENETUNREACH, errno.EHOSTDOWN):
+            with self.subTest(errno=errno.errorcode[code]):
+                mock_conn.side_effect = OSError(code, os.strerror(code))
+                result = probe_tcp("127.0.0.1", 443, timeout_seconds=1)
+                self.assertEqual(result.failure_reason, FAILURE_HOST_UNREACHABLE)
+
+    @patch("agent.network_probe.socket.create_connection")
+    def test_tcp_other_os_errors_are_network_errors(self, mock_conn):
+        mock_conn.side_effect = OSError(errno.ENOBUFS, "no buffer space")
+        result = probe_tcp("127.0.0.1", 443, timeout_seconds=1)
+        self.assertEqual(result.failure_reason, FAILURE_NETWORK_ERROR)
 
     @patch("agent.network_probe.probe_tcp")
     def test_partial_packet_loss(self, mock_tcp):

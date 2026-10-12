@@ -47,7 +47,6 @@ def collect_docker() -> dict[str, Any]:
     collected_at = datetime.now(timezone.utc).isoformat()
     try:
         import docker  # type: ignore[import-untyped]
-        from docker.errors import APIError, DockerException
     except ImportError:
         return _status_payload(
             available=False,
@@ -62,7 +61,9 @@ def collect_docker() -> dict[str, Any]:
         client.ping()
         containers = [
             _serialize_container(container)
-            for container in client.containers.list(all=True)
+            # A container removed between listing and inspection is skipped
+            # instead of failing the whole discovery.
+            for container in client.containers.list(all=True, ignore_removed=True)
         ]
         return _status_payload(
             available=True,
@@ -93,8 +94,6 @@ def normalize_state(raw: str | None) -> str:
     value = raw.strip().lower()
     if value in ALLOWED_STATES:
         return value
-    if value == "removing":
-        return "unknown"
     return "unknown"
 
 
@@ -126,8 +125,7 @@ def _status_payload(
 
 
 def _classify_docker_error(exc: BaseException) -> str:
-    # Import locally so tests can exercise classification without docker installed
-    # in constrained environments; message-based matching remains the fallback.
+    # Message matching covers SDK exceptions without importing docker.errors.
     msg = str(exc).lower()
     if isinstance(exc, PermissionError) or "permission denied" in msg:
         return STATUS_PERMISSION_DENIED
@@ -159,19 +157,11 @@ def _serialize_container(container: Any) -> dict[str, Any]:
 
     container_id = str(attrs.get("Id") or getattr(container, "id", "") or "")
     name = _container_name(attrs, container)
-    image = str(
-        config.get("Image")
-        or attrs.get("Image")
-        or getattr(container, "image", "")
-        or ""
-    )
-    # Prefer tags from image object when attrs only has a digest id.
-    try:
-        tags = getattr(getattr(container, "image", None), "tags", None) or []
-        if tags and (not image or image.startswith("sha256:")):
-            image = tags[0]
-    except Exception:  # noqa: BLE001 - image inspect can fail; keep attrs image
-        pass
+    image = str(config.get("Image") or attrs.get("Image") or "")
+    if not image or image.startswith("sha256:"):
+        # ``container.image`` is an extra API call, so only resolve a tag when
+        # the container config has no usable image reference.
+        image = _image_tag(container) or image
 
     health_block = state.get("Health")
     has_healthcheck = bool(health_block) or bool(config.get("Healthcheck"))
@@ -192,6 +182,14 @@ def _serialize_container(container: Any) -> dict[str, Any]:
         "created_at": created_at,
         "started_at": started_at,
     }
+
+
+def _image_tag(container: Any) -> str | None:
+    try:
+        tags = container.image.tags or []
+    except Exception:  # noqa: BLE001 - image may be deleted or inspect may fail
+        return None
+    return str(tags[0]) if tags else None
 
 
 def _container_name(attrs: dict[str, Any], container: Any) -> str:

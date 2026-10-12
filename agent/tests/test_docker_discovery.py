@@ -1,6 +1,6 @@
 import sys
 import unittest
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, PropertyMock, patch
 
 from agent.docker_discovery import (
     STATUS_AVAILABLE,
@@ -167,6 +167,61 @@ class DockerDiscoveryTests(unittest.TestCase):
                 "started_at",
             },
         )
+
+    def test_listing_skips_containers_removed_during_discovery(self):
+        client = MagicMock()
+        client.containers.list.return_value = []
+        self._collect(client=client)
+        client.containers.list.assert_called_once_with(all=True, ignore_removed=True)
+
+    def test_image_api_is_not_called_when_config_names_the_image(self):
+        container = self._container(
+            container_id="f" * 64,
+            name="web",
+            image="nginx:1.27",
+            status="running",
+            health=None,
+            has_healthcheck=False,
+        )
+        image_lookup = PropertyMock()
+        type(container).image = image_lookup
+        client = MagicMock()
+        client.containers.list.return_value = [container]
+        result = self._collect(client=client)
+        self.assertEqual(result["containers"][0]["image"], "nginx:1.27")
+        image_lookup.assert_not_called()
+
+    def test_digest_only_image_falls_back_to_tag(self):
+        container = self._container(
+            container_id="1" * 64,
+            name="web",
+            image="sha256:" + "0" * 64,
+            status="running",
+            health=None,
+            has_healthcheck=False,
+        )
+        container.image.tags = ["app:2"]
+        client = MagicMock()
+        client.containers.list.return_value = [container]
+        result = self._collect(client=client)
+        self.assertEqual(result["containers"][0]["image"], "app:2")
+
+    def test_digest_only_image_is_kept_when_image_lookup_fails(self):
+        digest = "sha256:" + "0" * 64
+        container = self._container(
+            container_id="2" * 64,
+            name="web",
+            image=digest,
+            status="running",
+            health=None,
+            has_healthcheck=False,
+        )
+        type(container).image = PropertyMock(side_effect=RuntimeError("image removed"))
+        client = MagicMock()
+        client.containers.list.return_value = [container]
+        result = self._collect(client=client)
+        self.assertEqual(result["status"], STATUS_AVAILABLE)
+        self.assertEqual(result["containers"][0]["image"], digest)
 
     def _container(
         self,

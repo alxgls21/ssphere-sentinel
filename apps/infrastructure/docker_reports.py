@@ -3,16 +3,15 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime, timedelta
-from datetime import timezone as dt_timezone
+from datetime import datetime
 from typing import Any
 
 from django.db import transaction
 from django.db.models import F, Value
 from django.db.models.functions import Greatest
 from django.utils import timezone
-from django.utils.dateparse import parse_datetime
 
+from apps.core.validation import parse_timestamp
 from apps.infrastructure.models import DockerContainer, DockerHostState, Server
 
 SUPPORTED_DOCKER_VERSION = 1
@@ -20,7 +19,6 @@ MAX_CONTAINERS_PER_REPORT = 1000
 MAX_CONTAINER_ID_LENGTH = 64
 MAX_NAME_LENGTH = 255
 MAX_IMAGE_LENGTH = 512
-MAX_FUTURE_SKEW = timedelta(minutes=5)
 
 ALLOWED_HOST_STATUSES = frozenset(DockerHostState.Status.values)
 ALLOWED_STATES = frozenset(DockerContainer.State.values)
@@ -286,19 +284,7 @@ def _require_string(raw: dict[str, Any], field: str, *, max_length: int) -> str:
 
 
 def _parse_timestamp(value: Any, *, field: str) -> datetime:
-    if not isinstance(value, str) or not value.strip():
-        raise DockerValidationError(f"{field} must be an ISO-8601 timestamp")
-    try:
-        parsed = parse_datetime(value.strip())
-    except ValueError:
-        parsed = None
-    if parsed is None:
-        raise DockerValidationError(f"{field} must be an ISO-8601 timestamp")
-    if timezone.is_naive(parsed):
-        parsed = timezone.make_aware(parsed, dt_timezone.utc)
-    if parsed > timezone.now() + MAX_FUTURE_SKEW:
-        raise DockerValidationError(f"{field} is too far in the future")
-    return parsed
+    return parse_timestamp(value, field=field, error=DockerValidationError)
 
 
 def _parse_optional_timestamp(value: Any, *, field: str) -> datetime | None:

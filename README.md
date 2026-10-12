@@ -171,7 +171,7 @@ Heartbeat successful.
 Example failure:
 
 ```text
-Heartbeat failed: server returned HTTP 401.
+Heartbeat failed: server returned HTTP 401
 ```
 
 ### Continuous foreground run
@@ -196,7 +196,11 @@ Production deployments will normally supervise this process with **systemd**
 (or similar). A unit file is not shipped yet.
 
 Use HTTPS for real deployments. The agent sends
-`Authorization: Bearer <token>` and never puts the token in the URL.
+`Authorization: Bearer <token>` and never puts the token in the URL. It does
+**not** follow HTTP redirects (which would forward the token to the redirect
+target and turn the POST into a GET): a `3xx` response is a failed heartbeat,
+so set `SENTINEL_URL` to the final `https://` address (for example when a
+reverse proxy redirects HTTP to HTTPS).
 
 Telemetry is collected with **psutil** (Linux and macOS) and sent in the same
 agent cycle as the heartbeat — there is no separate metrics loop.
@@ -246,7 +250,8 @@ time-series store yet.
 If telemetry collection fails on the agent, the failure is logged and a
 liveness-only heartbeat is still sent. Invalid telemetry accepted by auth is
 rejected for storage without overwriting the previous snapshot; liveness is
-still updated.
+still updated. Numbers must be finite (`NaN`/`Infinity` are rejected) and byte
+counts must fit a signed 64-bit integer.
 
 Latest values are visible in Django admin (read-only). No dashboard UI yet.
 
@@ -573,7 +578,9 @@ Both delete in batches (default 5000 rows, max 100000) with one short
 transaction per batch, so they do not hold long locks or create one huge
 transaction, and an interrupted run keeps the batches already deleted.
 `--dry-run` only counts. The cutoff is exclusive: a row exactly at the cutoff
-is kept.
+is kept. Invalid options (`--days` ≤ 0, `--batch-size` out of range) exit with a
+non-zero status and delete nothing, so cron or a systemd timer reports the
+misconfiguration.
 
 Docker cleanup only deletes rows with `present=False`. Containers only become
 absent after a **successful** discovery that no longer lists them, so a Docker
@@ -793,7 +800,7 @@ curl -X POST http://localhost:8000/api/v1/agent/heartbeat/ \
 
 ```text
 apps/                  Django applications
-  core/                Health endpoint, batched retention helper
+  core/                Health endpoint, shared payload validators, retention helpers
   infrastructure/      Monitored servers, telemetry, Docker state
   agents/              Agent registration and heartbeat API
   network/             Network targets and measurement history

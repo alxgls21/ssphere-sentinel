@@ -146,7 +146,7 @@ class RuntimeReliabilityTests(unittest.TestCase):
         runtime.start()
         try:
             with patch(
-                "agent.http_client.urllib.request.urlopen",
+                "agent.http_client._opener.open",
                 side_effect=urllib.error.URLError("Connection refused"),
             ), redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
                 run_continuous(
