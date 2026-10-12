@@ -352,7 +352,11 @@ class CliIntegrationTests(unittest.TestCase):
             code, _out, err = self._run_with_post(["run"], post_then_sigterm)
             elapsed = time.monotonic() - began
         self.assertEqual(code, 0)
-        self.assertIn("Agent stopped.", err)
+        self.assertIn("INFO: Received SIGTERM; stopping", err)
+        self.assertIn("INFO: Agent stopped", err)
+        # Startup summary: what the process does, never the token.
+        self.assertIn("INFO: SSphere Sentinel agent", err)
+        self.assertIn("Network monitoring: 1 enabled target(s), queue " + str(self.queue_path), err)
         self.assertNotIn("Traceback", err)
         self.assertLess(elapsed, 5)
         for thread in threading.enumerate():

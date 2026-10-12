@@ -281,9 +281,13 @@ class HeartbeatResponseHandlingTests(unittest.TestCase):
                 "network_rejected": 0,
             }
         )
+        # Routine success is not logged at the default INFO level (journald
+        # would get several lines per heartbeat), only at DEBUG.
+        self.assertEqual(self._send(body), "")
+        self.logger.setLevel(logging.DEBUG)
         output = self._send(body)
         self.assertNotIn("WARNING", output)
-        self.assertIn("Sentinel accepted telemetry", output)
+        self.assertIn("DEBUG: Sentinel accepted telemetry", output)
         self.assertIn("accepted=2", output)
         self.assertEqual(
             log_subsystem_status(body),

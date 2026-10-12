@@ -1,0 +1,29 @@
+# Optional Cloudflare Tunnel in front of the web service (no inbound ports).
+#
+#   docker compose -f compose.yml -f compose.tunnel.yml up -d --build
+#
+# Requires a remotely-managed tunnel whose public hostname points to
+# http://web:8000, and its token in .env.tunnel (TUNNEL_TOKEN=...). The token
+# is kept out of .env so the web container never sees it. Also set
+# SENTINEL_HTTP_BIND=127.0.0.1 in .env so the plain-HTTP origin is not
+# reachable from other machines. See docs/server-deployment.md.
+
+services:
+  cloudflared:
+    image: cloudflare/cloudflared:2026.10.0
+    command: ["tunnel", "--no-autoupdate", "run"]
+    restart: unless-stopped
+    env_file:
+      - .env.tunnel
+    depends_on:
+      web:
+        condition: service_healthy
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"

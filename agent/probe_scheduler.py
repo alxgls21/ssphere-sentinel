@@ -63,6 +63,11 @@ class ProbeScheduler:
         return bool(self._targets)
 
     @property
+    def target_count(self) -> int:
+        """Number of enabled targets this scheduler probes."""
+        return len(self._targets)
+
+    @property
     def max_workers(self) -> int:
         return self._max_workers
 

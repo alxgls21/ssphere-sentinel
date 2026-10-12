@@ -1,0 +1,74 @@
+# SSphere Sentinel agent: hardened systemd service.
+#
+# Install: docs/agent-deployment.md. Runs as the unprivileged
+# "sentinel-agent" account; the token comes from a root-only environment file
+# that systemd reads before dropping privileges.
+#
+# Adjust with a drop-in (sudo systemctl edit sentinel-agent) instead of editing
+# this file. Docker monitoring is opt-in: see docker-monitoring.conf.
+#
+# The agent has no capabilities, and neither has ping: ICMP probes need
+# unprivileged ICMP sockets for the agent's group (net.ipv4.ping_group_range),
+# which enable-unprivileged-icmp.sh configures. Do not add CAP_NET_RAW.
+
+[Unit]
+Description=SSphere Sentinel agent
+Documentation=https://github.com/alxgls21/ssphere-sentinel/blob/main/docs/agent-deployment.md
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=exec
+User=sentinel-agent
+Group=sentinel-agent
+ExecStart=/opt/ssphere-sentinel-agent/venv/bin/sentinel-agent run
+EnvironmentFile=/etc/ssphere-sentinel-agent/agent.env
+# Persistent queue in the service's state directory (/var/lib/...), created
+# by systemd with mode 0700 and owned by the service account.
+StateDirectory=ssphere-sentinel-agent
+StateDirectoryMode=0700
+WorkingDirectory=/var/lib/ssphere-sentinel-agent
+Environment=SENTINEL_QUEUE_PATH=/var/lib/ssphere-sentinel-agent/network-queue.sqlite3
+UMask=0077
+
+Restart=on-failure
+RestartSec=10s
+# SIGTERM to the agent only: it stops probing, waits for running probes
+# (finishing a ping rather than recording it as failed) and exits.
+KillMode=mixed
+TimeoutStopSec=45s
+SyslogIdentifier=sentinel-agent
+
+# Resource limits (raise with a drop-in for very large Docker hosts).
+MemoryMax=256M
+TasksMax=64
+
+# Sandboxing. Directives unknown to older systemd versions are ignored with a
+# warning in the journal.
+NoNewPrivileges=yes
+CapabilityBoundingSet=
+AmbientCapabilities=
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+ProtectProc=invisible
+RestrictNamespaces=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+RemoveIPC=yes
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+SystemCallErrorNumber=EPERM
+
+[Install]
+WantedBy=multi-user.target

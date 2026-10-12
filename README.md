@@ -15,16 +15,42 @@ Supported ways to run Sentinel:
 
 1. **Native local development** with a Python virtual environment (recommended
    while hacking on the code). Docker is **optional**.
-2. **Docker Compose** for easy self-hosting / deployment.
-3. The standalone **`sentinel-agent`** CLI on monitored hosts — **does not
-   require Docker**.
+2. **Docker Compose** for self-hosted production deployments
+   ([docs/server-deployment.md](docs/server-deployment.md)).
+3. The standalone **`sentinel-agent`** on monitored hosts, as a hardened
+   systemd service ([docs/agent-deployment.md](docs/agent-deployment.md)) —
+   **does not require Docker** or any server dependency.
+
+## Documentation
+
+| Topic | Document |
+| --- | --- |
+| Production server (Docker Compose, Cloudflare Tunnel, reverse proxy, upgrades, backups, migrations) | [docs/server-deployment.md](docs/server-deployment.md) |
+| Agent on Linux hosts (systemd, Docker monitoring, upgrades, troubleshooting) | [docs/agent-deployment.md](docs/agent-deployment.md) |
+| Secret rotation and troubleshooting | [docs/operations.md](docs/operations.md) |
+| Security model, trusted proxy boundary, known limitations | [docs/security.md](docs/security.md) |
 
 ## Requirements
 
-- **Python 3.12+**
-- **PostgreSQL 16+** (local install for virtualenv development, or via Compose)
+- **Server:** Python 3.12+ and **PostgreSQL 16+** (local install for
+  virtualenv development, or via Compose)
+- **Agent:** Python 3.11+ on Linux or macOS; only depends on `psutil`
 - **pip** / a virtual environment
 - **Docker + Docker Compose** — only if you prefer the Compose stack
+
+## Packaging
+
+The repository contains two Python distributions:
+
+| Distribution | Defined in | Contents | Dependencies |
+| --- | --- | --- | --- |
+| `ssphere-sentinel` (server) | `pyproject.toml` | `sentinel`, `apps` | Django 5.2, Gunicorn, psycopg, WhiteNoise |
+| `ssphere-sentinel-agent` | `agent/pyproject.toml` | `agent`, `sentinel-agent` CLI | `psutil`; extra `[docker]` adds the Docker SDK |
+
+The Docker image does not install the server distribution: it installs the
+exact, hash-pinned dependency versions from `requirements/server.txt`
+(regenerate with `python scripts/update_server_requirements.py`) and runs the
+code from `/app`.
 
 ## Environment configuration
 
@@ -39,6 +65,11 @@ Edit `.env` and replace at least:
 - `DJANGO_SECRET_KEY`
 - `AGENT_TOKEN_PEPPER`
 - `POSTGRES_PASSWORD`
+
+For local development also set `DJANGO_DEBUG=true` (the example file is
+production-oriented: with `DJANGO_DEBUG=false`, cookies are HTTPS-only,
+`runserver` does not serve the admin's static files, and the example secret
+key is refused).
 
 Never commit `.env`. All runtime configuration is loaded from environment
 variables (see `.env.example`).
@@ -93,18 +124,23 @@ Docker is **not** required for this workflow.
 ```bash
 python3 -m venv .venv
 source .venv/bin/activate
-pip install -e .
+pip install -e . -e ./agent
 
 cp .env.example .env
-# Edit secrets, keep POSTGRES_HOST=localhost for native Postgres
+# Edit secrets, set DJANGO_DEBUG=true, keep POSTGRES_HOST=localhost for native Postgres
 
 set -a && source .env && set +a
 ```
 
-`pip install -e .` installs:
+- `pip install -e .` installs the server and its dependencies.
+- `pip install -e ./agent` installs the agent and the `sentinel-agent`
+  console script (add `[docker]` for Docker discovery:
+  `pip install -e "./agent[docker]"`).
 
-- Django project dependencies from `pyproject.toml`
-- the `sentinel-agent` console script
+Upgrading an existing virtualenv created before the server and agent were
+split into separate distributions: run `pip uninstall -y ssphere-sentinel`
+first, then the install command above. Otherwise pip removes the
+`sentinel-agent` script while replacing the old combined package.
 
 ### Running migrations
 
@@ -120,7 +156,8 @@ python manage.py runserver
 
 Then open:
 
-- Health: http://127.0.0.1:8000/health/
+- Health: http://127.0.0.1:8000/health/ (liveness) and
+  http://127.0.0.1:8000/health/ready/ (database reachable)
 - Admin: http://127.0.0.1:8000/admin/
 
 ### Running tests
@@ -130,16 +167,31 @@ Then open:
 python manage.py test apps
 
 # Standalone agent (no live Sentinel server required)
-python -m unittest discover -s agent/tests -v
+python -m unittest discover -s agent/tests -t . -v
 
-# System checks
+# Packaging and deployment-file checks (no Django or database needed);
+# SENTINEL_TEST_BUILD=1 also builds and installs both wheels (network access)
+python -m unittest discover -s tests -t . -v
+
+# System checks, including production settings
 python manage.py check
+python manage.py check --deploy
 ```
+
+GitHub Actions (`.github/workflows/ci.yml`) runs all of these on pull
+requests and pushes to `main`: server tests against PostgreSQL on Python
+3.12–3.14, agent tests on Python 3.11–3.14 (Linux, plus macOS) without any
+server dependency installed, packaging and `pip-audit`/`bandit` checks, and
+an end-to-end deployment (Docker image and Compose stack, then the agent
+installed with the hardened systemd unit and verified against the server).
 
 ## Running the Sentinel agent locally
 
-The host agent lives in the top-level `agent/` package. It does **not** import
-Django and does **not** require Docker.
+The host agent lives in the top-level `agent/` package and is its own
+distribution (`ssphere-sentinel-agent`, see [Packaging](#packaging)). It does
+**not** import Django and does **not** require Docker. For production hosts,
+use the systemd service described in
+[docs/agent-deployment.md](docs/agent-deployment.md).
 
 Create a server + agent token on the Django side first:
 
@@ -154,7 +206,12 @@ export SENTINEL_URL=http://127.0.0.1:8000
 export SENTINEL_AGENT_TOKEN=<token>
 # optional; default is 30
 export SENTINEL_HEARTBEAT_INTERVAL=30
+# optional; DEBUG, INFO (default), WARNING or ERROR
+export SENTINEL_LOG_LEVEL=INFO
 ```
+
+`SENTINEL_URL` must not contain credentials (`https://user:pass@...` is
+refused); the token is only ever sent in the `Authorization` header.
 
 ### One-shot heartbeat
 
@@ -187,13 +244,19 @@ sentinel-agent run
   seconds (default **30**) on a fixed monotonic schedule; if one heartbeat
   takes longer than the interval, the missed slots are skipped (logged) rather
   than sent back-to-back
-- logs failures and keeps running
+- logs a startup summary (version, server URL, interval, network targets and
+  queue location; never the token), then stays quiet while heartbeats
+  succeed: successes are logged only at `DEBUG`, failures as warnings, and the
+  first success after failures once at `INFO`
 - runs network probes independently of heartbeats (see
   [Network monitoring](#network-monitoring-v01))
-- stops cleanly on SIGINT / SIGTERM
+- stops cleanly on SIGINT / SIGTERM (`Received SIGTERM; stopping`,
+  `Agent stopped`)
 
-Production deployments will normally supervise this process with **systemd**
-(or similar). A unit file is not shipped yet.
+Logs go to stderr as `LEVEL: message`. Under systemd they carry journald
+priorities, so `journalctl -u sentinel-agent -p warning` shows only problems.
+A hardened unit file is shipped in `deploy/systemd/`
+([docs/agent-deployment.md](docs/agent-deployment.md)).
 
 Use HTTPS for real deployments. The agent sends
 `Authorization: Bearer <token>` and never puts the token in the URL. It does
@@ -268,6 +331,14 @@ containers.
 **Security warning:** Access to the Docker daemon/socket is highly privileged
 and can be root-equivalent on many Linux systems. Grant the agent the minimum
 access needed for read-only discovery, and treat the agent host as sensitive.
+The systemd deployment does not grant Docker access by default; see
+[Docker monitoring](docs/agent-deployment.md#docker-monitoring-optional) for a
+read-only socket proxy and the opt-in `docker` group drop-in.
+
+Discovery needs the Docker SDK: install the agent with the `[docker]` extra.
+Without it Docker is reported as `unavailable` and the agent logs once that
+Docker discovery is disabled; availability changes (for example
+`permission_denied`) are logged once per change, not on every heartbeat.
 
 Collected per container:
 
@@ -550,9 +621,13 @@ invalid network section does not block those subsystems.
 - Only probe destinations you are authorized to monitor.
 - Targets come from the agent-local file, not from unauthenticated input.
 - Hostnames/IPs are validated; probes never use `shell=True`.
-- ICMP may require privileges / capabilities; if unavailable the agent reports
-  `permission_denied` / `unsupported` and TCP targets continue to work.
-- Root is not required for TCP monitoring.
+- Root and capabilities are never required. ICMP uses `ping`, which needs
+  either its `CAP_NET_RAW` file capability (blocked by the hardened systemd
+  unit) or unprivileged ICMP sockets for the agent's group
+  (`net.ipv4.ping_group_range`, disabled by default on Debian and Ubuntu; see
+  [Allow ICMP probes](docs/agent-deployment.md#4-allow-icmp-probes)). If ICMP
+  is not permitted the agent records `permission_denied` (`unsupported`
+  without `ping`), logs the cause once, and TCP targets continue to work.
 
 SLA calculations, alarms, and remote target configuration are not implemented
 yet.
@@ -751,32 +826,49 @@ liveness.
 
 ## Docker Compose deployment
 
-Use Compose when you want a packaged self-hosted stack. It is optional for
-day-to-day development.
+Use Compose for a self-hosted production stack; the full guide (HTTPS with
+Cloudflare Tunnel or a reverse proxy, upgrades, backups, migrations) is
+[docs/server-deployment.md](docs/server-deployment.md).
 
 ```bash
 cp .env.example .env
-# Set DJANGO_SECRET_KEY, AGENT_TOKEN_PEPPER, POSTGRES_PASSWORD
+# Set DJANGO_SECRET_KEY, AGENT_TOKEN_PEPPER, POSTGRES_PASSWORD,
+# DJANGO_ALLOWED_HOSTS and DJANGO_CSRF_TRUSTED_ORIGINS
 
-docker compose up --build
+docker compose up -d --build
 ```
 
 Services:
 
-- `web` — Django (Gunicorn); runs migrations on startup
-- `db` — PostgreSQL 16
+- `web` — Django on Gunicorn (2 workers, `WEB_CONCURRENCY`), non-root,
+  read-only filesystem; waits for the database and runs migrations on start;
+  serves the admin's static files itself (WhiteNoise)
+- `db` — PostgreSQL 16, only reachable on the internal Compose network
 
 Verify:
 
 ```bash
-curl http://localhost:8000/health/
+curl http://localhost:8000/health/        # liveness
+curl http://localhost:8000/health/ready/  # database reachable
 ```
 
 Expected:
 
 ```json
 {"status": "ok"}
+{"status": "ok", "database": "ok"}
 ```
+
+The health endpoints answer by IP over plain HTTP regardless of
+`DJANGO_ALLOWED_HOSTS` and HTTPS redirects (they are used by the image's
+`HEALTHCHECK`), and never include configuration or error details.
+
+Production settings (all environment variables, see `.env.example`):
+`DJANGO_DEBUG` is off by default; session and CSRF cookies are Secure unless
+`DJANGO_DEBUG=true`; `DJANGO_CSRF_TRUSTED_ORIGINS`,
+`DJANGO_SECURE_SSL_REDIRECT` and `DJANGO_SECURE_HSTS_*` are configurable; and
+Django never trusts `X-Forwarded-Proto` itself: Gunicorn honours it only from
+the addresses in `FORWARDED_ALLOW_IPS` ([docs/security.md](docs/security.md)).
 
 ## Agent authentication (server)
 
@@ -786,7 +878,12 @@ once at creation and is never logged or persisted. Rotating
 `AGENT_TOKEN_PEPPER` invalidates existing agent tokens; rotating
 `DJANGO_SECRET_KEY` does not.
 
-Admin can also regenerate a token via **Regenerate authentication token**.
+In the admin, adding an agent generates its token, and the **Regenerate
+authentication token** action (requires the *change agent* permission and a
+confirmation step) replaces it. The raw token is shown once on a page that
+browsers and proxies must not cache; it never goes through Django's messages
+cookie or the session, and each rotation is recorded in the admin history
+without the token. The previous token stops working immediately.
 
 Manual heartbeat with curl:
 
@@ -800,16 +897,23 @@ curl -X POST http://localhost:8000/api/v1/agent/heartbeat/ \
 
 ```text
 apps/                  Django applications
-  core/                Health endpoint, shared payload validators, retention helpers
+  core/                Health endpoints, shared payload validators, retention helpers
   infrastructure/      Monitored servers, telemetry, Docker state
   agents/              Agent registration and heartbeat API
   network/             Network targets and measurement history
-agent/                 Standalone host agent (no Django imports)
+agent/                 Standalone host agent (no Django imports); own pyproject.toml
 sentinel/              Django project settings and URL routing
+deploy/systemd/        Hardened agent unit, environment template, Docker drop-in
+docs/                  Deployment, operations and security guides
+requirements/          Hash-pinned server dependencies for the Docker image
+scripts/               Maintenance scripts (regenerate requirements/server.txt)
+tests/                 Packaging and deployment-file tests
+.github/               CI workflow and Dependabot configuration
 manage.py
-compose.yml
-Dockerfile
-pyproject.toml         Primary Python dependency definition
+compose.yml            Server stack; compose.tunnel.yml adds Cloudflare Tunnel
+Dockerfile             Server image (agent not included)
+gunicorn.conf.py       Gunicorn settings used by the image
+pyproject.toml         Server distribution (dependency ranges)
 ```
 
 New Django apps belong under `apps/` and in `INSTALLED_APPS`.

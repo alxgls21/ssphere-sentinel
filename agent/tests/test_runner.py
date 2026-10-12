@@ -99,8 +99,7 @@ class RunnerTests(unittest.TestCase):
             if calls["n"] == 1:
                 raise HeartbeatError("server returned HTTP 500")
 
-        stderr = io.StringIO()
-        with redirect_stdout(io.StringIO()), redirect_stderr(stderr):
+        with self.assertLogs("sentinel_agent", level="INFO") as logs:
             code = run_continuous(
                 fast,
                 send_fn=flaky,
@@ -110,8 +109,45 @@ class RunnerTests(unittest.TestCase):
 
         self.assertEqual(code, 0)
         self.assertEqual(calls["n"], 2)
-        self.assertIn("Heartbeat failed: server returned HTTP 500", stderr.getvalue())
-        self.assertNotIn(self.config.agent_token, stderr.getvalue())
+        output = "\n".join(logs.output)
+        self.assertIn("WARNING:sentinel_agent:Heartbeat failed: server returned HTTP 500", output)
+        self.assertIn("Heartbeat delivered after 1 failed attempt(s)", output)
+        self.assertNotIn(self.config.agent_token, output)
+
+    def test_failure_messages_are_redacted_and_success_is_quiet(self):
+        def leaky(_config):
+            raise HeartbeatError(f"proxy echoed Bearer {self.config.agent_token}")
+
+        with self.assertLogs("sentinel_agent", level="DEBUG") as logs:
+            run_continuous(
+                Config(
+                    sentinel_url=self.config.sentinel_url,
+                    agent_token=self.config.agent_token,
+                    heartbeat_interval=0,
+                ),
+                send_fn=leaky,
+                max_iterations=1,
+                install_signal_handlers=False,
+            )
+        output = "\n".join(logs.output)
+        self.assertIn("Bearer ***", output)
+        self.assertNotIn(self.config.agent_token, output)
+
+        stdout = io.StringIO()
+        with redirect_stdout(stdout), self.assertLogs("sentinel_agent", level="INFO") as logs:
+            run_continuous(
+                Config(
+                    sentinel_url=self.config.sentinel_url,
+                    agent_token=self.config.agent_token,
+                    heartbeat_interval=0,
+                ),
+                send_fn=lambda _config: None,
+                max_iterations=3,
+                install_signal_handlers=False,
+            )
+        # Healthy heartbeats print nothing and log only the shutdown line.
+        self.assertEqual(stdout.getvalue(), "")
+        self.assertEqual(logs.output, ["INFO:sentinel_agent:Agent stopped"])
 
     def test_loop_survives_telemetry_collection_failure(self):
         from agent.heartbeat import send_heartbeat
@@ -229,6 +265,7 @@ class RunnerTests(unittest.TestCase):
             patch("agent.runner.signal.signal", side_effect=fake_signal),
             redirect_stdout(io.StringIO()),
             redirect_stderr(stderr),
+            self.assertLogs("sentinel_agent", level="INFO") as logs,
         ):
             code = run_continuous(
                 self.config,
@@ -238,5 +275,8 @@ class RunnerTests(unittest.TestCase):
 
         self.assertEqual(code, 0)
         self.assertEqual(send_fn.call_count, 1)
-        self.assertIn("Agent stopped.", stderr.getvalue())
+        self.assertEqual(
+            logs.output,
+            ["INFO:sentinel_agent:Received SIGTERM; stopping", "INFO:sentinel_agent:Agent stopped"],
+        )
         self.assertNotIn("Traceback", stderr.getvalue())

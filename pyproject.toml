@@ -1,23 +1,50 @@
+# Sentinel server distribution (Django project: ``sentinel`` + ``apps``).
+#
+# The standalone host agent is a separate distribution defined in
+# agent/pyproject.toml so monitored hosts never install server dependencies.
+#
+#   pip install -e .          # server development
+#   pip install -e ./agent    # agent development (adds the sentinel-agent CLI)
+#
+# The Docker image installs the exact, hash-pinned versions from
+# requirements/server.txt (see scripts/update_server_requirements.py).
+
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
 [project]
 name = "ssphere-sentinel"
 version = "0.1.0"
-description = "Self-hosted infrastructure monitoring and backup verification platform"
+description = "SSphere Sentinel server: self-hosted infrastructure and network monitoring"
 readme = "README.md"
+license-files = ["LICENSE"]
 requires-python = ">=3.12"
+authors = [{ name = "Alexandros Goulas" }]
 dependencies = [
     "Django>=5.2,<6",
-    "docker>=7.0",
     "gunicorn>=23.0",
-    "psutil>=6.0",
     "psycopg[binary]>=3.2",
+    # Serves the admin's static files from Gunicorn (no extra web server).
+    "whitenoise>=6.6",
+]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Framework :: Django",
+    "Framework :: Django :: 5.2",
+    "Intended Audience :: System Administrators",
+    "Operating System :: POSIX :: Linux",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+    "Topic :: System :: Monitoring",
 ]
 
-[project.scripts]
-sentinel-agent = "agent.cli:main"
-
-[build-system]
-requires = ["setuptools>=75"]
-build-backend = "setuptools.build_meta"
+[project.urls]
+Homepage = "https://github.com/alxgls21/ssphere-sentinel"
+Source = "https://github.com/alxgls21/ssphere-sentinel"
 
 [tool.setuptools.packages.find]
-include = ["sentinel*", "apps*", "agent*"]
+include = ["sentinel*", "apps*"]

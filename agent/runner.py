@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import logging
 import signal
-import sys
 import threading
 import time
 from collections.abc import Callable
@@ -31,14 +30,15 @@ def run_continuous(
     attempt N starts at ``start + N * heartbeat_interval`` regardless of how
     long each attempt took. If an attempt overruns one or more slots, the
     missed slots are skipped (logged) rather than sent in a burst. Heartbeat
-    failures are logged and the loop continues. Returns ``0`` on graceful
-    shutdown.
+    failures are logged as warnings and the loop continues; the first success
+    after failures is logged once (successes are otherwise only logged at
+    DEBUG, to keep journald quiet). Returns ``0`` on graceful shutdown.
     """
     stop = stop_event if stop_event is not None else threading.Event()
     previous_handlers: dict[int, object] = {}
 
     def _request_stop(signum: int, _frame: object) -> None:
-        logger.info("Received signal %s; stopping", signum)
+        logger.info("Received %s; stopping", _signal_name(signum))
         stop.set()
 
     if install_signal_handlers:
@@ -48,16 +48,23 @@ def run_continuous(
 
     interval = config.heartbeat_interval
     iterations = 0
+    failures = 0
     next_run = time_fn()
     try:
         while not stop.is_set():
             try:
                 send_fn(config)
-                print("Heartbeat successful.")
             except Exception as exc:  # noqa: BLE001 - keep the loop alive
-                message = redact(str(exc), config.agent_token)
-                print(f"Heartbeat failed: {message}", file=sys.stderr)
-                logger.warning("Heartbeat failed: %s", message)
+                failures += 1
+                logger.warning(
+                    "Heartbeat failed: %s", redact(str(exc), config.agent_token)
+                )
+            else:
+                if failures:
+                    logger.info("Heartbeat delivered after %d failed attempt(s)", failures)
+                    failures = 0
+                else:
+                    logger.debug("Heartbeat delivered")
 
             iterations += 1
             if max_iterations is not None and iterations >= max_iterations:
@@ -84,5 +91,12 @@ def run_continuous(
             for sig, handler in previous_handlers.items():
                 signal.signal(sig, handler)  # type: ignore[arg-type]
 
-    print("Agent stopped.", file=sys.stderr)
+    logger.info("Agent stopped")
     return 0
+
+
+def _signal_name(signum: int) -> str:
+    try:
+        return signal.Signals(signum).name
+    except ValueError:
+        return f"signal {signum}"
