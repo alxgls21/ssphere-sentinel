@@ -72,11 +72,18 @@ export function scopeSegments(options: ScopeOptions | undefined, scope: Scope): 
   return [customer, site].flatMap((entity) => (entity ? [slug(entity.name)] : []))
 }
 
+/** What the retry control says: what failed, why, and what the button does. */
+export const scopeErrorLabel = (error: Error): string =>
+  `Customers and sites could not be loaded: ${error.message} Retry`
+
 export interface ScopeState {
   scope: Scope
   choices: ScopeChoices
   /** The customer and site lists have loaded; until then the pickers are inert. */
   ready: boolean
+  /** Why they could not be loaded. The pickers stay inert (there is no scope to offer) until `retry` succeeds. */
+  error: Error | null
+  retry: () => void
   segments: string[]
   setCustomer: (customerId: string) => void
   setSite: (siteId: string) => void
@@ -92,6 +99,8 @@ export function useScopeState(): ScopeState {
     scope,
     choices: buildScopeChoices(options, scope),
     ready: resource.status === 'success',
+    error: resource.status === 'error' ? resource.error : null,
+    retry: resource.refetch,
     segments: scopeSegments(options, scope),
     setCustomer: (customerId) => setScope(scopeWithCustomer(options, scope, customerId)),
     setSite: (siteId) => setScope(scopeWithSite(options, scope, siteId)),

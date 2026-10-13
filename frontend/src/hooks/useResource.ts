@@ -127,7 +127,14 @@ export function useResource<T>(
       }, delay)
     }
 
+    // Requests can overlap (a tab coming back into view while one is still in flight). Only the newest
+    // one counts: an older answer, even a late success, must neither replace newer data nor restamp it,
+    // and only the newest request schedules the next poll, so there is never more than one timer.
+    let latest = 0
     const load = async () => {
+      const mine = ++latest
+      controller.abort()
+      clearTimeout(timer)
       lastLoadAt = Date.now()
       controller = new AbortController()
       const { signal } = controller
@@ -136,12 +143,12 @@ export function useResource<T>(
       dispatch({ type: 'start', key, keepPreviousData, manual })
       try {
         const data = await fetcherRef.current(signal)
-        if (!cancelled) dispatch({ type: 'success', key, data, at: Date.now() })
+        if (!cancelled && mine === latest) dispatch({ type: 'success', key, data, at: Date.now() })
       } catch (error) {
-        if (!cancelled && !isAbortError(error))
+        if (!cancelled && mine === latest && !isAbortError(error))
           dispatch({ type: 'failure', key, error: toError(error) })
       }
-      schedule()
+      if (mine === latest) schedule()
     }
 
     const resume = () => {

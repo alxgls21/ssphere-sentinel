@@ -203,6 +203,147 @@ describe('AuthProvider', () => {
     expect(status()).toBe('signout-failed')
   })
 
+  describe('an older session check', () => {
+    /** A revalidation that has been sent but not answered, which the test answers when it chooses. */
+    function pendingCheck() {
+      let answer!: (session: ConsoleSession) => void
+      let fail!: (error: Error) => void
+      const promise = new Promise<ConsoleSession>((resolve, reject) => {
+        answer = resolve
+        fail = reject
+      })
+      return { promise, answer, fail }
+    }
+
+    async function signedInWithPendingCheck(over: Partial<AuthClient> = {}) {
+      vi.useFakeTimers({ shouldAdvanceTime: true })
+      const pending = pendingCheck()
+      const getSession = vi
+        .fn<AuthClient['getSession']>()
+        .mockResolvedValueOnce(ALICE)
+        .mockReturnValueOnce(pending.promise)
+        .mockResolvedValue(ALICE)
+      const signals = createSessionSignals()
+      render(
+        <AuthProvider client={client({ getSession, ...over })} signals={signals}>
+          <Probe />
+        </AuthProvider>,
+      )
+      await waitFor(() => expect(status()).toBe('authenticated'))
+      // The periodic check goes out and is not answered yet.
+      await act(() => vi.advanceTimersByTimeAsync(REVALIDATE_MS + 100))
+      expect(getSession).toHaveBeenCalledTimes(2)
+      return { pending, signals, getSession }
+    }
+
+    it('cannot bring a session back after a failed sign-out', async () => {
+      const signOut = vi
+        .fn()
+        .mockRejectedValue(new ApiError('Cannot reach the server.', null, 'network'))
+      const { pending } = await signedInWithPendingCheck({ signOut })
+      act(() => screen.getByRole('button', { name: 'out' }).click())
+      await waitFor(() => expect(status()).toBe('signout-failed'))
+
+      await act(async () => pending.answer(ALICE))
+
+      expect(status()).toBe('signout-failed')
+      expect(screen.getByLabelText('user')).toHaveTextContent('nobody')
+    })
+
+    it('cannot bring a session back while the sign-out is still in flight', async () => {
+      const signOut = vi.fn(() => new Promise<ConsoleSession>(() => {}))
+      const { pending } = await signedInWithPendingCheck({ signOut })
+      act(() => screen.getByRole('button', { name: 'out' }).click())
+      expect(status()).toBe('signing-out')
+
+      await act(async () => pending.answer(ALICE))
+
+      expect(status()).toBe('signing-out')
+    })
+
+    it('cannot undo a completed sign-out', async () => {
+      const { pending } = await signedInWithPendingCheck()
+      act(() => screen.getByRole('button', { name: 'out' }).click())
+      await waitFor(() => expect(status()).toBe('anonymous'))
+
+      await act(async () => pending.answer(ALICE))
+
+      expect(status()).toBe('anonymous')
+      expect(screen.getByLabelText('signed-out')).toHaveTextContent('true')
+    })
+
+    it('cannot bring back a session that a request reported as expired', async () => {
+      const { pending, signals } = await signedInWithPendingCheck()
+      act(() => signals.expired.emit())
+      expect(status()).toBe('expired')
+
+      await act(async () => pending.answer(ALICE))
+
+      expect(status()).toBe('expired')
+    })
+
+    it('is not asked at all once a sign-out has failed, so a "forbidden" report cannot revive the session either', async () => {
+      const signOut = vi
+        .fn()
+        .mockRejectedValue(new ApiError('Cannot reach the server.', null, 'network'))
+      const { signals, getSession } = await signedInWithPendingCheck({ signOut })
+      act(() => screen.getByRole('button', { name: 'out' }).click())
+      await waitFor(() => expect(status()).toBe('signout-failed'))
+      const asked = getSession.mock.calls.length
+
+      await act(async () => signals.forbidden.emit())
+
+      expect(getSession.mock.calls.length).toBe(asked)
+      expect(status()).toBe('signout-failed')
+    })
+
+    it('cannot sign out a user who has since signed in', async () => {
+      vi.useFakeTimers({ shouldAdvanceTime: true })
+      const pending = pendingCheck()
+      const getSession = vi
+        .fn<AuthClient['getSession']>()
+        .mockReturnValueOnce(pending.promise)
+        .mockResolvedValue(ALICE)
+      const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
+      render(
+        <AuthProvider client={client({ getSession })}>
+          <Probe />
+        </AuthProvider>,
+      )
+      // The first check is slow; meanwhile the user signs in.
+      await user.click(screen.getByRole('button', { name: 'in' }))
+      await waitFor(() => expect(status()).toBe('authenticated'))
+
+      await act(async () => pending.answer(ANON))
+
+      expect(status()).toBe('authenticated')
+      expect(screen.getByLabelText('user')).toHaveTextContent('alice')
+    })
+
+    it('still lets the newest check decide when two overlap', async () => {
+      const first = pendingCheck()
+      const second = pendingCheck()
+      const getSession = vi
+        .fn<AuthClient['getSession']>()
+        .mockReturnValueOnce(first.promise)
+        .mockReturnValueOnce(second.promise)
+      const user = userEvent.setup()
+      render(
+        <AuthProvider client={client({ getSession })}>
+          <Probe />
+        </AuthProvider>,
+      )
+      await user.click(screen.getByRole('button', { name: 'refresh' }))
+      expect(getSession).toHaveBeenCalledTimes(2)
+
+      await act(async () => second.answer(ALICE))
+      await waitFor(() => expect(status()).toBe('authenticated'))
+      await act(async () => first.answer(ANON))
+
+      expect(status()).toBe('authenticated')
+    })
+  })
+
   describe('an expired session', () => {
     it('is noticed when any request reports it, and only for a signed-in user', async () => {
       const signals = createSessionSignals()

@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
+import { ApiError } from './errors'
 import { createMockApi } from './mock/client'
 import { composeDemoApi } from './demo'
 import type { Scope } from './types'
@@ -39,5 +40,15 @@ describe('composeDemoApi', () => {
   it('does not offer demo servers to search, beside real customers', async () => {
     const index = await compose().api.getEntityIndex()
     expect(index.items).toEqual([])
+  })
+
+  it('reports a failed scope request as it is: no sample scope stands in for the real one', async () => {
+    const demo = createMockApi({ delayMs: 0 })
+    const getScopeOptions = vi.spyOn(demo, 'getScopeOptions')
+    const failure = new ApiError('The server is unavailable (HTTP 502).', 502)
+    const api = composeDemoApi(demo, { getScopeOptions: vi.fn().mockRejectedValue(failure) })
+
+    await expect(api.getScopeOptions()).rejects.toBe(failure)
+    expect(getScopeOptions).not.toHaveBeenCalled()
   })
 })

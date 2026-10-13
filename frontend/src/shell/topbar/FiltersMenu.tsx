@@ -2,7 +2,7 @@ import { ListFilter } from 'lucide-react'
 import { useRange } from '@/app/viewState'
 import { DEFAULT_RANGE, RANGE_OPTIONS, isRangeKey } from '@/lib/range'
 import { Menu, type MenuItem } from '@/ui/controls'
-import { ALL, type ScopeState } from './scope'
+import { ALL, scopeErrorLabel, type ScopeState } from './scope'
 
 const RANGE_CHOICES = RANGE_OPTIONS.map((value) => ({ value, label: value }))
 
@@ -18,12 +18,18 @@ export function FiltersMenu({
   state: ScopeState
   iconOnly?: boolean
 }) {
-  const { scope, choices, setCustomer, setSite } = state
+  const { scope, choices, error, retry, setCustomer, setSite } = state
   const [range, setRange] = useRange()
   const active =
     (scope.customerId ? 1 : 0) + (scope.siteId ? 1 : 0) + (range === DEFAULT_RANGE ? 0 : 1)
 
   const items: MenuItem[] = [
+    ...(error
+      ? ([
+          { type: 'action', label: scopeErrorLabel(error), onSelect: retry },
+          { type: 'separator' },
+        ] satisfies MenuItem[])
+      : []),
     {
       type: 'radio-group',
       label: 'Customer',
