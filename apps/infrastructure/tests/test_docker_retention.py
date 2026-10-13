@@ -6,7 +6,7 @@ from django.test import TestCase, override_settings
 from django.utils import timezone
 
 from apps.infrastructure.docker_reports import apply_docker_report
-from apps.infrastructure.models import DockerContainer, Server
+from apps.infrastructure.models import DockerContainer, DockerHostState, Server
 from apps.infrastructure.tests.test_docker_sync import container, report
 
 
@@ -18,6 +18,12 @@ class AbsentContainerCleanupTests(TestCase):
 
     def _container(self, index, *, present, age_days):
         seen = self.now - timedelta(days=age_days)
+        # A container has a server whose Docker state exists (the first report creates it);
+        # the cleanup works under that row's lock.
+        DockerHostState.objects.get_or_create(
+            server=self.server,
+            defaults={"available": True, "status": "available", "collected_at": seen, "received_at": seen, "last_discovered_at": seen},
+        )
         return DockerContainer.objects.create(
             server=self.server, container_id=f"{index:064x}", name=f"c{index}",
             image="img", state="exited", health="none", present=present,

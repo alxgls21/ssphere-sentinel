@@ -160,6 +160,8 @@ def apply_docker_report(
 
     Reports for one server are serialized by locking its ``DockerHostState``
     row, so concurrent heartbeats cannot interleave container changes. The
+    cleanup of absent containers (``purge_absent_docker_containers``) takes the
+    same lock before it deletes anything, so it never overlaps a report. The
     report is then compared with the state it finds under that lock (see the
     module docstring): ``True`` if it was applied, ``False`` if it was not
     newer than the inventory and nothing was written.

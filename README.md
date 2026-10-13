@@ -789,6 +789,32 @@ outage, a permission problem, or an agent that stopped reporting never makes
 containers eligible for deletion. A deleted container that comes back is
 simply recreated as a new row.
 
+A Docker report can list a container again at any moment, so the Docker cleanup
+decides nothing from an earlier look at the table. It works one server at a
+time and, for each batch, in one transaction: it locks the server's Docker host
+state (the row every Docker report locks first, which is also what keeps
+concurrent reports apart), selects the eligible containers again, and deletes
+exactly those, with the same conditions (`present=False`, last seen before the
+cutoff) repeated in the `DELETE`. A container a report has just listed is
+therefore never deleted, and a report never loses a container to the cleanup.
+The batch size counts containers per server and transaction. The number of
+batches a server gets in one run is fixed from the number of eligible containers
+found when it was first locked (`ceil(count / batch-size)`); containers that
+become eligible meanwhile may still be deleted in that run if they fit in those
+batches, and whatever remains eligible afterwards is taken by a later run.
+
+A server is deferred, and named in the output (`Deferred to a later run: ...`),
+when its Docker host state cannot be locked: because it stays locked for more
+than five seconds (`lock_timeout`) by another transaction (usually a Docker
+report, which normally holds it for milliseconds, or another cleanup run), or
+because the server has no Docker host state at all (it never reported Docker, or
+the row was deleted in the admin). Batches the server had already completed
+stay deleted, each having been committed under the lock; the rest of its cleanup
+waits for a later run, and nothing is ever deleted without the lock. A server
+without a host state is cleaned by the first run after a Docker report creates
+one. The exit status is 0 either way. `--dry-run` also says how many containers
+belong to servers without a host state.
+
 ### Scheduling the cleanup
 
 Run the commands daily from cron or a systemd timer, as the same user and with
