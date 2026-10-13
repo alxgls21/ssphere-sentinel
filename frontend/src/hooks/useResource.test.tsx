@@ -158,4 +158,122 @@ describe('useResource', () => {
       expect(fetcher).toHaveBeenCalledTimes(2)
     })
   })
+
+  describe('overlapping requests', () => {
+    const setHidden = (hidden: boolean) => {
+      Object.defineProperty(document, 'hidden', { configurable: true, get: () => hidden })
+      document.dispatchEvent(new Event('visibilitychange'))
+    }
+    afterEach(() => setHidden(false))
+
+    /** A request the test answers when it chooses, so completion order is exact. */
+    function controlled() {
+      const calls: {
+        signal: AbortSignal
+        resolve: (v: number) => void
+        reject: (e: Error) => void
+      }[] = []
+      const fetcher = vi.fn(
+        (signal: AbortSignal) =>
+          new Promise<number>((resolve, reject) => calls.push({ signal, resolve, reject })),
+      )
+      return { calls, fetcher }
+    }
+
+    /**
+     * The first request is slow. The tab is hidden and comes back, so the slow cadence has left the
+     * data older than the poll interval and a second request goes out while the first is still pending.
+     */
+    async function overlap(options: { hiddenRefreshMs?: number } = {}) {
+      vi.useFakeTimers()
+      const { calls, fetcher } = controlled()
+      const hook = renderHook(() =>
+        useResource('k', fetcher, { refreshMs: 1000, hiddenRefreshMs: 60_000, ...options }),
+      )
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(3000)
+      })
+      expect(calls).toHaveLength(1)
+      await act(async () => {
+        document.dispatchEvent(new Event('visibilitychange'))
+        await vi.advanceTimersByTimeAsync(0)
+      })
+      expect(calls).toHaveLength(2)
+      return { ...hook, calls, fetcher }
+    }
+
+    it('does not let an older response overwrite a newer one, or take its timestamp', async () => {
+      const { result, calls } = await overlap()
+      vi.setSystemTime(Date.now() + 10_000)
+      await act(async () => calls[1]!.resolve(2))
+      const newer = result.current.updatedAt
+      expect(result.current.data).toBe(2)
+
+      vi.setSystemTime(Date.now() + 10_000)
+      await act(async () => calls[0]!.resolve(1))
+
+      expect(result.current.data).toBe(2)
+      expect(result.current.updatedAt).toBe(newer)
+      expect(result.current.isRefreshing).toBe(false)
+    })
+
+    it('does not let an older failure replace newer data with an error', async () => {
+      const { result, calls } = await overlap()
+      await act(async () => calls[1]!.resolve(2))
+
+      await act(async () => calls[0]!.reject(new Error('late failure')))
+
+      expect(result.current.data).toBe(2)
+      expect(result.current.error).toBeNull()
+    })
+
+    it('aborts the request a newer one replaces', async () => {
+      const { calls } = await overlap()
+      expect(calls[0]!.signal.aborted).toBe(true)
+      expect(calls[1]!.signal.aborted).toBe(false)
+    })
+
+    it('keeps exactly one polling timer, however the requests finish', async () => {
+      const { calls } = await overlap()
+      await act(async () => calls[1]!.resolve(2))
+      await act(async () => calls[0]!.resolve(1))
+      expect(vi.getTimerCount()).toBe(1)
+
+      // And one request per interval from then on.
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(1000)
+      })
+      expect(calls).toHaveLength(3)
+    })
+
+    it('still shows loading, not an error, while the only request in flight was replaced', async () => {
+      vi.useFakeTimers()
+      const { calls, fetcher } = controlled()
+      const { result } = renderHook(() =>
+        useResource('k', fetcher, { refreshMs: 1000, hiddenRefreshMs: 60_000 }),
+      )
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(3000)
+      })
+      await act(async () => {
+        document.dispatchEvent(new Event('visibilitychange'))
+        await vi.advanceTimersByTimeAsync(0)
+      })
+      // The replaced request was cancelled, which is not a failure.
+      await act(async () => calls[0]!.reject(new DOMException('aborted', 'AbortError')))
+      expect(result.current.status).toBe('loading')
+      expect(result.current.error).toBeNull()
+
+      await act(async () => calls[1]!.resolve(7))
+      expect(result.current.status).toBe('success')
+      expect(result.current.data).toBe(7)
+    })
+
+    it('stops everything when the component goes away', async () => {
+      const { calls, unmount } = await overlap()
+      unmount()
+      expect(calls.every((call) => call.signal.aborted)).toBe(true)
+      expect(vi.getTimerCount()).toBe(0)
+    })
+  })
 })

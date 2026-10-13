@@ -14,6 +14,9 @@ interface State {
   signedOut: boolean
 }
 
+/** While the server is being told to end the session, or could not be, no answer may show the app. */
+const isSigningOut = (status: AuthStatus) => status === 'signing-out' || status === 'signout-failed'
+
 const CHECKING: State = { status: 'checking', user: null, error: null, signedOut: false }
 
 function fromSession(session: ConsoleSession, previous: AuthStatus): State {
@@ -43,22 +46,34 @@ export function AuthProvider({ client, signals, children }: AuthProviderProps) {
   const [state, setState] = useState<State>(() =>
     client ? CHECKING : { status: 'authenticated', user: null, error: null, signedOut: false },
   )
+  // Read synchronously by async work that finishes later, so it sees the state as it is now.
   const statusRef = useRef(state.status)
-  useEffect(() => {
-    statusRef.current = state.status
-  }, [state.status])
+  const commit = useCallback((next: State) => {
+    statusRef.current = next.status
+    setState(next)
+  }, [])
+
+  // Answers arrive in any order. A session check is only believed if nothing has changed since it was
+  // sent: no newer check (`checkSeq`), and no sign-in, sign-out or expiry in between (`transitions`).
+  const checkSeq = useRef(0)
+  const transitions = useRef(0)
 
   const check = useCallback(
     async (signal?: AbortSignal) => {
-      if (!client) return
+      if (!client || isSigningOut(statusRef.current)) return
+      const mine = { check: ++checkSeq.current, transition: transitions.current }
+      const current = () =>
+        mine.check === checkSeq.current &&
+        mine.transition === transitions.current &&
+        !isSigningOut(statusRef.current)
       try {
         const session = await client.getSession(signal)
-        setState(fromSession(session, statusRef.current))
+        if (current()) commit(fromSession(session, statusRef.current))
       } catch (error) {
-        if (signal?.aborted) return
+        if (signal?.aborted || !current()) return
         // A failed revalidation of a signed-in tab keeps the screen: the next data request will say more.
         if (statusRef.current === 'authenticated') return
-        setState({
+        commit({
           status: 'unreachable',
           user: null,
           error: error instanceof ApiError ? error.message : 'Cannot reach the server.',
@@ -66,7 +81,7 @@ export function AuthProvider({ client, signals, children }: AuthProviderProps) {
         })
       }
     },
-    [client],
+    [client, commit],
   )
 
   useEffect(() => {
@@ -91,37 +106,39 @@ export function AuthProvider({ client, signals, children }: AuthProviderProps) {
   // The HTTP layer reports a 401 or 403 from any request through these.
   useEffect(() => {
     if (!signals) return
-    const stopExpired = signals.expired.subscribe(() =>
-      setState((current) =>
-        current.status === 'authenticated'
-          ? { status: 'expired', user: null, error: null, signedOut: false }
-          : current,
-      ),
-    )
+    const stopExpired = signals.expired.subscribe(() => {
+      if (statusRef.current !== 'authenticated') return
+      transitions.current += 1
+      commit({ status: 'expired', user: null, error: null, signedOut: false })
+    })
     const stopForbidden = signals.forbidden.subscribe(() => void check())
     return () => {
       stopExpired()
       stopForbidden()
     }
-  }, [signals, check])
+  }, [signals, check, commit])
 
   const signIn = useCallback(
     async (username: string, password: string) => {
       if (!client) return
+      const mine = ++transitions.current
       const session = await client.signIn(username, password)
-      setState(fromSession(session, 'anonymous'))
+      // A sign-out or expiry that came in meanwhile has the last word.
+      if (mine === transitions.current) commit(fromSession(session, 'anonymous'))
     },
-    [client],
+    [client, commit],
   )
 
   const signOut = useCallback(async () => {
     if (!client) return
+    const mine = ++transitions.current
     // Nothing of the application stays on screen while the server is being told, or if it cannot be.
-    setState({ status: 'signing-out', user: null, error: null, signedOut: false })
+    commit({ status: 'signing-out', user: null, error: null, signedOut: false })
     try {
       await client.signOut()
     } catch (error) {
-      setState({
+      if (mine !== transitions.current) return
+      commit({
         status: 'signout-failed',
         user: null,
         error: error instanceof ApiError ? error.message : 'Cannot reach the server.',
@@ -129,8 +146,10 @@ export function AuthProvider({ client, signals, children }: AuthProviderProps) {
       })
       return
     }
-    setState({ status: 'anonymous', user: null, error: null, signedOut: true })
-  }, [client])
+    if (mine === transitions.current) {
+      commit({ status: 'anonymous', user: null, error: null, signedOut: true })
+    }
+  }, [client, commit])
 
   const value = useMemo<AuthApi>(
     () => ({
@@ -138,11 +157,11 @@ export function AuthProvider({ client, signals, children }: AuthProviderProps) {
       signIn,
       signOut,
       refresh: () => {
-        if (statusRef.current === 'unreachable') setState(CHECKING)
+        if (statusRef.current === 'unreachable') commit(CHECKING)
         void check()
       },
     }),
-    [state, signIn, signOut, check],
+    [state, signIn, signOut, check, commit],
   )
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>
 }
