@@ -41,18 +41,21 @@ classifiers = [
 [project.optional-dependencies]
 # Docker discovery is optional: without the SDK the agent reports Docker as
 # unavailable and everything else keeps working.
+# The SDK needs 7.1 or later: 7.0.0 cannot talk to Docker with current requests releases.
 docker = [
-    "docker>=7.0",
+    "docker>=7.1",
 ]
 # SNMP monitoring is optional: without the library the agent reports SNMP as
 # unavailable and everything else keeps working. ``cryptography`` is what
 # pysnmp uses for SNMPv3 AES privacy; it imports it only when it is present
 # and otherwise fails obscurely on the first encrypted request, so it is
-# required here rather than left to chance. pysnmp stays within the 7.1
-# series because its API changed between minor releases.
+# required here rather than left to chance. pysnmp 7.1 needs the AES-CFB mode
+# from ``cryptography.hazmat.decrepit``, which exists from cryptography 47.
+# pysnmp stays within the 7.1 series because its API changed between minor
+# releases.
 snmp = [
     "pysnmp>=7.1.30,<7.2",
-    "cryptography>=43",
+    "cryptography>=47",
 ]
 
 [project.scripts]

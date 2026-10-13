@@ -53,3 +53,4 @@ htmlcov/
 
 # Docker / local data
 postgres_data/
+*.dump

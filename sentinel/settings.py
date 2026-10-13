@@ -205,6 +205,8 @@ INSTALLED_APPS = [
     "django.contrib.sessions",
     "django.contrib.messages",
     "django.contrib.staticfiles",
+    # Required for BrinIndex (enforced by a system check since Django 6.1).
+    "django.contrib.postgres",
     # Project apps
     "apps.core",
     "apps.infrastructure",
