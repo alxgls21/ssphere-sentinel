@@ -86,8 +86,9 @@ monitors many agents, one agent per monitored server. Deployment guides:
 
 ## Requirements
 
-- **Server:** Python 3.12+ and **PostgreSQL 16+** (local install for
-  virtualenv development, or via Compose)
+- **Server:** Python 3.12+ (3.14 in the Docker image) and **PostgreSQL 16+**
+  (18 for new Compose installations); a local install for virtualenv
+  development, or via Compose
 - **Agent:** Python 3.11+ on Linux or macOS; only depends on `psutil` (the
   Docker SDK and the SNMP library are optional extras)
 - **pip** / a virtual environment
@@ -145,8 +146,8 @@ Do not switch to SQLite.
 1. Install and start PostgreSQL (Homebrew example):
 
    ```bash
-   brew install postgresql@16
-   brew services start postgresql@16
+   brew install postgresql@18
+   brew services start postgresql@18
    ```
 
 2. Create a role and database matching `.env` (example):
@@ -168,9 +169,12 @@ to create `test_<db>` automatically (`ALTER ROLE sentinel CREATEDB;`).
 
 ### Docker Compose PostgreSQL
 
-Compose starts PostgreSQL 16 and always connects the `web` service with
-`POSTGRES_HOST=db` (overrides `.env`). You only need a strong
-`POSTGRES_PASSWORD` in `.env`.
+Compose starts PostgreSQL 18 for new installations and always connects the
+`web` service with `POSTGRES_HOST=db` (overrides `.env`). You only need a strong
+`POSTGRES_PASSWORD` in `.env`. Installations created before PostgreSQL 18
+became the default keep running PostgreSQL 16 until they are moved by the
+documented dump and restore
+([docs/server-deployment.md](docs/server-deployment.md#postgresql-versions)).
 
 ## Local development with Python virtualenv
 
@@ -242,7 +246,9 @@ Python 3.11-3.14 (Linux, plus macOS) without any server dependency installed,
 the agent with its Docker and SNMP extras at the lowest and the latest
 declared versions, packaging and `pip-audit`/`bandit` checks, and an end-to-end
 deployment (Docker image and Compose stack, then the agent installed with the
-hardened systemd unit and verified against the server).
+hardened systemd unit and verified against the server) and a rehearsal of the
+PostgreSQL 16 to 18 migration procedure, including its preflight checks and
+rollback.
 
 ## Running the Sentinel agent locally
 
@@ -983,8 +989,10 @@ Cloudflare Tunnel or a reverse proxy, upgrades, backups, migrations) is
 ```bash
 cp .env.example .env
 # Set DJANGO_SECRET_KEY, AGENT_TOKEN_PEPPER, POSTGRES_PASSWORD,
-# DJANGO_ALLOWED_HOSTS and DJANGO_CSRF_TRUSTED_ORIGINS
+# DJANGO_ALLOWED_HOSTS and DJANGO_CSRF_TRUSTED_ORIGINS, and uncomment
+# SENTINEL_POSTGRES_INITIALIZE=true for the first start
 
+scripts/postgres-preflight.sh   # read-only check of the database volumes
 docker compose up -d --build
 ```
 
@@ -993,7 +1001,8 @@ Services:
 - `web` — Django on Gunicorn (2 workers, `WEB_CONCURRENCY`), non-root,
   read-only filesystem; waits for the database and runs migrations on start;
   serves the admin's static files itself (WhiteNoise)
-- `db` — PostgreSQL 16, only reachable on the internal Compose network
+- `db` — PostgreSQL (18 for new installations, 16 until an existing one is
+  migrated), only reachable on the internal Compose network
 
 Verify:
 

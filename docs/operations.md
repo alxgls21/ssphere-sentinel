@@ -64,6 +64,10 @@ Then put the same value in `.env` and run `docker compose up -d`.
 | Admin pages without styles | Native installs: run `python manage.py collectstatic`. Images built by the Dockerfile include them. |
 | Agents get HTTP 403 behind Cloudflare | A Cloudflare WAF, bot or Access rule; exempt `/api/v1/agent/` ([server-deployment.md](server-deployment.md#option-a-cloudflare-tunnel)). |
 | Empty database after an upgrade | The Compose project or volume name changed (a different directory name, or `docker compose down --volumes`). The old volume still exists: `docker volume ls`. Restore from it or from a backup. |
+| `db` exits, log says `... holds no database and creating one is not authorized` | The PostgreSQL 18 data directory is empty. New installation, or restoring a dump into a new volume: add `SENTINEL_POSTGRES_INITIALIZE=true` to `.env` for that start. Existing installation: **do not authorize it**; the wrong volume is mounted. Run `scripts/postgres-preflight.sh` ([server-deployment.md](server-deployment.md#preflight-check)). |
+| `scripts/postgres-preflight.sh` says `REFUSED` or `AMBIGUOUS` | `SENTINEL_POSTGRES` does not match the database volumes Docker has. The message names the way forward; [server-deployment.md](server-deployment.md#preflight-check) explains each case. |
+| `db` keeps restarting, log says `in 18+, these Docker images are configured to store database data in a format ...` | The PostgreSQL 18 image was pointed at a PostgreSQL 16 volume (`SENTINEL_POSTGRES` in `.env` does not match the volume). Nothing was changed in the volume. Restore the previous `.env` (see [server-deployment.md](server-deployment.md#postgresql-versions)). |
+| Data from before a PostgreSQL 18 migration is back | The `SENTINEL_POSTGRES=18` line was removed from `.env`, so `db` runs on the old PostgreSQL 16 volume again. Put it back ([server-deployment.md](server-deployment.md#moving-an-existing-installation-to-postgresql-18)). |
 
 ### Agents
 

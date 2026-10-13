@@ -1,0 +1,36 @@
+# The database service of an installation created before SENTINEL_POSTGRES
+# existed (PostgreSQL 16), frozen. CI checks that Compose resolves the current
+# service for such an installation to the same configuration, so that updating
+# the repository never recreates or changes its database. Do not edit.
+
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "5"
+
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-sentinel}
+      POSTGRES_USER: ${POSTGRES_USER:-sentinel}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 5s
+    # The image stops PostgreSQL with a fast shutdown; give it time to finish
+    # instead of being killed after Docker's default 10 seconds.
+    stop_grace_period: 1m
+    security_opt:
+      - no-new-privileges:true
+    logging: *default-logging
+
+volumes:
+  postgres_data:

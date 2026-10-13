@@ -1,0 +1,60 @@
+# PostgreSQL 18 database service: used when SENTINEL_POSTGRES=18, which
+# .env.example sets for new installations.
+# The 18 image keeps its cluster in /var/lib/postgresql/18/docker, below a single
+# mount at /var/lib/postgresql (which is what lets a later major upgrade use
+# pg_upgrade).
+#
+# Apart from the image, the volume and the initialization guard below, every
+# version file defines the service the same way (tests/deployment checks it).
+# The image and the volume belong together: never point a different PostgreSQL
+# major version at postgres18_data. docs/server-deployment.md describes the
+# supported way to move between versions.
+
+services:
+  db:
+    image: postgres:18-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-sentinel}
+      POSTGRES_USER: ${POSTGRES_USER:-sentinel}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
+      SENTINEL_POSTGRES_INITIALIZE: ${SENTINEL_POSTGRES_INITIALIZE:-}
+    # Initialization guard: a data directory that holds no database is only
+    # initialized when SENTINEL_POSTGRES_INITIALIZE=true authorizes it. A cluster
+    # that exists (PG_VERSION, the file the image itself looks for) starts
+    # without any setting. The command is stated because overriding the
+    # entrypoint drops the image's default command.
+    entrypoint:
+      - sh
+      - -c
+      - |
+        if [ ! -s "$$PGDATA/PG_VERSION" ] && [ "$$SENTINEL_POSTGRES_INITIALIZE" != true ]; then
+          echo "sentinel: $$PGDATA holds no database and creating one is not authorized." >&2
+          echo "sentinel: New installation, or restoring a dump into a new volume: set SENTINEL_POSTGRES_INITIALIZE=true in .env." >&2
+          echo "sentinel: Existing installation: do not authorize this, the wrong volume is mounted. Run scripts/postgres-preflight.sh." >&2
+          exit 1
+        fi
+        exec docker-entrypoint.sh "$$@"
+      - sentinel-initialization-guard
+    command: ["postgres"]
+    volumes:
+      - postgres18_data:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 5s
+    # The image stops PostgreSQL with a fast shutdown; give it time to finish
+    # instead of being killed after Docker's default 10 seconds.
+    stop_grace_period: 1m
+    security_opt:
+      - no-new-privileges:true
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
+
+volumes:
+  postgres18_data:

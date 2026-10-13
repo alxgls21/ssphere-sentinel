@@ -5,6 +5,9 @@ from __future__ import annotations
 
 import os
 import re
+import stat
+import subprocess
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -144,6 +147,12 @@ class DockerImageTests(unittest.TestCase):
         self.assertRegex(image, r"^python:3\.\d+-slim-[a-z]+$")
         self.assertNotIn(":latest", self.dockerfile)
 
+    def test_lock_file_is_resolved_for_the_image_python(self):
+        (arg,) = [line for line in self.instructions if line.startswith("ARG PYTHON_IMAGE=")]
+        image_python = re.search(r"python:(3\.\d+)-", arg).group(1)
+        lock = (ROOT / "requirements" / "server.txt").read_text()
+        self.assertIn(f"(Linux, CPython {image_python})", lock)
+
     def test_no_secrets_baked_into_the_image(self):
         env_lines = [line for line in self.instructions if line.startswith("ENV ")]
         for line in env_lines:
@@ -165,25 +174,138 @@ class DockerImageTests(unittest.TestCase):
         self.assertFalse([line for line in lines if ".env" in line and line.startswith("!")])
 
 
+def interpolate(text: str, environment: dict[str, str]) -> str:
+    """Resolve ``${NAME:-default}`` the way Compose does."""
+
+    def substitute(match: re.Match) -> str:
+        return environment.get(match["name"]) or match["default"]
+
+    return re.sub(r"\$\{(?P<name>[A-Z_0-9]+):-(?P<default>[^}]*)\}", substitute, text)
+
+
+def dotenv_values(path: Path) -> dict[str, str]:
+    """The assignments of an env file (comments and blank lines ignored)."""
+    values = {}
+    for line in path.read_text().splitlines():
+        if line.strip() and not line.lstrip().startswith("#"):
+            name, _, value = line.partition("=")
+            values[name.strip()] = value.strip()
+    return values
+
+
+POSTGRES_DIR = ROOT / "deploy" / "postgres"
+# Volume and mount of each supported PostgreSQL major version. 16 keeps the
+# layout (and volume) of installations that predate version selection.
+LAYOUTS = {
+    "16": ("postgres_data", "/var/lib/postgresql/data"),
+    "18": ("postgres18_data", "/var/lib/postgresql"),
+}
+
+
 class ComposeTests(unittest.TestCase):
     def setUp(self):
         try:
             import yaml
         except ImportError:  # pragma: no cover - CI installs PyYAML
             self.skipTest("PyYAML is not installed")
+        self.yaml = yaml
         self.compose = yaml.safe_load((ROOT / "compose.yml").read_text())
         self.tunnel = yaml.safe_load((ROOT / "compose.tunnel.yml").read_text())
 
+    def version_file(self, major: str) -> dict:
+        return self.yaml.safe_load((POSTGRES_DIR / f"postgres-{major}.yml").read_text())
+
+    def selected_file(self, environment: dict[str, str]) -> Path:
+        """The database file Compose includes for ``environment`` (the .env values)."""
+        (include,) = self.compose["include"]
+        return ROOT / interpolate(include["path"], environment)
+
+    def database(self, environment: dict[str, str]) -> dict:
+        """The db service and volumes Compose resolves for ``environment``."""
+        document = self.yaml.safe_load(self.selected_file(environment).read_text())
+        return {"file": self.selected_file(environment).name, **document}
+
     def test_service_and_volume_names_preserve_existing_data(self):
         self.assertNotIn("name", self.compose)  # project name drives volume names
-        self.assertEqual(set(self.compose["services"]), {"db", "web"})
-        self.assertIn("postgres_data", self.compose["volumes"])
+        self.assertEqual(set(self.compose["services"]), {"web"})
+        self.assertNotIn("volumes", self.compose)
+        self.assertEqual(self.database({})["services"].keys(), {"db"})
+
+    def test_the_database_comes_from_a_file_selected_by_one_setting(self):
+        (include,) = self.compose["include"]
+        self.assertEqual(include["path"], "deploy/postgres/postgres-${SENTINEL_POSTGRES:-16}.yml")
+        # Compose 2.20 does not pass the project's .env to an included file
+        # unless it is named; naming it works in every release.
+        self.assertEqual((include["project_directory"], include["env_file"]), (".", ".env"))
         self.assertEqual(
-            self.compose["services"]["db"]["volumes"], ["postgres_data:/var/lib/postgresql/data"]
+            sorted(path.name for path in POSTGRES_DIR.iterdir()),
+            [f"postgres-{major}.yml" for major in sorted(LAYOUTS)],
         )
 
+    def test_an_existing_installation_keeps_its_postgresql_16_service_unchanged(self):
+        # An .env without SENTINEL_POSTGRES belongs to an installation that
+        # predates PostgreSQL 18: pulling this file must not change its database.
+        database = self.database({})
+        self.assertEqual(database["file"], "postgres-16.yml")
+        reference = self.yaml.safe_load((Path(__file__).parent / "postgres16-reference.yml").read_text())
+        self.assertEqual(database["services"], reference["services"])
+        self.assertEqual(database["volumes"], reference["volumes"])
+
+    def test_the_example_does_not_authorize_database_initialization(self):
+        # Copying the example's lines into an existing installation must not
+        # carry the authorization along with the version.
+        example = dotenv_values(ROOT / ".env.example")
+        self.assertNotIn("SENTINEL_POSTGRES_INITIALIZE", example)
+        self.assertIn("# SENTINEL_POSTGRES_INITIALIZE=true", (ROOT / ".env.example").read_text())
+
+    def test_a_new_installation_runs_postgresql_18_with_the_versioned_layout(self):
+        example = dotenv_values(ROOT / ".env.example")
+        self.assertEqual(example["SENTINEL_POSTGRES"], "18")
+        database = self.database(example)
+        self.assertEqual(database["file"], "postgres-18.yml")
+        self.assertEqual(database["services"]["db"]["image"], "postgres:18-alpine")
+
+    def test_each_version_file_pairs_its_image_with_its_own_volume_and_mount(self):
+        # A major version never meets another version's cluster: the image, the
+        # volume and the mount are chosen together, in one file.
+        for major, (volume, mount) in LAYOUTS.items():
+            with self.subTest(major=major):
+                document = self.version_file(major)
+                db = document["services"]["db"]
+                self.assertEqual(db["image"], f"postgres:{major}-alpine")
+                self.assertEqual(db["volumes"], [f"{volume}:{mount}"])
+                self.assertEqual(set(document["volumes"]), {volume})
+                # The image's own PGDATA belongs to its layout.
+                self.assertNotIn("PGDATA", db["environment"])
+        self.assertEqual(len({volume for volume, _ in LAYOUTS.values()}), len(LAYOUTS))
+
+    def test_version_files_differ_only_in_image_volume_and_initialization_guard(self):
+        guard = ("entrypoint", "command")
+
+        def comparable(major: str) -> dict:
+            document = self.version_file(major)
+            db = {**document["services"]["db"], "image": None, "volumes": None}
+            for key in guard:
+                db.pop(key, None)
+            db["environment"] = {
+                name: value
+                for name, value in db["environment"].items()
+                if name != "SENTINEL_POSTGRES_INITIALIZE"
+            }
+            return {"services": {"db": db}, "top_level_keys": sorted(document)}
+
+        majors = sorted(LAYOUTS)
+        for other in majors[1:]:
+            self.assertEqual(comparable(majors[0]), comparable(other))
+
+    def test_a_selection_without_a_version_file_cannot_resolve(self):
+        for value in ("17", "18-alpine", "latest", "../x"):
+            with self.subTest(value=value):
+                self.assertFalse(self.selected_file({"SENTINEL_POSTGRES": value}).is_file())
+
     def test_postgres_is_not_published(self):
-        self.assertNotIn("ports", self.compose["services"]["db"])
+        for major in LAYOUTS:
+            self.assertNotIn("ports", self.version_file(major)["services"]["db"])
 
     def test_web_service_hardening(self):
         web = self.compose["services"]["web"]
@@ -191,12 +313,97 @@ class ComposeTests(unittest.TestCase):
         self.assertEqual(web["cap_drop"], ["ALL"])
         self.assertIn("no-new-privileges:true", web["security_opt"])
         self.assertEqual(web["depends_on"]["db"]["condition"], "service_healthy")
-        for service in self.compose["services"].values():
+        services = [web] + [self.version_file(major)["services"]["db"] for major in LAYOUTS]
+        for service in services:
             self.assertEqual(service["restart"], "unless-stopped")
             self.assertEqual(service["logging"]["options"]["max-size"], "10m")
+        for major in LAYOUTS:
+            db = self.version_file(major)["services"]["db"]
+            self.assertIn("no-new-privileges:true", db["security_opt"])
 
     def test_tunnel_token_is_kept_away_from_the_web_container(self):
         cloudflared = self.tunnel["services"]["cloudflared"]
         self.assertEqual(cloudflared["env_file"], [".env.tunnel"])
         self.assertEqual(self.compose["services"]["web"]["env_file"], [".env"])
         self.assertNotRegex(cloudflared["image"], r":latest$")
+
+
+class InitializationGuardTests(unittest.TestCase):
+    """The PostgreSQL 18 entrypoint guard, run as Compose would run it, with a
+    stand-in for the image's docker-entrypoint.sh."""
+
+    def setUp(self):
+        try:
+            import yaml
+        except ImportError:  # pragma: no cover - CI installs PyYAML
+            self.skipTest("PyYAML is not installed")
+        self.db = yaml.safe_load((POSTGRES_DIR / "postgres-18.yml").read_text())["services"]["db"]
+        self.directory = tempfile.TemporaryDirectory()
+        self.addCleanup(self.directory.cleanup)
+        base = Path(self.directory.name)
+        self.pgdata = base / "pgdata"
+        self.pgdata.mkdir()
+        self.calls = base / "calls"
+        stub = base / "bin" / "docker-entrypoint.sh"
+        stub.parent.mkdir()
+        stub.write_text('#!/bin/sh\necho "$*" > "$STUB_CALLS"\n')
+        stub.chmod(stub.stat().st_mode | stat.S_IXUSR)
+
+    def start(self, **environment) -> subprocess.CompletedProcess:
+        entrypoint = [part.replace("$$", "$") for part in self.db["entrypoint"]]  # Compose unescapes $$
+        env = {
+            "PATH": f"{Path(self.directory.name) / 'bin'}{os.pathsep}{os.environ['PATH']}",
+            "PGDATA": str(self.pgdata),
+            "STUB_CALLS": str(self.calls),
+            **environment,
+        }
+        return subprocess.run(
+            [*entrypoint, *self.db["command"]], env=env, capture_output=True, text=True, check=False
+        )
+
+    def started(self) -> bool:
+        return self.calls.exists()
+
+    def test_an_empty_data_directory_is_not_initialized_without_authorization(self):
+        for value in (None, "", "false", "yes", "1", "TRUE"):
+            with self.subTest(value=value):
+                result = self.start(**({} if value is None else {"SENTINEL_POSTGRES_INITIALIZE": value}))
+                self.assertEqual(result.returncode, 1)
+                self.assertFalse(self.started())
+                self.assertIn("SENTINEL_POSTGRES_INITIALIZE=true", result.stderr)
+                self.assertIn("scripts/postgres-preflight.sh", result.stderr)
+
+    def test_authorization_lets_the_image_initialize_the_database(self):
+        result = self.start(SENTINEL_POSTGRES_INITIALIZE="true")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(self.calls.read_text().strip(), "postgres")
+
+    def test_an_existing_cluster_starts_without_any_setting(self):
+        # Restoring a volume that holds a cluster is not an initialization.
+        (self.pgdata / "PG_VERSION").write_text("18\n")
+        result = self.start()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(self.calls.read_text().strip(), "postgres")
+
+    def test_a_data_directory_with_other_content_but_no_cluster_is_still_refused(self):
+        (self.pgdata / "backup.dump").write_text("not a cluster")
+        self.assertEqual(self.start().returncode, 1)
+        (self.pgdata / "PG_VERSION").write_text("")  # an empty marker is no cluster either
+        self.assertEqual(self.start().returncode, 1)
+        self.assertFalse(self.started())
+
+    def test_the_guard_hands_over_to_the_image_with_exec(self):
+        # exec keeps the image's entrypoint as the container's main process, so
+        # it still receives the stop signal.
+        self.assertIn('exec docker-entrypoint.sh "$$@"', self.db["entrypoint"][2])
+
+    def test_the_command_is_stated_because_the_entrypoint_is_overridden(self):
+        self.assertEqual(self.db["command"], ["postgres"])
+
+    def test_the_postgresql_16_service_has_no_guard(self):
+        import yaml
+
+        db = yaml.safe_load((POSTGRES_DIR / "postgres-16.yml").read_text())["services"]["db"]
+        for key in ("entrypoint", "command"):
+            self.assertNotIn(key, db)
+        self.assertNotIn("SENTINEL_POSTGRES_INITIALIZE", db["environment"])

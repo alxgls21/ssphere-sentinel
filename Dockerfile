@@ -5,7 +5,7 @@
 #
 # If you change the Python version, regenerate requirements/server.txt with
 #   python scripts/update_server_requirements.py --python-version X.Y
-ARG PYTHON_IMAGE=python:3.13-slim-trixie
+ARG PYTHON_IMAGE=python:3.14-slim-trixie
 
 # --- Dependencies: exact versions, verified by hash, wheels only -------------
 FROM ${PYTHON_IMAGE} AS deps

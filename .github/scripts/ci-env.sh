@@ -11,6 +11,9 @@ sed -i \
     -e "s|^AGENT_TOKEN_PEPPER=.*|AGENT_TOKEN_PEPPER=$(secret)|" \
     -e "s|^POSTGRES_PASSWORD=.*|POSTGRES_PASSWORD=$(secret)|" \
     .env
+# The first start of a new PostgreSQL 18 installation must be authorized.
+sed -i -e 's|^# SENTINEL_POSTGRES_INITIALIZE=true|SENTINEL_POSTGRES_INITIALIZE=true|' .env
+grep -qx 'SENTINEL_POSTGRES_INITIALIZE=true' .env || { echo "initialization is not authorized in .env" >&2; exit 1; }
 if grep -q '=change-me' .env; then
     echo "placeholder secret left in .env" >&2
     exit 1
