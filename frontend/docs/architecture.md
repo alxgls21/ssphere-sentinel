@@ -8,9 +8,9 @@ runs entirely on mock data behind an API port.
 
 - Everything lives under `frontend/`. Nothing outside it is touched (no Django
   models, migrations, agent code, Docker files or CI).
-- The backend exposes no read API yet (only agent ingest at `/api/v1/agent/`).
-  **All data in the console is mock**, and the UI says so (see
-  _Honest labelling_ below).
+- The console API serves the session and the scope (`/api/v1/console/session/`,
+  `scope/`, `auth/login/`, `auth/logout/`). Every other screen still reads
+  **demo data**, and the UI says so (see _Honest labelling_ below).
 - No unfinished feature may look operational.
 
 ## Stack
@@ -40,11 +40,12 @@ frontend/
   docs/                   this file, the design system, the full design spec
   src/
     main.tsx  fonts.ts    entry; self-hosted font imports
-    api/                  THE DATA CONTRACT
+    api/                  THE DATA CONTRACT (and demo.ts, which composes the port)
       types.ts              domain view-models
       client.ts             SentinelApi: the port (one method per panel resource)
       context.ts errors.ts
-      mock/                 the only implementation today (fixtures, series, scenarios)
+      http/                 the console API adapter (transport, session, scope)
+      mock/                 the sample fleet (fixtures, series, scenarios)
     app/                  providers and cross-cutting state
       providers.tsx         router > data source > prefs > live layer > summary
       live.ts               pause, refresh-now, freshness store
@@ -76,6 +77,7 @@ Enforced by `src/architecture.test.ts` (a rule nothing enforces drifts):
 | -------------------- | ------------------------------------------------------ | -------------------------------- |
 | `api` (the contract) | nothing                                                | everything else                  |
 | `api/mock`           | `api`, `lib`                                           | UI, app                          |
+| `api/http`           | `api`                                                  | everything else                  |
 | `lib`                | `api` (types only)                                     | `app`, `ui`, `shell`, `features` |
 | `ui`                 | `api`, `app`, `config`, `hooks`, `lib`                 | `shell`, `charts`, `features`    |
 | `charts`             | `app`, `lib`, `hooks`, `config`                        | `features`                       |
@@ -169,6 +171,46 @@ A real client maps those payloads onto `ServerListItem`, `ServerDetail` and
 the console and the Overview agree. Until history exists the series method
 returns empty data and the panel says "No history".
 
+## Authentication and API modes
+
+`VITE_SENTINEL_API` picks the mode (`config/runtime.ts`):
+
+- `http` (default): the console API. Sign-in is required.
+- `mock`: the sample fleet, no sign-in. Development and tests only. A production
+  build never runs in it: `vite build` fails, and a bundle that carries the
+  setting refuses to start with a message (there is no fallback in either
+  direction). `?mock=` only means something in this mode.
+
+```
+BrowserRouter > ModeContext > AuthProvider > ApiProvider > PrefsProvider
+  > SessionScope (signed in only: live layer, shared summary, frame state) > routes
+```
+
+- **`api/http`** is the adapter: `transport.ts` (same-origin `fetch` with the
+  session cookie, CSRF header on writes, one error shape, timeout), `session.ts`
+  (sign-in, sign-out, session and scope, each answer validated before use). It
+  depends on the contract in `api/` only; only `app/` wires it in (a test
+  enforces both).
+- **`AuthProvider`** owns the state (`checking`, `anonymous`, `expired`,
+  `denied`, `unreachable`, `authenticated`) and nothing else decides it: not the
+  URL, not browser storage. `RequireAuth` guards every route but `/login`; the
+  live layer, the shared summary and the frame state only exist while signed in,
+  so nothing polls on the sign-in page and nothing survives a sign-out.
+- **One rule for a dead session.** The transport reports every 401
+  `unauthenticated` to the auth state, a signed-in tab asks the server every
+  minute, and both lead to `expired`: the guard sends the user to
+  `/login?next=<page>&reason=expired`. A 403 `forbidden` re-reads the session
+  (the account lost its console permission).
+- **`/login?next=`** is followed only for paths inside the application
+  (`app/auth/safeNext.ts`): absolute and protocol-relative URLs, other schemes,
+  backslashes and control characters are ignored, and the sign-in page is never
+  its own destination.
+- **Demo data and real scope stay apart.** `api/demo.ts` composes the port: the
+  scope options come from the console API; every other method is the sample
+  fleet, which is never given the real scope (its ids mean nothing there), is
+  not offered to search, and is announced by a `DEMO DATA` strip above every
+  designed screen. Moving a method to the real side is how a screen goes live.
+
 ## Routing and navigation
 
 All eight screens are routed from day one. **Overview** and **Servers** (`/servers`,
@@ -209,6 +251,8 @@ STALE tag, and only marks and large figures dim.
 - `styles/tokens.test.ts`: WCAG contrast of every text and mark token, no color
   literal outside `tokens.css`, status-color utilities only in `ui/status`,
   `ui/meters` and `charts`.
+- `app/auth`, `api/http`, `app/providers.test.tsx`: the transport (CSRF, 401, timeouts), the session
+  state, the route guard, `next` handling and the production-mode refusal.
 - `architecture.test.ts`: the layering rules above, and that every chart goes
   through `ChartFrame` (nothing else calls the chart runtime).
 - `features/design-system/chartContract.test.tsx`: the chart interaction contract
@@ -237,6 +281,6 @@ from it on purpose:
   the legend is a single row (the warning threshold is labelled on the plot, not
   in the legend), and chart behavior is shared code with a contract test rather
   than per-chart wiring.
-- **Not built (the spec's Phase 2)**: wall mode, density modes, the inspector
+- **Not built (deferred in the spec)**: wall mode, density modes, the inspector
   drawer, "NEW" tags.
 - **Not installed yet**: Cytoscape (Topology screen).

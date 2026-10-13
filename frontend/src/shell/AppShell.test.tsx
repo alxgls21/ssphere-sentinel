@@ -138,7 +138,7 @@ describe('AppShell: responsive layout', () => {
     expect(bar).toHaveClass('h-12')
     expect(within(bar).getByText('SENTINEL')).toBeInTheDocument()
     // The compact chip is the word "Mock" in the DOM; the tag style uppercases it.
-    expect(within(bar).getByText('Mock')).toBeInTheDocument()
+    expect(within(bar).getByText('Demo')).toBeInTheDocument()
     expect(within(bar).getByRole('button', { name: 'Open navigation' })).toBeInTheDocument()
     expect(within(bar).getByRole('button', { name: 'Search or run a command' })).toBeInTheDocument()
     expect(within(bar).getByRole('button', { name: 'Filters' })).toBeInTheDocument()
@@ -287,5 +287,37 @@ describe('AppShell: a screen that is slow or broken', () => {
     await user.click(screen.getByRole('link', { name: 'Servers' }))
     expect(screen.getByRole('main')).toHaveTextContent('servers page')
     expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+  })
+})
+
+describe('AppShell: demo data', () => {
+  it('says DEMO DATA above a screen that shows the sample fleet', () => {
+    renderApp('/servers')
+    const note = screen.getByRole('complementary', { name: 'Demo data' })
+    expect(note).toHaveTextContent('DEMO DATA')
+    expect(note).toHaveTextContent('not your infrastructure')
+  })
+
+  it('says it on the Overview too', () => {
+    renderApp('/')
+    expect(screen.getByRole('complementary', { name: 'Demo data' })).toBeInTheDocument()
+  })
+
+  it('does not say it on a screen that has no data yet: it only shows its placeholder', () => {
+    renderApp('/docker')
+    expect(screen.queryByRole('complementary', { name: 'Demo data' })).toBeNull()
+  })
+
+  it('does not say it when the data is real', () => {
+    stubViewport(DESKTOP)
+    renderShell(
+      <Routes>
+        <Route element={<AppShell />}>
+          <Route index element={<p>overview page</p>} />
+        </Route>
+      </Routes>,
+      { api: { source: 'http' } },
+    )
+    expect(screen.queryByRole('complementary', { name: 'Demo data' })).toBeNull()
   })
 })

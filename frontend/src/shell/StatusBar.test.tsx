@@ -94,10 +94,16 @@ describe('StatusBar: landmark and source', () => {
     expect(bar()).toHaveTextContent('scenario stale')
   })
 
+  it('always carries a DEMO DATA block while the data is sample data, and not for real data', () => {
+    setup()
+    expect(within(bar()).getByText('DEMO DATA')).toBeInTheDocument()
+  })
+
   it('says LIVE with the API address for a real backend', () => {
     setup({ renderOptions: { api: { source: 'http' } } })
     expect(bar()).toHaveTextContent(/LIVE · https?:\/\/.+\/api\/v1/)
     expect(bar()).not.toHaveTextContent('MOCK')
+    expect(within(bar()).queryByText('DEMO DATA')).toBeNull()
   })
 })
 

@@ -32,6 +32,7 @@ function layerOf(rel: string): string {
   const [top = '', second = ''] = rel.split('/')
   if (top === 'features') return second.includes('.') ? 'features' : `features/${second}`
   if (top === 'api' && second === 'mock') return 'api/mock'
+  if (top === 'api' && second === 'http') return 'api/http'
   return top.includes('.') ? 'root' : top
 }
 
@@ -106,6 +107,11 @@ describe('layering', () => {
     expect([...importsOf('api/mock')].filter((layer) => !['api', 'lib'].includes(layer))).toEqual(
       [],
     )
+  })
+
+  it('the HTTP adapter depends on the contract and nothing else, and only app/ wires it in', () => {
+    expect([...importsOf('api/http')].filter((layer) => layer !== 'api')).toEqual([])
+    expect(offenders((e) => e.to === 'api/http' && e.from !== 'app')).toEqual([])
   })
 
   it('the contract itself depends on nothing', () => {

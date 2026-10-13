@@ -1,5 +1,8 @@
 import { lazy } from 'react'
 import { Route, Routes } from 'react-router'
+import { RequireAuth } from './auth/RequireAuth'
+import { LOGIN_PATH } from './auth/safeNext'
+import LoginPage from '@/features/login/LoginPage'
 import { NAV_ITEMS } from '@/config/nav'
 import { NotFoundPage } from '@/features/placeholder/NotFoundPage'
 import { ScreenPlaceholder } from '@/features/placeholder/ScreenPlaceholder'
@@ -18,34 +21,37 @@ const DesignSystemPage = import.meta.env.DEV
   : null
 
 /**
- * Every screen in NAV_ITEMS is routed from day one. The designed ones (Overview,
+ * Everything but /login needs a signed-in user (RequireAuth). Every screen in NAV_ITEMS is routed from day one. The designed ones (Overview,
  * Servers) have their own routes; the rest render an honest placeholder. A
  * placeholder's own sub-paths stay with its screen, hence the trailing /*.
  */
 export function AppRoutes() {
   return (
     <Routes>
-      <Route element={<AppShell />}>
-        <Route index element={<OverviewPage />} />
-        <Route path="servers">
-          <Route index element={<ServersListPage />} />
-          <Route path=":id" element={<ServerDetailPage />} />
+      <Route path={LOGIN_PATH} element={<LoginPage />} />
+      <Route element={<RequireAuth />}>
+        <Route element={<AppShell />}>
+          <Route index element={<OverviewPage />} />
+          <Route path="servers">
+            <Route index element={<ServersListPage />} />
+            <Route path=":id" element={<ServerDetailPage />} />
+          </Route>
+          {NAV_ITEMS.flatMap((item) =>
+            item.designed
+              ? []
+              : [
+                  <Route
+                    key={item.id}
+                    path={`${item.path}/*`}
+                    element={<ScreenPlaceholder item={item} />}
+                  />,
+                ],
+          )}
+          {DesignSystemPage ? (
+            <Route path={DESIGN_SYSTEM_PATH} element={<DesignSystemPage />} />
+          ) : null}
+          <Route path="*" element={<NotFoundPage />} />
         </Route>
-        {NAV_ITEMS.flatMap((item) =>
-          item.designed
-            ? []
-            : [
-                <Route
-                  key={item.id}
-                  path={`${item.path}/*`}
-                  element={<ScreenPlaceholder item={item} />}
-                />,
-              ],
-        )}
-        {DesignSystemPage ? (
-          <Route path={DESIGN_SYSTEM_PATH} element={<DesignSystemPage />} />
-        ) : null}
-        <Route path="*" element={<NotFoundPage />} />
       </Route>
     </Routes>
   )

@@ -2,10 +2,12 @@ import { Suspense, useEffect, useRef, type MouseEvent } from 'react'
 import { Outlet, useLocation } from 'react-router'
 import { HotkeyProvider } from '@/app/hotkeys/HotkeyProvider'
 import { useShell } from '@/app/shell'
+import { useApi } from '@/api/context'
 import { navItemForPath } from '@/config/nav'
 import { SkeletonRows } from '@/ui/states'
 import { AppBar } from './AppBar'
 import { NavDrawer } from './NavDrawer'
+import { DemoStrip } from './DemoStrip'
 import { RouteBoundary } from './RouteBoundary'
 import { ShortcutSheet } from './ShortcutSheet'
 import { Sidebar } from './Sidebar'
@@ -47,6 +49,9 @@ export function AppShell() {
   const { sidebarCollapsed, mobileNavOpen, setMobileNavOpen } = useShell()
   const { phone, drawer, compact } = useLayoutMode()
   const title = screenTitle(pathname)
+  const { source } = useApi()
+  // A designed screen reads the sample fleet while the backend has no read API for it.
+  const showsDemoData = source === 'mock' && navItemForPath(pathname)?.designed === true
   const mainRef = useRef<HTMLElement>(null)
 
   // A new screen starts at the top, and a screen reader is moved to it.
@@ -97,6 +102,7 @@ export function AppShell() {
         {drawer ? null : <Sidebar variant={sidebarCollapsed ? 'rail' : 'expanded'} />}
         <div className="flex min-w-0 flex-1 flex-col">
           {phone ? <AppBar /> : <Topbar title={title} compact={compact} drawer={drawer} />}
+          {showsDemoData ? <DemoStrip /> : null}
           <main
             id={MAIN_ID}
             ref={mainRef}

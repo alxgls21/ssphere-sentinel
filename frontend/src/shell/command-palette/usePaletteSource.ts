@@ -17,6 +17,7 @@ import {
 import { useMemo } from 'react'
 import { useLocation, useNavigate } from 'react-router'
 import { useApi } from '@/api/context'
+import { useApiMode } from '@/app/mode'
 import type { EntityIndex } from '@/api/types'
 import { useLive } from '@/app/live'
 import { usePrefs } from '@/app/prefs'
@@ -56,6 +57,7 @@ export function usePaletteSource({
   const navigate = useNavigate()
   const { search } = useLocation()
   const { source: dataSource } = useApi()
+  const apiMode = useApiMode()
   const { paused, togglePause, refresh } = useLive()
   const { tz, toggleTz, singleKeyShortcuts, setSingleKeyShortcuts, motion, setMotion } = usePrefs()
   const { sidebarCollapsed, toggleSidebar, openShortcuts, flashStatus } = useShell()
@@ -186,7 +188,7 @@ export function usePaletteSource({
     ]
 
     const scenarios: PaletteItem[] =
-      dataSource === 'mock'
+      dataSource === 'mock' && apiMode === 'mock'
         ? MOCK_SCENARIOS.map((name) => ({
             id: `scenario:${name}`,
             group: 'scenario',
@@ -255,6 +257,7 @@ export function usePaletteSource({
     navigate,
     search,
     dataSource,
+    apiMode,
     paused,
     togglePause,
     refresh,

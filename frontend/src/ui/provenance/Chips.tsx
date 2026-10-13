@@ -13,15 +13,15 @@ interface ChipProps {
 }
 
 interface MockChipProps extends ChipProps {
-  /** "MOCK" instead of "Mock data", for the phone app bar. */
+  /** "Demo" instead of "Demo data", for the phone app bar. */
   compact?: boolean
 }
 
-/** Global "this is mock data" marker (topbar). */
+/** Global "this is demo data" marker (topbar). */
 export function MockChip({
   className,
   compact = false,
-  title = 'Demo data: the backend has no read API yet.',
+  title = 'Demo data: sample servers and metrics, not read from the backend.',
 }: MockChipProps) {
   return (
     <span
@@ -31,7 +31,7 @@ export function MockChip({
         className,
       )}
     >
-      {compact ? 'Mock' : 'Mock data'}
+      {compact ? 'Demo' : 'Demo data'}
     </span>
   )
 }
