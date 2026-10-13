@@ -1,0 +1,10 @@
+{
+  "apiVersion": 1,
+  "serverTime": "<iso-utc>",
+  "authenticated": false,
+  "reason": null,
+  "csrfToken": "<token>",
+  "user": null,
+  "access": null,
+  "thresholds": null
+}

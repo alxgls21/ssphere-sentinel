@@ -40,7 +40,17 @@ class NetworkTarget(models.Model):
         validators=[MinValueValidator(0), MaxValueValidator(100)],
         help_text="Informational SLA expectation for future reporting (not calculated yet).",
     )
+    # Free text for display and reports. Access control never looks at it: it
+    # is typed by hand and says nothing about who may see the target. ``site``
+    # does (see the same field on ``Server``).
     customer_name = models.CharField(max_length=255, blank=True)
+    site = models.ForeignKey(
+        "inventory.Site",
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="network_targets",
+    )
     circuit_identifier = models.CharField(max_length=255, blank=True)
     # SET_NULL keeps the target (and its measurement history) when the agent
     # is deleted; reassign it to a new agent to resume monitoring.

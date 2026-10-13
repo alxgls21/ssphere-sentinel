@@ -15,6 +15,8 @@ class SiteInline(admin.TabularInline):
 @admin.register(Customer)
 class CustomerAdmin(admin.ModelAdmin):
     list_display = ("name", "site_count", "created_at")
+    # A total order: the autocomplete (used by console access) pages through it.
+    ordering = ("name", "pk")
     search_fields = ("name", "notes")
     readonly_fields = ("id", "created_at", "updated_at")
     fields = ("id", "name", "notes", "created_at", "updated_at")
@@ -31,6 +33,7 @@ class CustomerAdmin(admin.ModelAdmin):
 @admin.register(Site)
 class SiteAdmin(admin.ModelAdmin):
     list_display = ("name", "customer", "device_count", "created_at")
+    ordering = ("customer__name", "name", "pk")
     list_filter = ("customer",)
     list_select_related = ("customer",)
     # Required for the device form's site autocomplete.

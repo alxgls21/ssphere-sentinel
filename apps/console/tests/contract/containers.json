@@ -1,0 +1,53 @@
+{
+  "generatedAt": "<iso-utc>",
+  "items": [
+    {
+      "container": {
+        "id": "00000000-0000-0000-0000-000000005001:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "serverId": "00000000-0000-0000-0000-000000005001",
+        "name": "app",
+        "image": "nginx:1.27",
+        "state": "running",
+        "health": "healthy",
+        "startedAt": "<iso-utc>"
+      },
+      "status": "healthy",
+      "serverName": "web-1",
+      "customerName": "Acme",
+      "siteName": "HQ"
+    },
+    {
+      "container": {
+        "id": "00000000-0000-0000-0000-000000005001:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "serverId": "00000000-0000-0000-0000-000000005001",
+        "name": "db",
+        "image": "postgres:16",
+        "state": "running",
+        "health": "unhealthy",
+        "startedAt": "<iso-utc>"
+      },
+      "status": "critical",
+      "serverName": "web-1",
+      "customerName": "Acme",
+      "siteName": "HQ"
+    },
+    {
+      "container": {
+        "id": "00000000-0000-0000-0000-000000005001:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "serverId": "00000000-0000-0000-0000-000000005001",
+        "name": "job",
+        "image": "busybox:1",
+        "state": "exited",
+        "health": "none",
+        "startedAt": null
+      },
+      "status": "idle",
+      "serverName": "web-1",
+      "customerName": "Acme",
+      "siteName": "HQ"
+    }
+  ],
+  "page": {"number": 1, "size": 50, "total": 3, "pages": 1},
+  "counts": {"critical": 1, "warning": 0, "unknown": 0, "idle": 1, "healthy": 1},
+  "scopeTotal": 3
+}

@@ -1,0 +1,70 @@
+{
+  "generatedAt": "<iso-utc>",
+  "item": {
+    "server": {
+      "id": "00000000-0000-0000-0000-000000005001",
+      "name": "web-1",
+      "hostname": "web-1.internal",
+      "ipAddress": "10.0.0.5",
+      "operatingSystem": "Debian 12",
+      "status": "online",
+      "siteId": "00000000-0000-0000-0000-00000000a001",
+      "lastSeenAt": "<iso-utc>",
+      "agentVersion": "1.2.3",
+      "telemetry": {
+        "cpuPercent": 12.5,
+        "memoryPercent": 40.0,
+        "diskPercent": 83.0,
+        "memoryTotalBytes": 17179869184,
+        "diskTotalBytes": 536870912000,
+        "uptimeSeconds": 86400,
+        "collectedAt": "<iso-utc>"
+      }
+    },
+    "health": "warning",
+    "customerName": "Acme",
+    "siteName": "HQ",
+    "containers": {
+      "total": 3,
+      "counts": {"critical": 1, "warning": 0, "unknown": 0, "idle": 1, "healthy": 1}
+    }
+  },
+  "containers": [
+    {
+      "container": {
+        "id": "00000000-0000-0000-0000-000000005001:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "serverId": "00000000-0000-0000-0000-000000005001",
+        "name": "db",
+        "image": "postgres:16",
+        "state": "running",
+        "health": "unhealthy",
+        "startedAt": "<iso-utc>"
+      },
+      "status": "critical"
+    },
+    {
+      "container": {
+        "id": "00000000-0000-0000-0000-000000005001:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "serverId": "00000000-0000-0000-0000-000000005001",
+        "name": "job",
+        "image": "busybox:1",
+        "state": "exited",
+        "health": "none",
+        "startedAt": null
+      },
+      "status": "idle"
+    },
+    {
+      "container": {
+        "id": "00000000-0000-0000-0000-000000005001:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "serverId": "00000000-0000-0000-0000-000000005001",
+        "name": "app",
+        "image": "nginx:1.27",
+        "state": "running",
+        "health": "healthy",
+        "startedAt": "<iso-utc>"
+      },
+      "status": "healthy"
+    }
+  ]
+}

@@ -1,0 +1,56 @@
+{
+  "generatedAt": "<iso-utc>",
+  "items": [
+    {
+      "server": {
+        "id": "00000000-0000-0000-0000-000000005002",
+        "name": "spare",
+        "hostname": "spare.internal",
+        "ipAddress": null,
+        "operatingSystem": "",
+        "status": "unknown",
+        "siteId": null,
+        "lastSeenAt": null,
+        "agentVersion": "",
+        "telemetry": null
+      },
+      "health": "unknown",
+      "containers": {
+        "total": 0,
+        "counts": {"critical": 0, "warning": 0, "unknown": 0, "idle": 0, "healthy": 0}
+      }
+    },
+    {
+      "server": {
+        "id": "00000000-0000-0000-0000-000000005001",
+        "name": "web-1",
+        "hostname": "web-1.internal",
+        "ipAddress": "10.0.0.5",
+        "operatingSystem": "Debian 12",
+        "status": "online",
+        "siteId": "00000000-0000-0000-0000-00000000a001",
+        "lastSeenAt": "<iso-utc>",
+        "agentVersion": "1.2.3",
+        "telemetry": {
+          "cpuPercent": 12.5,
+          "memoryPercent": 40.0,
+          "diskPercent": 83.0,
+          "memoryTotalBytes": 17179869184,
+          "diskTotalBytes": 536870912000,
+          "uptimeSeconds": 86400,
+          "collectedAt": "<iso-utc>"
+        }
+      },
+      "health": "warning",
+      "customerName": "Acme",
+      "siteName": "HQ",
+      "containers": {
+        "total": 3,
+        "counts": {"critical": 1, "warning": 0, "unknown": 0, "idle": 1, "healthy": 1}
+      }
+    }
+  ],
+  "page": {"number": 1, "size": 50, "total": 2, "pages": 1},
+  "counts": {"critical": 0, "warning": 1, "unknown": 1, "idle": 0, "healthy": 0},
+  "scopeTotal": 2
+}
