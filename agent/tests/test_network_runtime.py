@@ -20,6 +20,7 @@ from agent.measurement_queue import MeasurementQueue
 from agent.network_runtime import NetworkRuntime, load_runtime_config
 from agent.runner import run_continuous
 from agent.tests.test_probe_scheduler import OK, make_target
+from agent.tests.timing import WAIT_SECONDS, LogWatcher, Tally
 
 TARGET_ID = "11111111-1111-1111-1111-111111111111"
 
@@ -102,9 +103,13 @@ class RuntimeReliabilityTests(unittest.TestCase):
             network_delivery=runtime.delivery,
         )
 
-    def test_heartbeat_timing_under_slow_failing_probes(self):
+    def test_heartbeats_do_not_wait_for_hanging_probes(self):
+        probes_started = Tally()
+        release = threading.Event()
+
         def hanging_failure(_target):
-            time.sleep(0.5)
+            probes_started.increment()
+            release.wait(WAIT_SECONDS)
             raise RuntimeError("probe timed out badly")
 
         runtime = NetworkRuntime(
@@ -113,31 +118,55 @@ class RuntimeReliabilityTests(unittest.TestCase):
             max_concurrent_probes=2,
             probe_fn=hanging_failure,
         )
+        interval = 0.125  # exact in binary floating point
+        config = Config(
+            sentinel_url="https://sentinel.example.com",
+            agent_token="runtime-secret-token",
+            heartbeat_interval=interval,
+        )
+        clock = {"t": 0.0}
         beats = []
 
         def post(url, *, headers=None, payload=None, timeout=10.0):
-            beats.append(time.monotonic())
+            beats.append(clock["t"])
             return HttpResponse(200, '{"status":"ok"}')
+
+        def beat_six_times():
+            run_continuous(
+                config,
+                send_fn=self._send_fn(runtime),
+                stop_event=FakeClockStop(clock),
+                max_iterations=6,
+                install_signal_handlers=False,
+                time_fn=lambda: clock["t"],
+            )
 
         runtime.start()
         try:
+            # Both probe workers are now stuck in a probe that does not return.
+            self.assertTrue(probes_started.wait_for(2))
             with (
                 patch("agent.heartbeat.post_json", side_effect=post),
                 redirect_stdout(io.StringIO()),
                 redirect_stderr(io.StringIO()),
             ):
-                run_continuous(
-                    self.config,
-                    send_fn=self._send_fn(runtime),
-                    max_iterations=6,
-                    install_signal_handlers=False,
-                )
+                heartbeats = threading.Thread(target=beat_six_times, daemon=True)
+                heartbeats.start()
+                heartbeats.join(WAIT_SECONDS)
+            self.assertFalse(heartbeats.is_alive(), "the heartbeats are waiting for the probes")
+            # Every heartbeat went out on its slot while no probe had returned.
+            self.assertEqual(beats, [index * interval for index in range(6)])
+            self.assertFalse(release.is_set())
+            self.assertEqual(probes_started.value, 2)
+            with self.assertLogs("sentinel_agent", level="WARNING") as logs:
+                release.set()
+                # The probes fail; the scheduler logs it and moves on to the target that was waiting.
+                self.assertTrue(probes_started.wait_for(3))
+                runtime.stop(timeout=5)
+            self.assertIn("probe timed out badly", "\n".join(logs.output))
         finally:
+            release.set()
             runtime.stop(timeout=5)
-        self.assertEqual(len(beats), 6)
-        self.assertLess(beats[-1] - beats[0], 0.9)
-        gaps = [later - earlier for earlier, later in zip(beats, beats[1:])]
-        self.assertLess(max(gaps), 0.3)
 
     def test_heartbeat_failures_do_not_stop_collection_or_lose_data(self):
         runtime = NetworkRuntime(
@@ -165,13 +194,14 @@ class RuntimeReliabilityTests(unittest.TestCase):
     def test_queue_failure_does_not_crash_collection(self):
         runtime = NetworkRuntime([make_target(0.05)], MeasurementQueue(None), probe_fn=lambda _t: OK)
         runtime.queue.close()  # every queue operation now fails
-        runtime.start()
-        with self.assertLogs("sentinel_agent", level="WARNING") as logs:
-            time.sleep(0.2)
-            batch = runtime.delivery.prepare_batch()
-        runtime.scheduler.stop(timeout=5)
+        with LogWatcher() as logs:
+            runtime.start()
+            try:
+                self.assertTrue(logs.wait_for("could not be queued and is lost"))
+                batch = runtime.delivery.prepare_batch()
+            finally:
+                runtime.scheduler.stop(timeout=5)
         self.assertEqual(batch.measurements, ())
-        self.assertIn("could not be queued and is lost", "\n".join(logs.output))
 
 
 class RuntimeConfigTests(unittest.TestCase):
