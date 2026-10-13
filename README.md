@@ -234,12 +234,15 @@ python manage.py check
 python manage.py check --deploy
 ```
 
-GitHub Actions (`.github/workflows/ci.yml`) runs all of these on pull
-requests and pushes to `main`: server tests against PostgreSQL on Python
-3.12–3.14, agent tests on Python 3.11–3.14 (Linux, plus macOS) without any
-server dependency installed, packaging and `pip-audit`/`bandit` checks, and
-an end-to-end deployment (Docker image and Compose stack, then the agent
-installed with the hardened systemd unit and verified against the server).
+GitHub Actions (`.github/workflows/ci.yml`) runs all of these on every push, on
+pull requests from forks and on demand (one run per commit): server tests on
+Python 3.12-3.14 with Django 5.2 and 6.1 against PostgreSQL 16 and 18 (every
+pair of versions is covered; Python 3.15 runs as an experiment), agent tests on
+Python 3.11-3.14 (Linux, plus macOS) without any server dependency installed,
+the agent with its Docker and SNMP extras at the lowest and the latest
+declared versions, packaging and `pip-audit`/`bandit` checks, and an end-to-end
+deployment (Docker image and Compose stack, then the agent installed with the
+hardened systemd unit and verified against the server).
 
 ## Running the Sentinel agent locally
 

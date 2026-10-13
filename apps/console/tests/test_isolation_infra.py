@@ -407,7 +407,7 @@ class SecretsTests(ConsoleDataTestCase):
 
 class OtherModelsTests(ConsoleDataTestCase):
     def test_network_targets_are_isolated_by_their_own_site_too(self):
-        """No endpoint reads them yet (phase 3), but the field must already isolate through the same layer."""
+        """No endpoint reads them yet, but the field must already isolate through the same layer."""
         estate = Estate(self.now)
         for name, site in (("t-hq", estate.hq), ("t-plant", estate.plant), ("t-none", None)):
             NetworkTarget.objects.create(name=name, hostname_or_ip="192.0.2.10", protocol="icmp", site=site)

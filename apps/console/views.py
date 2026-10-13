@@ -1,4 +1,4 @@
-"""Console API endpoints (Phase 0: session, sign-in/out, scope)."""
+"""Console API endpoints: session, sign-in, sign-out and scope."""
 
 from __future__ import annotations
 

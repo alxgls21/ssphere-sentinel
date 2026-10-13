@@ -195,7 +195,7 @@ class PlanTests(ConsoleDataTestCase):
     def test_a_restricted_users_server_queries_can_use_the_site_index(self):
         """With table scans discouraged the plan must still be able to use ``site_id``: the choice
         itself depends on statistics and settings (and on the PostgreSQL version), the index must exist
-        and fit the condition. At realistic sizes the planner does choose it (see the Phase 1 report)."""
+        and fit the condition."""
         user = make_user("one-customer", customers=[self.customer])
         for path in ("servers/", "servers/?q=srv&sort=cpu&status=healthy", "servers/?sort=seen&dir=desc"):
             seen = 0

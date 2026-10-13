@@ -22,7 +22,7 @@ license-files = ["LICENSE"]
 requires-python = ">=3.12"
 authors = [{ name = "Alexandros Goulas" }]
 dependencies = [
-    "Django>=5.2,<6",
+    "Django>=5.2,<6.2",
     "gunicorn>=23.0",
     "psycopg[binary]>=3.2",
     # Serves the admin's static files from Gunicorn (no extra web server).
@@ -32,6 +32,7 @@ classifiers = [
     "Development Status :: 3 - Alpha",
     "Framework :: Django",
     "Framework :: Django :: 5.2",
+    "Framework :: Django :: 6.1",
     "Intended Audience :: System Administrators",
     "Operating System :: POSIX :: Linux",
     "Programming Language :: Python :: 3",

@@ -1,33 +1,49 @@
 name: CI
 
+# Every push (branches, not tags), pull requests from forks and manual runs.
+# A pull request from a branch of this repository is already covered by the
+# push run for the same commit, so the pull_request run skips it: one run per
+# commit, whichever way it was opened.
 on:
   push:
-    branches: [main]
+    branches: ["**"]
   pull_request:
+  workflow_dispatch:
 
 permissions:
   contents: read
 
 concurrency:
-  group: ci-${{ github.ref }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+  group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 env:
   PIP_DISABLE_PIP_VERSION_CHECK: "1"
   PYTHONUNBUFFERED: "1"
 
 jobs:
+  # Supported runtime combinations. The six cells cover every pair of Python,
+  # Django and PostgreSQL versions; the experimental cell is allowed to fail.
   server:
-    name: Server tests (Python ${{ matrix.python-version }})
+    name: Server (Python ${{ matrix.python }}, Django ${{ matrix.django }}, PostgreSQL ${{ matrix.postgres }})
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.repository
     runs-on: ubuntu-24.04
     timeout-minutes: 15
+    continue-on-error: ${{ matrix.experimental == true }}
     strategy:
       fail-fast: false
       matrix:
-        python-version: ["3.12", "3.13", "3.14"]
+        include:
+          - {python: "3.12", django: "5.2", postgres: "16"}
+          - {python: "3.12", django: "6.1", postgres: "18"}
+          - {python: "3.13", django: "5.2", postgres: "18"}
+          - {python: "3.13", django: "6.1", postgres: "16"}
+          - {python: "3.14", django: "5.2", postgres: "16"}
+          - {python: "3.14", django: "6.1", postgres: "18", primary: true}
+          - {python: "3.15", django: "6.1", postgres: "18", experimental: true}
     services:
       postgres:
-        image: postgres:16-alpine
+        image: postgres:${{ matrix.postgres }}-alpine
         env:
           POSTGRES_DB: sentinel
           POSTGRES_USER: sentinel
@@ -52,7 +68,7 @@ jobs:
           persist-credentials: false
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
-          python-version: ${{ matrix.python-version }}
+          python-version: ${{ matrix.python }}
           cache: pip
           cache-dependency-path: pyproject.toml
       - name: Generate throwaway secrets
@@ -63,7 +79,12 @@ jobs:
             echo "$name=$value" >> "$GITHUB_ENV"
           done
       - name: Install the server
-        run: python -m pip install -e .
+        run: python -m pip install -e . "Django==${{ matrix.django }}.*"
+      - name: Install the agent and the SNMP simulator (end-to-end tests)
+        if: matrix.primary
+        run: python -m pip install "./agent[snmp]" snmpsim pysmi
+      - name: Installed versions
+        run: python -m pip list --format=freeze | grep -i -E "^(django|psycopg|psycopg-binary|gunicorn|whitenoise|asgiref|sqlparse)=="
       - name: System checks
         run: python manage.py check --fail-level WARNING
       - name: Migrations are complete
@@ -71,6 +92,7 @@ jobs:
       - name: Tests
         run: python manage.py test apps
       - name: Deployment checks with production settings
+        if: matrix.primary
         env:
           DJANGO_ALLOWED_HOSTS: sentinel.example.com
           DJANGO_CSRF_TRUSTED_ORIGINS: https://sentinel.example.com
@@ -81,39 +103,89 @@ jobs:
         run: python manage.py check --deploy --fail-level WARNING
 
   agent:
-    name: Agent tests (${{ matrix.os }}, Python ${{ matrix.python-version }})
+    name: Agent (${{ matrix.os }}, Python ${{ matrix.python }})
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.repository
     runs-on: ${{ matrix.os }}
     timeout-minutes: 10
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-24.04]
-        python-version: ["3.11", "3.12", "3.13", "3.14"]
         include:
-          - os: macos-latest
-            python-version: "3.13"
+          - {os: ubuntu-24.04, python: "3.11"}
+          - {os: ubuntu-24.04, python: "3.13"}
+          - {os: ubuntu-24.04, python: "3.14"}
+          - {os: macos-latest, python: "3.14"}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
-          python-version: ${{ matrix.python-version }}
+          python-version: ${{ matrix.python }}
       - name: Install the agent only
         run: python -m pip install ./agent
       - name: No server dependency or Docker SDK is installed
         run: |
           python - <<'EOF'
           import importlib.util, sys
-          present = [m for m in ("django", "gunicorn", "psycopg", "whitenoise", "docker")
+          present = [m for m in ("django", "gunicorn", "psycopg", "whitenoise", "docker", "pysnmp")
                      if importlib.util.find_spec(m)]
           sys.exit(f"unexpected packages: {present}" if present else 0)
           EOF
       - name: Tests
         run: python -m unittest discover -s agent/tests -t . -v
 
+  # The agent with its optional extras. Docker and SNMP tests run for real
+  # (a missing optional dependency would otherwise skip them silently), at the
+  # lowest versions the agent declares and at the latest ones.
+  agent-extras:
+    name: Agent extras (Python ${{ matrix.python }}, ${{ matrix.deps }} dependencies)
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.repository
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    continue-on-error: ${{ matrix.experimental == true }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {python: "3.11", deps: lowest}
+          - {python: "3.13", deps: latest}
+          - {python: "3.14", deps: latest}
+          - {python: "3.15", deps: latest, experimental: true}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: ${{ matrix.python }}
+      - name: Install the agent with the Docker and SNMP extras
+        run: python -m pip install "./agent[docker,snmp]" snmpsim pysmi
+      - name: Install the lowest declared versions
+        if: matrix.deps == 'lowest'
+        run: |
+          python .github/scripts/agent-minimum-requirements.py | tee /tmp/lowest.txt
+          python -m pip install -r /tmp/lowest.txt
+      - name: Installed versions
+        run: |
+          python -m pip check
+          python -m pip list --format=freeze | grep -i -E "^(psutil|docker|pysnmp|cryptography|snmpsim|pysmi|requests|urllib3)=="
+      - name: The SNMP simulator is usable (its tests must not be skipped)
+        run: python -c "from agent.tests import snmpsim_fixture; reason = snmpsim_fixture.available(); assert reason is None, reason"
+      - name: Docker discovery against the runner's Docker daemon
+        run: |
+          python - <<'EOF'
+          from agent.docker_discovery import collect_docker
+          result = collect_docker()
+          print(result["status"], len(result["containers"]), "container(s)")
+          assert result["available"] is True, result
+          EOF
+      - name: Tests
+        run: python -m unittest discover -s agent/tests -t . -v
+
   packaging:
     name: Packaging and deployment files
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.repository
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
@@ -122,7 +194,7 @@ jobs:
           persist-credentials: false
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
-          python-version: "3.13"
+          python-version: "3.14"
       - name: Install tools
         run: python -m pip install build==1.6.1 twine==7.0.0 packaging==26.3 pyyaml==6.0.3
       - name: Build both distributions
@@ -138,6 +210,7 @@ jobs:
 
   security:
     name: Security checks
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.repository
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
@@ -146,15 +219,15 @@ jobs:
           persist-credentials: false
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
-          python-version: "3.13"
+          python-version: "3.14"
       - name: Install tools
         run: python -m pip install pip-audit==2.10.1 bandit==1.9.4
       - name: Known vulnerabilities in the server image dependencies
         run: pip-audit --strict --require-hashes --disable-pip -r requirements/server.txt
-      - name: Known vulnerabilities in the agent dependencies (with Docker extra)
+      - name: Known vulnerabilities in the agent dependencies (with the Docker and SNMP extras)
         run: |
           python -m venv /tmp/agent-env
-          /tmp/agent-env/bin/pip install --quiet "./agent[docker]"
+          /tmp/agent-env/bin/pip install --quiet "./agent[docker,snmp]"
           /tmp/agent-env/bin/pip freeze | grep -v '^ssphere-sentinel-agent' > /tmp/agent-requirements.txt
           pip-audit --strict --disable-pip --no-deps -r /tmp/agent-requirements.txt
       - name: Static analysis (high severity)
@@ -162,6 +235,7 @@ jobs:
 
   deployment:
     name: Docker image, Compose stack and systemd agent
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.repository
     runs-on: ubuntu-24.04
     timeout-minutes: 25
     steps:

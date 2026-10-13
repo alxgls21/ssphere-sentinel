@@ -5,10 +5,9 @@
 The arrays are parallel, oldest first, ``null`` where a bucket has no sample
 (a host that was silent leaves a gap, not a zero). A value is the mean of the
 samples in its bucket, in percent, to two decimals. Buckets are aligned to the
-clock (UTC) and only completed buckets are served, like the UI's mock: the
-chart can lag "now" by up to one bucket, and a trailing ``null`` therefore means
-the host stopped reporting (the UI says so), never "this minute has not filled
-yet". The bucket sizes are the UI's (1 minute for 15m and 1h, 5 minutes for 6h,
+clock (UTC) and only completed buckets are served: the chart can lag "now" by
+up to one bucket, and a trailing ``null`` therefore means the host stopped
+reporting, never "this bucket has not filled yet". The bucket sizes are the UI's (1 minute for 15m and 1h, 5 minutes for 6h,
 15 minutes for 24h); the sample grid (``SENTINEL_TELEMETRY_SAMPLE_SECONDS``,
 a divisor of 60 or 300) never makes a bucket empty. A server that has never
 reported telemetry has empty arrays.
@@ -35,7 +34,7 @@ from apps.console.params import QueryParams
 from apps.console.serializers import iso
 from apps.infrastructure.models import Server, ServerTelemetry, ServerTelemetrySample
 
-# range -> (length, bucket), the UI's spec (frontend/src/api/mock/series.ts).
+# range -> (length, bucket).
 RANGES = {
     "15m": (timedelta(minutes=15), timedelta(minutes=1)),
     "1h": (timedelta(hours=1), timedelta(minutes=1)),
