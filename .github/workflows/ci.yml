@@ -196,13 +196,15 @@ jobs:
         with:
           python-version: "3.14"
       - name: Install tools
-        run: python -m pip install build==1.6.1 twine==7.0.0 packaging==26.3 pyyaml==6.0.3
+        run: python -m pip install build==1.6.1 twine==7.0.0 packaging==26.3 pyyaml==6.0.3 shellcheck-py==0.11.0.1
       - name: Build both distributions
         run: |
           python -m build --outdir dist/agent agent
           python -m build --outdir dist/server .
       - name: Check distribution metadata
         run: python -m twine check --strict dist/agent/* dist/server/*
+      - name: Shell scripts are lint-clean
+        run: shellcheck scripts/*.sh .github/scripts/*.sh
       - name: Packaging and deployment-file tests (builds and installs wheels)
         env:
           SENTINEL_TEST_BUILD: "1"
@@ -247,15 +249,54 @@ jobs:
       - name: Validate Compose files
         run: |
           docker compose config --quiet
+          SENTINEL_POSTGRES=16 docker compose config --quiet
           docker compose -f compose.yml -f compose.tunnel.yml config --quiet
+          # A PostgreSQL version without a definition must not resolve to any database.
+          if SENTINEL_POSTGRES=17 docker compose config --quiet 2>/dev/null; then
+            echo "an unknown PostgreSQL version was accepted" >&2
+            exit 1
+          fi
       - name: Build the server image
         run: docker compose build
+      - name: The preflight accepts a new installation
+        run: scripts/postgres-preflight.sh
       - name: Start PostgreSQL and the server
         run: docker compose up --detach --wait --wait-timeout 180
+      - name: The preflight recognises the running PostgreSQL 18 installation
+        run: scripts/postgres-preflight.sh
+      - name: A new installation runs PostgreSQL 18 in the versioned data directory
+        run: |
+          query() { docker compose exec -T db sh -c "psql -U \"\$POSTGRES_USER\" -d \"\$POSTGRES_DB\" -Atc \"$1\""; }
+          [ "$(query 'SHOW server_version_num')" -ge 180000 ]
+          [ "$(query 'SHOW data_directory')" = /var/lib/postgresql/18/docker ]
       - name: Check the running server
         run: .github/scripts/check-server.sh
       - name: Deploy the agent with the hardened systemd unit
         run: sudo .github/scripts/agent-systemd-e2e.sh
+      - name: Container logs
+        if: failure()
+        run: docker compose logs --no-color
+      - name: Stop the stack
+        if: always()
+        run: docker compose down --volumes
+
+  # The documented move from PostgreSQL 16 to 18, rehearsed end to end: an
+  # installation without the new settings stays on 16, PostgreSQL 18 refuses to
+  # start on its volume, dump and restore reach 18, and the rollback returns to
+  # the untouched 16 volume.
+  database-upgrade:
+    name: PostgreSQL 16 to 18 migration rehearsal
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.repository
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Throwaway environment files
+        run: .github/scripts/ci-env.sh
+      - name: Rehearse the migration
+        run: .github/scripts/postgres-upgrade-e2e.sh
       - name: Container logs
         if: failure()
         run: docker compose logs --no-color

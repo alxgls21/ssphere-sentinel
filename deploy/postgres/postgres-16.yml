@@ -1,0 +1,39 @@
+# PostgreSQL 16 database service: used when SENTINEL_POSTGRES is unset or 16.
+# This is the database of installations created before PostgreSQL 18 became the
+# default. The image, the volume name and the data directory mount are what they
+# always were, so updating the repository never changes it.
+#
+# Apart from the image and the volume, every version file defines the service
+# the same way (tests/deployment checks it). The image and the volume belong
+# together: never point a different PostgreSQL major version at postgres_data.
+# docs/server-deployment.md describes the supported way to move between versions.
+
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-sentinel}
+      POSTGRES_USER: ${POSTGRES_USER:-sentinel}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 5s
+    # The image stops PostgreSQL with a fast shutdown; give it time to finish
+    # instead of being killed after Docker's default 10 seconds.
+    stop_grace_period: 1m
+    security_opt:
+      - no-new-privileges:true
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
+
+volumes:
+  postgres_data:

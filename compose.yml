@@ -8,8 +8,20 @@
 # terminate TLS in front of it (reverse proxy or Cloudflare Tunnel, see
 # compose.tunnel.yml) and set SENTINEL_HTTP_BIND=127.0.0.1.
 #
-# Keep the service names and the postgres_data volume name: renaming them
+# The database service comes from deploy/postgres/postgres-<SENTINEL_POSTGRES>.yml.
+# Each file defines the image, the volume and the mount of one PostgreSQL major
+# version together, so they cannot be combined wrongly. New installations get
+# PostgreSQL 18 from .env.example. Without SENTINEL_POSTGRES this file keeps the
+# PostgreSQL 16 service (and its postgres_data volume) an existing installation
+# already runs, so updating the repository never changes its database. Moving to
+# PostgreSQL 18 is a dump and restore into a new volume, see
+# docs/server-deployment.md. Keep the service and volume names: renaming them
 # would start a new, empty database volume.
+
+include:
+  - path: deploy/postgres/postgres-${SENTINEL_POSTGRES:-16}.yml
+    project_directory: .
+    env_file: .env
 
 x-logging: &default-logging
   driver: json-file
@@ -18,28 +30,6 @@ x-logging: &default-logging
     max-file: "5"
 
 services:
-  db:
-    image: postgres:16-alpine
-    restart: unless-stopped
-    environment:
-      POSTGRES_DB: ${POSTGRES_DB:-sentinel}
-      POSTGRES_USER: ${POSTGRES_USER:-sentinel}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
-      interval: 5s
-      timeout: 5s
-      retries: 10
-      start_period: 5s
-    # The image stops PostgreSQL with a fast shutdown; give it time to finish
-    # instead of being killed after Docker's default 10 seconds.
-    stop_grace_period: 1m
-    security_opt:
-      - no-new-privileges:true
-    logging: *default-logging
-
   web:
     build: .
     restart: unless-stopped
@@ -66,6 +56,3 @@ services:
     # Gunicorn finishes in-flight requests for up to 30 seconds on SIGTERM.
     stop_grace_period: 40s
     logging: *default-logging
-
-volumes:
-  postgres_data:

@@ -7,7 +7,7 @@ pyproject.toml; run this script after changing them or to pick up updates.
 
 Usage, from the repository root (needs network access to PyPI):
 
-    python scripts/update_server_requirements.py [--python-version 3.13]
+    python scripts/update_server_requirements.py [--python-version 3.14]
 
 Dependencies are resolved for Linux/CPython at the image's Python version.
 Every published file of each pinned version is hashed in, so the lock
@@ -75,7 +75,7 @@ def file_hashes(name: str, version: str) -> list[str]:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument("--python-version", default="3.13")
+    parser.add_argument("--python-version", default="3.14")
     args = parser.parse_args()
 
     project = tomllib.loads((ROOT / "pyproject.toml").read_text())["project"]
