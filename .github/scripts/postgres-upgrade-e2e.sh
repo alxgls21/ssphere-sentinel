@@ -7,7 +7,8 @@
 #   3. scripts/postgres-preflight.sh makes the documented decision in every state
 #      (new installation, PostgreSQL 16 only, both volumes, PostgreSQL 18 only);
 #   4. PostgreSQL 18 refuses to start on the PostgreSQL 16 volume and leaves the cluster intact;
-#   5. the documented dump and restore moves the data into a new PostgreSQL 18 volume;
+#   5. the documented dump and restore moves the data into a new PostgreSQL 18 volume,
+#      and every seeded record (rehearsal_data.py) is there afterwards, column for column;
 #   6. an existing PostgreSQL 18 cluster starts without any authorization;
 #   7. the documented rollback brings the untouched PostgreSQL 16 volume back.
 #
@@ -64,9 +65,19 @@ ORDER BY 1;
 SQL
 }
 
-user_exists() {
-    docker compose exec -T web python manage.py shell -c \
-        "from django.contrib.auth import get_user_model as g; print(g().objects.filter(username='rehearsal').exists())"
+# rehearsal <seed|fingerprint>: run .github/scripts/rehearsal_data.py in the web
+# container. The code is passed with -c (the shell's stdin path only runs what
+# is already readable) and the shell is told not to import models or announce
+# it: that notice goes to stdout, in front of what the script prints.
+rehearsal() {
+    docker compose exec -T --env "REHEARSAL_ACTION=$1" web \
+        python manage.py shell --no-imports -v 0 -c "$(cat .github/scripts/rehearsal_data.py)"
+}
+
+# The seeded records, as the database holds them now, must be those seeded before the migration.
+assert_rehearsal_data() {  # assert_rehearsal_data <where>
+    rehearsal fingerprint > "$work/data-now" || fail "the test data cannot be read $1"
+    diff -u "$work/data-before" "$work/data-now" || fail "the test data differs $1"
 }
 
 volume_name() { docker volume ls --quiet --filter "label=com.docker.compose.volume=$1"; }
@@ -99,11 +110,18 @@ grep -q 'image: postgres:16-alpine' <<<"$resolved" || fail "default image is not
 docker compose up --detach --build --wait --wait-timeout 180
 [ "$(server_version)" -lt 170000 ] || fail "not running PostgreSQL 16"
 [ "$(data_directory)" = "/var/lib/postgresql/data" ] || fail "unexpected data directory $(data_directory)"
-docker compose exec -T web python manage.py shell -c \
-    "from django.contrib.auth import get_user_model as g; g().objects.create_user('rehearsal')"
-[ "$(user_exists)" = "True" ] || fail "test data was not created"
+rehearsal seed
+rehearsal fingerprint > "$work/data-before"
+grep -q '^rehearsal total rows=' "$work/data-before" || fail "the test data was not created"
 table_counts > "$work/counts-before"
 [ "$(grep -c . "$work/counts-before")" -gt 10 ] || fail "row counts were not collected"
+# The same records, counted by the database itself rather than through the application.
+for expected in 'agents_agent 1' 'auth_user 1' 'infrastructure_dockercontainer 2' \
+    'infrastructure_dockerhoststate 1' 'infrastructure_server 1' 'infrastructure_servertelemetry 1' \
+    'infrastructure_servertelemetrysample 3' 'inventory_customer 1' 'inventory_site 1' \
+    'network_networkmeasurement 4' 'network_networktarget 2'; do
+    grep -qx "$expected" "$work/counts-before" || fail "the database does not hold the seeded rows: $expected"
+done
 
 step "The preflight recognises the PostgreSQL 16 installation and refuses the unsafe switch"
 run_preflight - 0 "existing PostgreSQL 16 installation"
@@ -165,7 +183,7 @@ revoke_initialization
 run_preflight - 0 "PostgreSQL 18 confirmed" --confirm 18
 docker compose up --detach --wait --wait-timeout 180
 docker compose exec -T web python manage.py migrate --check
-[ "$(user_exists)" = "True" ] || fail "test data is missing after the restore"
+assert_rehearsal_data "after the restore"
 .github/scripts/check-server.sh
 docker compose stop web
 table_counts | diff -u "$work/counts-before" - || fail "row counts changed while the application ran"
@@ -180,7 +198,7 @@ docker compose up --detach --wait --wait-timeout 180 db
 [ "$(server_version)" -lt 170000 ] || fail "rollback did not return to PostgreSQL 16"
 table_counts | diff -u "$work/counts-before" - || fail "row counts differ after the rollback"
 docker compose up --detach --wait --wait-timeout 180
-[ "$(user_exists)" = "True" ] || fail "test data is missing after the rollback"
+assert_rehearsal_data "after the rollback"
 
 step "Retire the PostgreSQL 16 volume: the PostgreSQL 18 database starts without authorization"
 docker compose down
@@ -190,6 +208,6 @@ run_preflight - 0 "existing PostgreSQL 18 installation"
 run_preflight 16 1 "no PostgreSQL 16 data"
 docker compose up --detach --wait --wait-timeout 180
 [ "$(server_version)" -ge 180000 ] || fail "not running PostgreSQL 18"
-[ "$(user_exists)" = "True" ] || fail "test data is missing from the PostgreSQL 18 database"
+assert_rehearsal_data "in the PostgreSQL 18 database once the PostgreSQL 16 volume is retired"
 
 echo "PostgreSQL migration rehearsal passed"
