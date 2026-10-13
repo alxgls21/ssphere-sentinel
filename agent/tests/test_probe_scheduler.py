@@ -8,6 +8,7 @@ from uuid import uuid4
 from agent.network_config import NetworkTargetConfig
 from agent.network_probe import ProbeAttempt, ProbeResult
 from agent.probe_scheduler import ProbeScheduler
+from agent.tests.timing import DeferredExecutor, LogWatcher, ManualClock, Tally, prime
 
 OK = ProbeResult(
     success=True,
@@ -55,32 +56,60 @@ class SchedulerTestCase(unittest.TestCase):
 
 class IntervalTests(SchedulerTestCase):
     def test_per_target_intervals_are_respected(self):
-        fast, slow = make_target(0.1), make_target(0.4)
-        scheduler = self.make([fast, slow], probe_fn=lambda _t: OK)
-        scheduler.start()
-        time.sleep(1.05)
-        scheduler.stop()
+        clock = ManualClock()
+        fast, slow = make_target(0.25), make_target(1.0)
+        scheduler = self.make([fast, slow], probe_fn=lambda _t: OK, time_fn=clock)
+        prime(scheduler, [fast.id, slow.id], clock)
+        start = clock()
+        for step in range(33):  # four seconds in eighth-second steps (exact in binary floating point)
+            clock.now = start + step * 0.125
+            scheduler._dispatch_due()
         counts = Counter(m["target_id"] for m in self.sunk)
-        self.assertGreaterEqual(counts[str(fast.id)], 8)
-        self.assertLessEqual(counts[str(fast.id)], 12)
-        self.assertGreaterEqual(counts[str(slow.id)], 2)
-        self.assertLessEqual(counts[str(slow.id)], 4)
+        self.assertEqual(counts[str(fast.id)], 17)  # every 0.25 s, first probe included
+        self.assertEqual(counts[str(slow.id)], 5)
+
+    def test_slots_missed_during_a_stall_are_skipped_not_replayed(self):
+        clock = ManualClock()
+        target = make_target(0.25)
+        scheduler = self.make([target], probe_fn=lambda _t: OK, time_fn=clock)
+        prime(scheduler, [target.id], clock)
+        scheduler._dispatch_due()
+        clock.now += 10.0  # forty intervals pass without a dispatch
+        scheduler._dispatch_due()
+        scheduler._dispatch_due()  # still inside the interval that follows the stall
+        self.assertEqual(len(self.sunk), 2)
+        clock.now += 0.25
+        scheduler._dispatch_due()
+        self.assertEqual(len(self.sunk), 3)
 
     def test_disabled_targets_are_not_probed(self):
         enabled, disabled = make_target(0.1), make_target(0.1, enabled=False)
-        scheduler = self.make([enabled, disabled], probe_fn=lambda _t: OK)
+        probed = Tally()
+
+        def probe(_target):
+            probed.increment()
+            return OK
+
+        scheduler = self.make([enabled, disabled], probe_fn=probe)
         scheduler.start()
-        time.sleep(0.25)
+        self.assertTrue(probed.wait_for(2))
         scheduler.stop()
         self.assertTrue(self.sunk)
         self.assertNotIn(str(disabled.id), {m["target_id"] for m in self.sunk})
 
     def test_each_measurement_has_a_unique_stable_id(self):
-        scheduler = self.make([make_target(0.05)], probe_fn=lambda _t: OK)
+        probed = Tally()
+
+        def probe(_target):
+            probed.increment()
+            return OK
+
+        scheduler = self.make([make_target(0.01)], probe_fn=probe)
         scheduler.start()
-        time.sleep(0.3)
+        self.assertTrue(probed.wait_for(5))
         scheduler.stop()
         ids = [m["measurement_id"] for m in self.sunk]
+        self.assertGreaterEqual(len(ids), 4)
         self.assertEqual(len(ids), len(set(ids)))
 
     def test_idle_scheduler_does_not_busy_loop(self):
@@ -102,38 +131,59 @@ class IntervalTests(SchedulerTestCase):
 class SlowProbeTests(SchedulerTestCase):
     def test_slow_probe_never_overlaps_itself(self):
         active = {"now": 0, "max": 0}
+        started = Tally()
 
         def slow(_target):
             with self.lock:
                 active["now"] += 1
                 active["max"] = max(active["max"], active["now"])
-            time.sleep(0.3)
+            started.increment()
+            time.sleep(0.1)
             with self.lock:
                 active["now"] -= 1
             return OK
 
-        scheduler = self.make([make_target(0.05)], probe_fn=slow)
+        scheduler = self.make([make_target(0.01)], probe_fn=slow)  # due again long before each probe ends
         scheduler.start()
-        time.sleep(1.0)
+        self.assertTrue(started.wait_for(3))
         scheduler.stop()
         self.assertEqual(active["max"], 1)
-        self.assertLessEqual(len(self.sunk), 4)
+
+    def test_a_busy_target_is_not_dispatched_again_and_the_slots_it_overran_are_skipped(self):
+        clock = ManualClock()
+        executor = DeferredExecutor()
+        target = make_target(0.25)
+        scheduler = self.make([target], probe_fn=lambda _t: OK, time_fn=clock)
+        prime(scheduler, [target.id], clock, executor)
+        scheduler._dispatch_due()  # the first probe is now in flight
+        clock.now += 2.0  # eight intervals pass while it is still running
+        scheduler._dispatch_due()
+        self.assertEqual(len(executor.pending), 1)  # nothing new for a target that is busy
+        executor.run_next()  # the first probe finishes
+        scheduler._dispatch_due()
+        self.assertEqual(len(executor.pending), 1)  # one probe follows, not eight
+        executor.run_next()
+        scheduler._dispatch_due()
+        self.assertEqual(executor.pending, [])  # the next one waits for its interval
+        self.assertEqual(len(self.sunk), 2)
 
     def test_concurrency_and_threads_are_bounded(self):
         active = {"now": 0, "max": 0}
+        finished = Tally()
 
         def slow(_target):
             with self.lock:
                 active["now"] += 1
                 active["max"] = max(active["max"], active["now"])
-            time.sleep(0.15)
+            time.sleep(0.05)
             with self.lock:
                 active["now"] -= 1
+            finished.increment()
             return OK
 
-        scheduler = self.make([make_target(0.05) for _ in range(8)], probe_fn=slow, max_workers=2)
+        scheduler = self.make([make_target(0.01) for _ in range(8)], probe_fn=slow, max_workers=2)
         scheduler.start()
-        time.sleep(0.6)
+        self.assertTrue(finished.wait_for(6))  # three times as many probes as workers have run
         workers = [t for t in threading.enumerate() if t.name.startswith("sentinel-probe_")]
         began = time.monotonic()
         self.assertTrue(scheduler.stop(timeout=5))
@@ -144,34 +194,33 @@ class SlowProbeTests(SchedulerTestCase):
         self.assertGreaterEqual(len(self.sunk), 4)
 
     def test_failing_probes_do_not_stop_scheduler(self):
-        calls = {"n": 0}
+        calls = Tally()
 
         def boom(_target):
-            calls["n"] += 1
+            calls.increment()
             raise RuntimeError("probe crashed")
 
-        scheduler = self.make([make_target(0.1)], probe_fn=boom)
-        with self.assertLogs("sentinel_agent", level="WARNING"):
+        scheduler = self.make([make_target(0.01)], probe_fn=boom)
+        with LogWatcher() as logs:
             scheduler.start()
-            time.sleep(0.45)
+            self.assertTrue(calls.wait_for(3))  # still scheduled after each crash
             scheduler.stop()
-        self.assertGreaterEqual(calls["n"], 3)
+        self.assertIn("probe crashed", "\n".join(logs.messages))
         self.assertEqual(self.sunk, [])
 
     def test_sink_failure_is_logged_and_scheduler_continues(self):
-        calls = {"n": 0}
+        calls = Tally()
 
         def bad_sink(_measurement):
-            calls["n"] += 1
+            calls.increment()
             raise OSError("disk full")
 
-        scheduler = self.make([make_target(0.1)], probe_fn=lambda _t: OK, sink=bad_sink)
-        with self.assertLogs("sentinel_agent", level="WARNING") as logs:
+        scheduler = self.make([make_target(0.01)], probe_fn=lambda _t: OK, sink=bad_sink)
+        with LogWatcher() as logs:
             scheduler.start()
-            time.sleep(0.35)
+            self.assertTrue(calls.wait_for(3))  # probing continues after each failed store
             scheduler.stop()
-        self.assertGreaterEqual(calls["n"], 2)
-        self.assertIn("could not be stored", "\n".join(logs.output))
+        self.assertIn("could not be stored", "\n".join(logs.messages))
 
 
 class ShutdownTests(SchedulerTestCase):
