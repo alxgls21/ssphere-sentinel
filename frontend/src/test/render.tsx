@@ -4,6 +4,7 @@ import { MemoryRouter } from 'react-router'
 import { vi } from 'vitest'
 import type { SentinelApi } from '@/api/client'
 import { ApiContext } from '@/api/context'
+import { AuthContext, type AuthApi } from '@/app/auth/auth'
 import { LiveProvider } from '@/app/LiveProvider'
 import { PrefsProvider } from '@/app/PrefsProvider'
 import { ShellContext, type ShellApi } from '@/app/shell'
@@ -28,6 +29,20 @@ export function createTestApi(overrides: Partial<SentinelApi> = {}): SentinelApi
     listServers: unstubbed('listServers'),
     getServer: unstubbed('getServer'),
     getServerSeries: unstubbed('getServerSeries'),
+    ...overrides,
+  }
+}
+
+/** Signed in, without a server: the default for every test that is not about authentication. */
+export function createFakeAuth(overrides: Partial<AuthApi> = {}): AuthApi {
+  return {
+    status: 'authenticated',
+    user: null,
+    signedOut: false,
+    error: null,
+    signIn: vi.fn(async () => {}),
+    signOut: vi.fn(async () => {}),
+    refresh: vi.fn(),
     ...overrides,
   }
 }
@@ -60,6 +75,8 @@ interface RenderAppOptions {
   pollMs?: number
   /** Provide a ShellContext (panels call useShell for announce / flashStatus). Pass your own to assert on it. */
   withShell?: boolean | ShellApi
+  /** The authentication state. Default: signed in. */
+  auth?: AuthApi
 }
 
 /** Renders inside the same providers as the app, with a controllable API and route. */
@@ -71,6 +88,7 @@ export function renderApp(
     withSummary = false,
     pollMs = 3_600_000,
     withShell = false,
+    auth = createFakeAuth(),
   }: RenderAppOptions = {},
 ) {
   const shell = withShell === true ? createFakeShell() : withShell || null
@@ -79,17 +97,19 @@ export function renderApp(
     const content = withSummary ? <SummaryProvider>{children}</SummaryProvider> : children
     return (
       <MemoryRouter initialEntries={[route]}>
-        <ApiContext.Provider value={api}>
-          <PrefsProvider>
-            <LiveProvider pollMs={pollMs}>
-              {shell ? (
-                <ShellContext.Provider value={shell}>{content}</ShellContext.Provider>
-              ) : (
-                content
-              )}
-            </LiveProvider>
-          </PrefsProvider>
-        </ApiContext.Provider>
+        <AuthContext.Provider value={auth}>
+          <ApiContext.Provider value={api}>
+            <PrefsProvider>
+              <LiveProvider pollMs={pollMs}>
+                {shell ? (
+                  <ShellContext.Provider value={shell}>{content}</ShellContext.Provider>
+                ) : (
+                  content
+                )}
+              </LiveProvider>
+            </PrefsProvider>
+          </ApiContext.Provider>
+        </AuthContext.Provider>
       </MemoryRouter>
     )
   }

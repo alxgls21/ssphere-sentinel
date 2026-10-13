@@ -2,7 +2,7 @@
  * Color-vision simulation for design review. The palette's healthy, warning and
  * critical hues are only a few delta-E apart under protan and deutan vision, so
  * status is carried by shape and word and color merely agrees with them. These
- * filters let a reviewer check that claim on every component at once.
+ * filters let anyone check that claim on every component at once.
  */
 export type Simulation = 'none' | 'grayscale' | 'protanopia' | 'deuteranopia' | 'tritanopia'
 

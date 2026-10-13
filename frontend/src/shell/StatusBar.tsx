@@ -8,6 +8,7 @@ import { useFlashMessage } from './flash'
 import { nextPollText } from './nextPoll'
 import { useNow } from './useNow'
 import { APP_VERSION } from './version'
+import { useApiMode } from '@/app/mode'
 import { useMockScenario } from '@/app/scenario'
 
 function subscribeOnline(onChange: () => void) {
@@ -64,6 +65,7 @@ function spokenMode(mode: HotkeyMode, pending: string | null): string {
 export function StatusBar() {
   const { source } = useApi()
   const scenario = useMockScenario()
+  const apiMode = useApiMode()
   const { mode, pending } = useHotkeyState()
   const { paused, pollMs } = useLive()
   const { lastUpdatedAt, fetching } = useLiveSnapshot()
@@ -72,9 +74,11 @@ export function StatusBar() {
   const flash = useFlashMessage()
 
   const sourceLine =
-    source === 'mock'
-      ? `MOCK · mock://fixtures v1 · MockApi (no backend read APIs) · scenario ${scenario}`
-      : `LIVE · ${window.location.origin}/api/v1`
+    source === 'mock' && apiMode === 'http'
+      ? 'Sample fleet, not your infrastructure · customers and sites from the console API'
+      : source === 'mock'
+        ? `MOCK · mock://fixtures v1 · MockApi (no backend read APIs) · scenario ${scenario}`
+        : `LIVE · ${window.location.origin}/api/v1`
 
   return (
     <footer className="type-chart flex h-6 shrink-0 items-center gap-3 border-t border-border bg-panel pr-3 text-fg-faint">
@@ -88,6 +92,12 @@ export function StatusBar() {
         {mode === 'pending' ? `${pending}…` : MODE_WORD[mode]}
       </span>
       <output className="sr-only">{spokenMode(mode, pending)}</output>
+      {source === 'mock' ? (
+        // Always present, whatever height the screen has: the strip above the content yields on short screens.
+        <strong className="type-kbd bg-hatch shrink-0 self-stretch border-x border-border-strong px-2 leading-6 text-fg">
+          DEMO DATA
+        </strong>
+      ) : null}
       <p className="min-w-0 flex-1 truncate">{sourceLine}</p>
       {online ? null : <StatusTag status="critical" word="OFFLINE" variant="tag" />}
       <span className="tnum shrink-0">

@@ -11,6 +11,7 @@ import { PaletteTrigger } from './topbar/PaletteTrigger'
 import { RefreshHairline } from './topbar/RefreshHairline'
 import { ScopePicker } from './topbar/ScopePicker'
 import { TimeRange } from './topbar/TimeRange'
+import { UserMenu } from './topbar/UserMenu'
 import { UtcClock } from './topbar/UtcClock'
 import { useScopeState } from './topbar/scope'
 
@@ -63,6 +64,7 @@ export function Topbar({ title, compact, drawer }: TopbarProps) {
       {source === 'mock' ? <MockChip className="shrink-0" /> : null}
       <PaletteTrigger compact={compact} />
       <DisplayMenu />
+      <UserMenu />
       <RefreshHairline />
     </header>
   )

@@ -198,10 +198,10 @@ describe('Topbar: clock', () => {
 describe('Topbar: provenance and the palette', () => {
   it('shows the MOCK DATA chip while the data is mock, and not for a real API', async () => {
     const { unmount } = await setup()
-    expect(screen.getByText('Mock data')).toBeInTheDocument()
+    expect(screen.getByText('Demo data')).toBeInTheDocument()
     unmount()
     await setup({}, { api: { source: 'http' } })
-    expect(screen.queryByText('Mock data')).not.toBeInTheDocument()
+    expect(screen.queryByText('Demo data')).not.toBeInTheDocument()
   })
 
   it('opens the command palette from the trigger, which shows the platform key', async () => {

@@ -5,8 +5,9 @@ import { IconButton } from '@/ui/controls'
 import { FiltersMenu } from './topbar/FiltersMenu'
 import { FreshnessCursor } from './topbar/FreshnessChip'
 import { RefreshHairline } from './topbar/RefreshHairline'
+import { UserMenu } from './topbar/UserMenu'
 import { useScopeState } from './topbar/scope'
-import { Wordmark } from './Wordmark'
+import { Wordmark } from '@/ui/Wordmark'
 import { MockChip } from '@/ui/provenance/Chips'
 
 /**
@@ -38,6 +39,7 @@ export function AppBar() {
           aria-haspopup="dialog"
           onClick={openPalette}
         />
+        <UserMenu iconOnly />
         <FreshnessCursor />
       </div>
       <RefreshHairline />

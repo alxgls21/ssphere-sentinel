@@ -13,7 +13,7 @@ import { navBadge, type NavBadge } from './navBadge'
 import { useFreshness } from './topbar/useFreshness'
 import { APP_VERSION } from './version'
 import { useViewSearch } from '@/app/viewSearch'
-import { Wordmark } from './Wordmark'
+import { Wordmark } from '@/ui/Wordmark'
 
 /** expanded 208px, rail 56px (icons, labels in tooltips), drawer (inside the off-canvas dialog). */
 export type SidebarVariant = 'expanded' | 'rail' | 'drawer'
