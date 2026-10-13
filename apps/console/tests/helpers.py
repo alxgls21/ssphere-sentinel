@@ -115,9 +115,13 @@ def make_server(
     memory: float = 20.0,
     disk: float = 30.0,
     uptime: int = 86_400,
+    telemetry_ago: float | None = None,
     **extra,
 ) -> Server:
-    """A server last seen ``seen_ago`` seconds before ``now`` (``None``: never), with telemetry unless ``cpu`` is ``None``."""
+    """A server last seen ``seen_ago`` seconds before ``now`` (``None``: never), with telemetry unless ``cpu`` is ``None``.
+
+    The telemetry arrived ``telemetry_ago`` seconds before ``now``; by default together with the last heartbeat.
+    """
     server = Server.objects.create(
         name=name,
         hostname=extra.pop("hostname", f"{name}.internal"),
@@ -127,6 +131,7 @@ def make_server(
         **extra,
     )
     if cpu is not None:
+        reported_ago = telemetry_ago if telemetry_ago is not None else (seen_ago or 0)
         gib = 1024**3
         ServerTelemetry.objects.create(
             server=server,
@@ -138,8 +143,8 @@ def make_server(
             disk_used_bytes=int(500 * gib * disk / 100),
             disk_percent=disk,
             uptime_seconds=uptime,
-            collected_at=now - timedelta(seconds=seen_ago or 0),
-            received_at=now - timedelta(seconds=seen_ago or 0),
+            collected_at=now - timedelta(seconds=reported_ago),
+            received_at=now - timedelta(seconds=reported_ago),
         )
     return server
 
