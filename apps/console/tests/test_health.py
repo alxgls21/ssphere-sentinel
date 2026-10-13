@@ -1,9 +1,13 @@
-"""Health rules, checked against a straight transcription of the UI's own (``frontend/src/lib/status.ts``).
+"""Health rules, checked against a transcription of the UI's own (``frontend/src/lib/status.ts``).
 
 The database computes health (``apps.console.health``); these tests compute it
 a second, independent way, in Python, from the same inputs, over a grid that
 includes every boundary, and require the two to agree for every server and
 container, in the list, in the detail and in the filters.
+
+One rule is the server's, not the UI's: resources only count while their
+reading is current (see ``test_telemetry_freshness``). A live server without a
+current reading is ``unknown``, where the UI's own rule would call it healthy.
 """
 
 import itertools
@@ -30,8 +34,13 @@ def js_round(value: float) -> int:
     return math.floor(value + 0.5)
 
 
-def reference_server(seen_ago, stored, telemetry, *, warn=80, crit=95):
-    """``(status, health)`` as ``serverHealthWithResources(serverStatus(...))`` decides them."""
+def reference_server(seen_ago, stored, telemetry, *, telemetry_ago=None, warn=80, crit=95):
+    """``(status, health)``: the UI's ``serverHealthWithResources(serverStatus(...))``, for a current reading.
+
+    ``telemetry_ago`` is how long ago the reading arrived (by default with the
+    last heartbeat). A reading older than the window is not current: it is
+    ignored, and a live server left without one is ``unknown``.
+    """
     if seen_ago is None:
         status = "unknown"
     elif seen_ago > OFFLINE_AFTER:
@@ -39,8 +48,11 @@ def reference_server(seen_ago, stored, telemetry, *, warn=80, crit=95):
     else:
         status = "warning" if stored == "warning" else "online"
     base = {"online": "healthy", "warning": "warning", "offline": "critical", "unknown": "unknown"}[status]
-    if base in ("critical", "unknown") or telemetry is None:
+    if base in ("critical", "unknown"):
         return status, base
+    age = telemetry_ago if telemetry_ago is not None else seen_ago
+    if telemetry is None or age > OFFLINE_AFTER:
+        return status, "warning" if base == "warning" else "unknown"
     levels = [js_round(value) for value in telemetry]
     if any(level >= crit for level in levels):
         return status, "critical"

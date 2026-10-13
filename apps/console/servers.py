@@ -21,11 +21,22 @@ Query parameters (anything else, or a repeated one, is a 400):
 
 Sorting (the directions are the UI's): ``status`` desc is worst first; ``name``
 is case-insensitive byte order of the lower-cased name (``web-10`` sorts before
-``web-2``); cpu/memory/disk/uptime put servers that are not reporting (offline,
-never reported) last in both directions; ``seen`` orders by the time since the
-last heartbeat, so desc is the longest silent first and servers that never
-reported come last. Ties are broken by name, then id, so a page boundary never
-repeats or skips a row.
+``web-2``); cpu/memory/disk/uptime rank only current readings and put every
+other server last in both directions (offline, never reported, and servers
+whose latest resource report is not current: see below); ``seen`` orders by the
+time since the last heartbeat, so desc is the longest silent first and servers
+that never reported come last. Ties are broken by name, then id, so a page
+boundary never repeats or skips a row.
+
+Telemetry freshness (the rule is ``apps.console.health``): ``server.telemetry``
+is the last known reading, kept for as long as the server exists, and says how
+current it is. ``receivedAt`` is when the server accepted it and ``stale`` is
+true once that is older than the offline window (``generatedAt - receivedAt``),
+whatever the heartbeat does. A stale reading is not current: it takes no part in
+``health``, ``counts`` or the load sorting, and a client must not show it as
+the present value. ``server.status`` (liveness) is independent of it: a server
+can be ``online`` with a stale reading, which is what an agent that keeps
+sending heartbeats without usable telemetry looks like.
 
 Access: every query starts from ``request.visibility.filter(...)`` (a server
 without a site is visible only to users who may see all customers). The
@@ -101,6 +112,8 @@ FIELDS = (
     "telemetry__disk_total_bytes",
     "telemetry__uptime_seconds",
     "telemetry__collected_at",
+    "telemetry__received_at",
+    "telemetry_fresh",
 )
 LOAD_COLUMNS = {
     "cpu": "cpu_percent",
@@ -149,6 +162,8 @@ def serialize(row: dict, container_counts: dict[str, int]) -> dict:
             "diskTotalBytes": row["telemetry__disk_total_bytes"],
             "uptimeSeconds": row["telemetry__uptime_seconds"],
             "collectedAt": iso(row["telemetry__collected_at"]),
+            "receivedAt": iso(row["telemetry__received_at"]),
+            "stale": not row["telemetry_fresh"],
         }
     item = {
         "server": {

@@ -13,10 +13,25 @@ Server (``annotate_servers``)
     * otherwise the worst of: a resource at or above the critical threshold
       -> ``critical``; at or above the warning threshold, or a stored status
       of ``warning`` -> ``warning``; else ``healthy``.
+    * but resources only count while their reading is current (below), and a
+      live server with no current reading has nothing to say about them:
+      ``unknown`` (a stored ``warning`` still stands).
 
     Resources are judged as displayed, rounded half up to a whole percent, so
     "95%" is never shown beside a healthy status because the raw value was 94.6
     (and 94.5 shows as 95, like ``Math.round`` in the UI).
+
+Telemetry freshness
+    Liveness (the last heartbeat) and the freshness of the resource reading are
+    different facts: heartbeats go on when the telemetry section is missing,
+    rejected or dropped by the agent, and the snapshot then describes the past.
+    A reading is current while it arrived within ``SENTINEL_OFFLINE_THRESHOLD``
+    seconds (inclusive) of ``now``: the window of liveness and of the Docker
+    report, three heartbeat intervals by default, and the cadence of telemetry
+    itself, which rides on every heartbeat. It is judged on the server's clock
+    (``ServerTelemetry.received_at``), never the agent's ``collected_at``. A
+    stale snapshot is kept and served as the last known reading; it is just not
+    used for the current health, the status counts, or the load sorting.
 
 Container (``annotate_containers``)
     A container is only as observable as its host: when the server has gone
@@ -71,6 +86,25 @@ def offline_cutoff(now: datetime) -> datetime:
     return now - timedelta(seconds=offline_threshold_seconds())
 
 
+def telemetry_cutoff(now: datetime) -> datetime:
+    """Telemetry that arrived before this is not current.
+
+    The window is the one of liveness and of the Docker report. It has its own
+    name so that the freshness of a reading is decided here and only here.
+    """
+    return offline_cutoff(now)
+
+
+def fresh_telemetry(now: datetime) -> Q:
+    """The server's latest resource report arrived recently (false without any snapshot)."""
+    return Q(telemetry__received_at__gte=telemetry_cutoff(now))
+
+
+def current_resources(now: datetime) -> Q:
+    """A live server whose resource reading is current: the only readings that rank or judge."""
+    return Q(last_seen_at__gte=offline_cutoff(now)) & fresh_telemetry(now)
+
+
 def _int(value: int) -> Value:
     return Value(value, output_field=IntegerField())
 
@@ -80,7 +114,7 @@ def _text(value: str) -> Value:
 
 
 def annotate_servers(queryset: QuerySet, now: datetime) -> QuerySet:
-    """Add ``liveness`` (the status the UI shows) and ``severity`` (the health rank) to server rows."""
+    """Add ``liveness`` (the status the UI shows), ``severity`` (the health rank) and ``telemetry_fresh`` to server rows."""
     cutoff = offline_cutoff(now)
     limits = thresholds()
     warn, crit = limits["resourceWarnPercent"], limits["resourceCritPercent"]
@@ -98,6 +132,9 @@ def annotate_servers(queryset: QuerySet, now: datetime) -> QuerySet:
     )
     queryset = queryset.annotate(_worst_shown=worst)
     stored_warning = Q(status=Server.Status.WARNING)
+    # Past the first two branches the server is live, so a fresh reading is a
+    # current one (``current_resources`` states both for the sorting).
+    fresh = fresh_telemetry(now)
     return queryset.annotate(
         liveness=Case(
             When(last_seen_at__isnull=True, then=_text(Server.Status.UNKNOWN)),
@@ -109,18 +146,21 @@ def annotate_servers(queryset: QuerySet, now: datetime) -> QuerySet:
         severity=Case(
             When(last_seen_at__isnull=True, then=_int(UNKNOWN)),
             When(last_seen_at__lt=cutoff, then=_int(CRITICAL)),
-            When(_worst_shown__gte=crit, then=_int(CRITICAL)),
-            When(Q(_worst_shown__gte=warn) | stored_warning, then=_int(WARNING)),
-            default=_int(HEALTHY),
+            When(fresh & Q(_worst_shown__gte=crit), then=_int(CRITICAL)),
+            When((fresh & Q(_worst_shown__gte=warn)) | stored_warning, then=_int(WARNING)),
+            When(fresh, then=_int(HEALTHY)),
+            # Alive, but its resources are unknown: no reading, or one that is no longer current.
+            default=_int(UNKNOWN),
             output_field=IntegerField(),
         ),
+        telemetry_fresh=Case(When(fresh, then=Value(True)), default=Value(False), output_field=BooleanField()),
     )
 
 
 def server_load(column: str, now: datetime) -> Case:
-    """A telemetry column for sorting: NULL for a server that is not reporting (offline, never reported)."""
+    """A telemetry column for sorting: NULL unless the server's reading is current (offline, never reported, stale)."""
     return Case(
-        When(last_seen_at__gte=offline_cutoff(now), then=F(f"telemetry__{column}")),
+        When(current_resources(now), then=F(f"telemetry__{column}")),
         default=None,
         output_field=FloatField(),
     )

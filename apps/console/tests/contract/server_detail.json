@@ -18,7 +18,9 @@
         "memoryTotalBytes": 17179869184,
         "diskTotalBytes": 536870912000,
         "uptimeSeconds": 86400,
-        "collectedAt": "<iso-utc>"
+        "collectedAt": "<iso-utc>",
+        "receivedAt": "<iso-utc>",
+        "stale": false
       }
     },
     "health": "warning",

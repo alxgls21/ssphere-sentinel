@@ -3,7 +3,9 @@
 ``ServerListItem``, ``ServerDetail`` and ``ServerContainer`` are the UI's own
 contract; the fixtures list every key of each, so a renamed, dropped or extra
 field fails here before it reaches the UI. The list endpoints add ``page``,
-``counts`` and ``scopeTotal`` next to the UI's ``items``.
+``counts`` and ``scopeTotal`` next to the UI's ``items``, and a server's
+``telemetry`` adds ``receivedAt`` and ``stale`` to the UI's ``ServerTelemetry``
+(the freshness of the last known reading, see ``apps.console.servers``).
 """
 
 from apps.agents.services import create_agent

@@ -919,6 +919,47 @@ heartbeats before a server is considered offline. Stored `status` remains
 available for future warning/error states; prefer `effective_status` for
 liveness.
 
+### Telemetry freshness
+
+A heartbeat proves the agent is alive, not that its resource reading is
+current: the telemetry section can be missing (the agent could not collect it)
+or rejected (the server answers `"telemetry": "rejected"`) while heartbeats go
+on. The console therefore treats the two separately.
+
+| | Liveness | Telemetry freshness |
+| --- | --- | --- |
+| Decided by | `Server.last_seen_at` | `ServerTelemetry.received_at`: when the server last accepted a report that replaced the snapshot |
+| Window | `SENTINEL_OFFLINE_THRESHOLD` (90 s) | the same window, inclusive |
+| Clock | the server's | the server's; the agent's `collected_at` is never consulted, so a skewed agent clock changes neither side of the rule |
+
+The window is three heartbeat intervals at the default 30 s: the agent sends
+telemetry with every heartbeat, so a current reading tolerates two lost or
+rejected reports, exactly as liveness tolerates two lost heartbeats. The
+Docker report of a server is judged by the same window. (The sample grid,
+`SENTINEL_TELEMETRY_SAMPLE_SECONDS`, only thins what the history stores and has
+no part in this.) If you raise the agents' heartbeat interval, raise
+`SENTINEL_OFFLINE_THRESHOLD` with it, as you must for liveness anyway.
+
+What a stale reading does, in the server list, the detail view, the status
+counts, the status filter and the sorting alike:
+
+- It is **kept** as the last known reading and served with `receivedAt` and
+  `stale: true` (history and the admin are unaffected); clients must not show it
+  as the present value.
+- It takes **no part in the health**: a server that is alive but has no current
+  reading is `unknown` (it asserts nothing about resources), not `healthy` and
+  not the `critical` of the old reading. A stored `warning` status still counts.
+  Offline stays `critical` and never-reported stays `unknown`.
+- It is **not ranked** by `cpu`, `memory`, `disk` or `uptime`: such servers sort
+  last in either direction, like offline ones.
+- `status` (liveness) is unchanged: a server can be `online` with a stale
+  reading. That combination, `online` but `unknown`, is how an agent that keeps
+  sending heartbeats without usable telemetry shows up; its log and the
+  heartbeat response say why (see [docs/operations.md](docs/operations.md)).
+
+A report that arrives out of order and does not replace the snapshot does not
+refresh it either.
+
 ## Inventory: customers, sites and devices
 
 The Django admin has an **Inventory** section for organizing what is
@@ -1075,7 +1116,9 @@ other data endpoints follow in later phases.
 Unknown or repeated query parameters and out-of-range values are `400`s. A
 container on a host that went silent, whose Docker is unavailable, or whose
 Docker report has not arrived recently reads `unknown`, because its stored
-state is no longer current. Server names sort case-insensitively as text
+state is no longer current. A server's `telemetry` is its last known reading
+with `receivedAt` and `stale`; once stale it no longer counts towards `health`,
+`counts` or the load sorting ([Telemetry freshness](#telemetry-freshness)). Server names sort case-insensitively as text
 (`web-10` before `web-2`).
 
 **Giving someone access** (in the admin): create a user, add them to the group
