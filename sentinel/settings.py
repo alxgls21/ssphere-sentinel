@@ -124,6 +124,57 @@ if SENTINEL_DOCKER_ABSENT_CONTAINER_RETENTION_DAYS <= 0:
         "SENTINEL_DOCKER_ABSENT_CONTAINER_RETENTION_DAYS must be a positive integer"
     )
 
+# Server telemetry history (the CPU, memory and disk charts). At most one
+# sample per server per SENTINEL_TELEMETRY_SAMPLE_SECONDS is stored (the first
+# one received for each slot), however often the agent reports; samples older
+# than the retention period are removed by
+#   python manage.py purge_telemetry_samples
+# The retention must cover the longest chart range (24 hours) with margin.
+SENTINEL_TELEMETRY_RETENTION_DAYS = env_int("SENTINEL_TELEMETRY_RETENTION_DAYS", default=7)
+if not 2 <= SENTINEL_TELEMETRY_RETENTION_DAYS <= 365:
+    raise RuntimeError("SENTINEL_TELEMETRY_RETENTION_DAYS must be between 2 and 365")
+# A divisor of 60, or 300: only then does the sample grid line up with the
+# chart buckets (1, 5 and 15 minutes), so every bucket holds whole samples.
+SENTINEL_TELEMETRY_SAMPLE_SECONDS = env_int("SENTINEL_TELEMETRY_SAMPLE_SECONDS", default=60)
+if not (
+    5 <= SENTINEL_TELEMETRY_SAMPLE_SECONDS <= 60 and 60 % SENTINEL_TELEMETRY_SAMPLE_SECONDS == 0
+) and SENTINEL_TELEMETRY_SAMPLE_SECONDS != 300:
+    raise RuntimeError(
+        "SENTINEL_TELEMETRY_SAMPLE_SECONDS must be a divisor of 60 from 5 to 60 (5, 6, 10, 12, 15, 20, 30, 60) or 300"
+    )
+
+# Console (the read API behind the web UI, /api/v1/console/). Its sessions and
+# sign-in throttle; see docs/security.md ("Console authentication").
+SENTINEL_CONSOLE_SESSION_SECONDS = env_int("SENTINEL_CONSOLE_SESSION_SECONDS", default=12 * 3600)
+if not 300 <= SENTINEL_CONSOLE_SESSION_SECONDS <= 30 * 86400:
+    raise RuntimeError("SENTINEL_CONSOLE_SESSION_SECONDS must be between 300 and 2592000")
+SENTINEL_CONSOLE_LOGIN_MAX_ATTEMPTS = env_int("SENTINEL_CONSOLE_LOGIN_MAX_ATTEMPTS", default=5)
+if not 1 <= SENTINEL_CONSOLE_LOGIN_MAX_ATTEMPTS <= 100:
+    raise RuntimeError("SENTINEL_CONSOLE_LOGIN_MAX_ATTEMPTS must be between 1 and 100")
+SENTINEL_CONSOLE_LOGIN_LOCKOUT_SECONDS = env_int("SENTINEL_CONSOLE_LOGIN_LOCKOUT_SECONDS", default=900)
+if not 60 <= SENTINEL_CONSOLE_LOGIN_LOCKOUT_SECONDS <= 86400:
+    raise RuntimeError("SENTINEL_CONSOLE_LOGIN_LOCKOUT_SECONDS must be between 60 and 86400")
+
+# Health thresholds the console reports (display defaults, not alert rules).
+SENTINEL_THRESHOLD_RESOURCE_WARN_PERCENT = env_int("SENTINEL_THRESHOLD_RESOURCE_WARN_PERCENT", default=80)
+SENTINEL_THRESHOLD_RESOURCE_CRIT_PERCENT = env_int("SENTINEL_THRESHOLD_RESOURCE_CRIT_PERCENT", default=95)
+if not (
+    1 <= SENTINEL_THRESHOLD_RESOURCE_WARN_PERCENT < SENTINEL_THRESHOLD_RESOURCE_CRIT_PERCENT <= 100
+):
+    raise RuntimeError(
+        "SENTINEL_THRESHOLD_RESOURCE_WARN_PERCENT must be at least 1 and below "
+        "SENTINEL_THRESHOLD_RESOURCE_CRIT_PERCENT, which must be at most 100"
+    )
+SENTINEL_THRESHOLD_PROBE_LOSS_WARN_PERCENT = env_int("SENTINEL_THRESHOLD_PROBE_LOSS_WARN_PERCENT", default=2)
+if not 1 <= SENTINEL_THRESHOLD_PROBE_LOSS_WARN_PERCENT <= 100:
+    raise RuntimeError("SENTINEL_THRESHOLD_PROBE_LOSS_WARN_PERCENT must be between 1 and 100")
+SENTINEL_THRESHOLD_PROBE_LATENCY_WARN_MS = env_int("SENTINEL_THRESHOLD_PROBE_LATENCY_WARN_MS", default=150)
+if not 1 <= SENTINEL_THRESHOLD_PROBE_LATENCY_WARN_MS <= 60_000:
+    raise RuntimeError("SENTINEL_THRESHOLD_PROBE_LATENCY_WARN_MS must be between 1 and 60000")
+SENTINEL_THRESHOLD_TARGET_CRIT_FAILURES = env_int("SENTINEL_THRESHOLD_TARGET_CRIT_FAILURES", default=3)
+if not 1 <= SENTINEL_THRESHOLD_TARGET_CRIT_FAILURES <= 1000:
+    raise RuntimeError("SENTINEL_THRESHOLD_TARGET_CRIT_FAILURES must be between 1 and 1000")
+
 ALLOWED_HOSTS = env_list("DJANGO_ALLOWED_HOSTS", default="localhost,127.0.0.1")
 # Full origins (``https://sentinel.example.com``) allowed to submit admin forms
 # when TLS is terminated in front of Django (reverse proxy, Cloudflare Tunnel).
@@ -161,6 +212,7 @@ INSTALLED_APPS = [
     "apps.network",
     "apps.inventory",
     "apps.snmp",
+    "apps.console",
 ]
 
 MIDDLEWARE = [
@@ -184,6 +236,9 @@ if not DEBUG:
     )
 
 ROOT_URLCONF = "sentinel.urls"
+
+# CSRF rejections under /api/v1/console/ are JSON; everything else keeps Django's page.
+CSRF_FAILURE_VIEW = "apps.console.http.csrf_failure"
 
 TEMPLATES = [
     {

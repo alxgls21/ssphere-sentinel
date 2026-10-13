@@ -363,8 +363,19 @@ Empty / omitted telemetry remains valid (liveness-only), so older one-shot
 clients keep working.
 
 On the server, valid telemetry is stored as a **latest snapshot**
-(`ServerTelemetry`, one row per server). This is **not** a historical
-time-series store yet.
+(`ServerTelemetry`, one row per server) and as a **history sample** (CPU,
+memory and disk percent) for the console's charts. The snapshot only moves
+forward in time: a delayed or out-of-order heartbeat never replaces a newer
+one (unless the snapshot has not been refreshed for more than five minutes,
+so an agent whose clock stepped back is not ignored). History keeps at most one sample per server per
+`SENTINEL_TELEMETRY_SAMPLE_SECONDS` (the first received for each slot, so
+duplicates and replays are free) for `SENTINEL_TELEMETRY_RETENTION_DAYS`; a
+sample takes about 160 bytes with its indexes (measured), so 1,000 servers at
+the default settings hold about 10 million rows (1.5 GB) once the 7 days are
+full; a chart reads one server's window from the primary key in about
+10 milliseconds at that size.
+Samples are written with one `INSERT ... ON CONFLICT DO NOTHING` per heartbeat
+and never fail it. Existing agents need no change.
 
 If telemetry collection fails on the agent, the failure is logged and a
 liveness-only heartbeat is still sent. Invalid telemetry accepted by auth is
@@ -703,6 +714,8 @@ Configuration (server environment, all in days):
 | `SENTINEL_NETWORK_MEASUREMENT_MAX_AGE_DAYS` | `8` | Oldest `measured_at` accepted from an agent (delayed delivery); never more than the retention period |
 | `SENTINEL_DOCKER_ABSENT_CONTAINER_RETENTION_DAYS` | `30` | Containers absent from successful discoveries for longer than this are deleted |
 | `SENTINEL_SNMP_RETENTION_DAYS` | `30` | SNMP polls and interface samples older than this are purged |
+| `SENTINEL_TELEMETRY_RETENTION_DAYS` | `7` | CPU/memory/disk history samples older than this are purged (2-365) |
+| `SENTINEL_TELEMETRY_SAMPLE_SECONDS` | `60` | At most one history sample per server per this many seconds is stored, however often the agent reports (5, 6, 10, 12, 15, 20, 30, 60 or 300) |
 | `SENTINEL_SNMP_MAX_AGE_DAYS` | `8` | Oldest `measured_at` accepted for a delayed SNMP poll; never more than the retention period |
 
 Cleanup commands (never run automatically, in particular not on heartbeats):
@@ -711,9 +724,16 @@ Cleanup commands (never run automatically, in particular not on heartbeats):
 python manage.py purge_network_measurements      [--days N] [--batch-size N] [--dry-run]
 python manage.py purge_absent_docker_containers  [--days N] [--batch-size N] [--dry-run]
 python manage.py purge_snmp_data                 [--days N] [--batch-size N] [--dry-run]
+python manage.py purge_telemetry_samples         [--days N] [--batch-size N] [--dry-run]
+python manage.py clearsessions                   # Django's own: expired console and admin sessions
 ```
 
-All delete in batches (default 5000 rows, max 100000) with one short
+`clearsessions` is part of Django and takes no options. Console sign-ins create
+a server-side session each (valid for `SENTINEL_CONSOLE_SESSION_SECONDS`), and
+expired sessions stay in the database until it runs, so schedule it with the
+others.
+
+The `purge_*` commands delete in batches (default 5000 rows, max 100000) with one short
 transaction per batch, so they do not hold long locks or create one huge
 transaction, and an interrupted run keeps the batches already deleted.
 `--dry-run` only counts. The cutoff is exclusive: a row exactly at the cutoff
@@ -736,7 +756,7 @@ cron (`crontab -e`):
 
 ```cron
 # m h dom mon dow
-15 3 * * * cd /opt/ssphere-sentinel && set -a && . ./.env && set +a && .venv/bin/python manage.py purge_network_measurements && .venv/bin/python manage.py purge_absent_docker_containers && .venv/bin/python manage.py purge_snmp_data
+15 3 * * * cd /opt/ssphere-sentinel && set -a && . ./.env && set +a && .venv/bin/python manage.py purge_network_measurements && .venv/bin/python manage.py purge_absent_docker_containers && .venv/bin/python manage.py purge_snmp_data && .venv/bin/python manage.py clearsessions
 ```
 
 systemd (`/etc/systemd/system/sentinel-retention.service` and `.timer`):
@@ -753,6 +773,7 @@ EnvironmentFile=/opt/ssphere-sentinel/.env
 ExecStart=/opt/ssphere-sentinel/.venv/bin/python manage.py purge_network_measurements
 ExecStart=/opt/ssphere-sentinel/.venv/bin/python manage.py purge_absent_docker_containers
 ExecStart=/opt/ssphere-sentinel/.venv/bin/python manage.py purge_snmp_data
+ExecStart=/opt/ssphere-sentinel/.venv/bin/python manage.py clearsessions
 ```
 
 ```ini
@@ -846,7 +867,7 @@ authentication and liveness):
 
 | Heartbeat | Before | After |
 | --- | --- | --- |
-| Heartbeat with host telemetry | 11 | 6 |
+| Heartbeat with host telemetry | 11 | 7 (6, plus the one-statement history sample) |
 | Docker, 50 unchanged containers | 212 (50 rows rewritten) | 10 (no container writes) |
 | Docker, 50 changed containers | 212 | 11 |
 | Network, 100 new measurements | 308 | 12 |
@@ -1019,6 +1040,55 @@ curl -X POST http://localhost:8000/api/v1/agent/heartbeat/ \
   -H "Content-Type: application/json"
 ```
 
+## Console API (web UI)
+
+The web console reads Sentinel through `/api/v1/console/`, an API that is
+**separate from the agent API**: it is authenticated with Django sessions
+(never with agent tokens), it only reads, and it returns only the customers and
+sites granted to the signed-in user. Today it provides the session endpoints,
+the customer/site scope picker, and the servers and Docker containers; the
+other data endpoints follow in later phases.
+
+| Endpoint | |
+| --- | --- |
+| `GET /api/v1/console/session/` | Who is signed in, the CSRF token for `POST`s, and the health thresholds. `authenticated: false` when nobody is |
+| `POST /api/v1/console/auth/login/` | `{"username", "password"}` (JSON, CSRF token in `X-CSRFToken`). Throttled per account; every failure, including a locked account, gets the same `401` |
+| `POST /api/v1/console/auth/logout/` | Ends the session |
+| `GET /api/v1/console/scope/` | The customers and sites the user may filter by |
+| `GET /api/v1/console/servers/` | Servers with their latest telemetry and container counts. Filtered, sorted and paginated by the server: `customer`, `site`, `q` (words), `status` (`critical`, `warning`, `unknown`, `healthy`), `sort` (`status`, `name`, `cpu`, `memory`, `disk`, `uptime`, `seen` = time since the last heartbeat), `dir`, `page`, `pageSize` (1-200, default 50). Also returns per-status `counts` and the `scopeTotal` |
+| `GET /api/v1/console/servers/<id>/` | One server and its containers |
+| `GET /api/v1/console/servers/<id>/series/` | CPU, memory and disk history: `range` = `15m`, `1h` (default), `6h` or `24h`. Parallel arrays, one entry per completed clock-aligned bucket (1, 1, 5, 15 minutes), `null` where nothing was received; empty for a server that never sent telemetry |
+| `GET /api/v1/console/containers/` | Docker containers across servers: the same parameters plus `server`, `status` also takes `idle`, `sort` is `status`, `name`, `server` or `started` |
+
+Unknown or repeated query parameters and out-of-range values are `400`s. A
+container on a host that went silent, whose Docker is unavailable, or whose
+Docker report has not arrived recently reads `unknown`, because its stored
+state is no longer current. Server names sort case-insensitively as text
+(`web-10` before `web-2`).
+
+**Giving someone access** (in the admin): create a user, add them to the group
+*Console viewers (assigned customers)*, then grant what they may see under
+**Console → Customer access** (a customer and all its sites, including future
+ones) and/or **Site access** (one site). The group *Console viewers (all
+customers)* sees everything, including objects that belong to no site yet.
+Without a grant a console user sees nothing. Superusers see everything.
+**Servers and network targets belong to a site** (the *Site* field in their
+admin pages, empty by default): until one is assigned, only users who may see
+all customers can see them, so a server an agent has just enrolled, and every
+server that existed before this feature, stays private until an administrator
+places it. In the admin lists, filter by *Site: Empty* to find them and
+set the site of several at once straight from the list.
+Only a session created by the console's own sign-in counts (an admin login
+does not open the console). Sessions last `SENTINEL_CONSOLE_SESSION_SECONDS`
+(default 12 hours, fixed, no sliding renewal). After
+`SENTINEL_CONSOLE_LOGIN_MAX_ATTEMPTS` failed sign-ins an account is locked for
+`SENTINEL_CONSOLE_LOGIN_LOCKOUT_SECONDS`; while locked, even the right password
+is refused with the usual "invalid user name or password" answer (a distinct
+reply would reveal which names exist), and **Console → Login throttles** unlocks
+it early. The thresholds the console reports are `SENTINEL_THRESHOLD_*` in
+[.env.example](.env.example). The security model is in
+[docs/security.md](docs/security.md#console-authentication-and-access-control).
+
 ## Project layout
 
 ```text
@@ -1029,6 +1099,7 @@ apps/                  Django applications
   network/             Network targets and measurement history
   inventory/           Customers, sites and network devices
   snmp/                SNMP device settings, interfaces, polls and interface samples
+  console/             Read API for the web UI: session auth, customer/site access control
 agent/                 Standalone host agent (no Django imports); own pyproject.toml
 sentinel/              Django project settings and URL routing
 deploy/systemd/        Hardened agent unit, environment template, Docker drop-in

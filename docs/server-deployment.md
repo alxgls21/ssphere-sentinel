@@ -173,6 +173,12 @@ Migrations run automatically when the new `web` container starts. To roll
 back, check out the previous tag and restore the backup taken before the
 upgrade: migrations are not guaranteed to be reversible.
 
+**After upgrading to the release that adds the console's server and container
+views**, servers and network targets have no site yet, so only users who may
+see all customers can see them. In the admin, filter *Servers* and *Network
+targets* by *Site: Empty* and set each one's site from the list; restricted
+console users see a server as soon as it has a site they are granted.
+
 ### Database migrations
 
 Applied automatically at container start. To inspect or run them by hand:
@@ -227,7 +233,17 @@ README):
 ```bash
 docker compose exec -T web python manage.py purge_network_measurements
 docker compose exec -T web python manage.py purge_absent_docker_containers
+docker compose exec -T web python manage.py purge_snmp_data
+docker compose exec -T web python manage.py purge_telemetry_samples
+docker compose exec -T web python manage.py clearsessions
 ```
+
+`clearsessions` removes expired web sessions (every console sign-in creates one).
+If the server is on the internet, rate-limit `POST /api/v1/console/auth/login/`
+in the front end (Cloudflare rate limiting rules or WAF) and do not exempt
+`/api/v1/console/` from the protections you apply to `/admin/`: the in-app
+sign-in throttle limits password guessing per account, not the load a flood of
+attempts puts on the server.
 
 ### Resources
 

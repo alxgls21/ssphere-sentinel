@@ -23,6 +23,19 @@ class Server(models.Model):
     description = models.TextField(blank=True)
     operating_system = models.CharField(max_length=255, blank=True)
     ip_address = models.GenericIPAddressField(null=True, blank=True)
+    # The site the server belongs to: what the console's customer/site access
+    # is checked against. A server without a site is visible only to console
+    # users who may see every customer (apps.console.access), so existing and
+    # newly enrolled servers stay private until someone assigns them. PROTECT:
+    # a site that still has servers cannot be deleted by accident. A string
+    # reference, because apps.inventory imports this module (through agents).
+    site = models.ForeignKey(
+        "inventory.Site",
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="servers",
+    )
     status = models.CharField(
         max_length=16,
         choices=Status.choices,
@@ -85,6 +98,44 @@ class ServerTelemetry(models.Model):
 
     def __str__(self) -> str:
         return f"Telemetry for {self.server.name}"
+
+
+class ServerTelemetrySample(models.Model):
+    """One point of a server's CPU, memory and disk history (the charts).
+
+    ``ServerTelemetry`` stays the latest snapshot; this table is the bounded
+    history behind it. ``sampled_at`` is the agent's ``collected_at`` floored to
+    ``SENTINEL_TELEMETRY_SAMPLE_SECONDS``, and the primary key is ``(server,
+    sampled_at)``: a duplicate heartbeat, or a second heartbeat within the same
+    slot, finds its slot taken and is dropped by ``ON CONFLICT DO NOTHING``, so
+    the write rate and the table size are bounded per server however often
+    agents report. The key is also the only index a chart query needs; one more
+    on ``sampled_at`` serves the purge. Rows go with their server (CASCADE) and,
+    after ``SENTINEL_TELEMETRY_RETENTION_DAYS``, with ``purge_telemetry_samples``.
+    """
+
+    pk = models.CompositePrimaryKey("server_id", "sampled_at")
+    # Covered by the primary key.
+    server = models.ForeignKey(
+        Server,
+        on_delete=models.CASCADE,
+        related_name="telemetry_samples",
+        db_index=False,
+    )
+    sampled_at = models.DateTimeField()
+    cpu_percent = models.FloatField()
+    memory_percent = models.FloatField()
+    disk_percent = models.FloatField()
+
+    class Meta:
+        verbose_name = "server telemetry sample"
+        verbose_name_plural = "server telemetry samples"
+        indexes = [
+            models.Index(fields=["sampled_at"], name="telemetry_sample_time_idx"),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.server_id} @ {self.sampled_at.isoformat()}"
 
 
 class DockerHostState(models.Model):

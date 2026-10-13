@@ -1,0 +1,16 @@
+{
+  "apiVersion": 1,
+  "serverTime": "<iso-utc>",
+  "authenticated": true,
+  "reason": null,
+  "csrfToken": "<token>",
+  "user": {"username": "alice", "displayName": "Alice Example"},
+  "access": {"allCustomers": false},
+  "thresholds": {
+    "resourceWarnPercent": 80,
+    "resourceCritPercent": 95,
+    "probeLossWarnPercent": 2,
+    "probeLatencyWarnMs": 150,
+    "targetCritFailures": 3
+  }
+}

@@ -81,15 +81,25 @@ class ServerAdmin(admin.ModelAdmin):
         "hostname",
         "ip_address",
         "operating_system",
+        "site",
         "status",
         "effective_status",
         "docker_status",
         "last_seen_at",
         "updated_at",
     )
-    list_filter = ("status", "operating_system")
-    list_select_related = ("docker_host",)
-    search_fields = ("name", "hostname", "ip_address", "description")
+    list_filter = (
+        "status",
+        "operating_system",
+        "site__customer",
+        # Servers nobody can see in the console yet: Empty = no site.
+        ("site", admin.EmptyFieldListFilter),
+    )
+    list_select_related = ("docker_host", "site__customer")
+    search_fields = ("name", "hostname", "ip_address", "description", "site__name", "site__customer__name")
+    autocomplete_fields = ("site",)
+    # Place many servers at once (filter on "Site: Empty", pick a site per row, Save).
+    list_editable = ("site",)
     readonly_fields = ("id", "effective_status", "created_at", "updated_at")
     ordering = ("name",)
     inlines = (ServerTelemetryInline, DockerHostStateInline, DockerContainerInline)
@@ -105,6 +115,16 @@ class ServerAdmin(admin.ModelAdmin):
                     "operating_system",
                     "ip_address",
                 )
+            },
+        ),
+        (
+            "Placement",
+            {
+                "fields": ("site",),
+                "description": (
+                    "The site decides who sees this server in the console. A server "
+                    "without a site is visible only to users who may see all customers."
+                ),
             },
         ),
         (

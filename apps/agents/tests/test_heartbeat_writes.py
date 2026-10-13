@@ -69,6 +69,10 @@ class HeartbeatWriteTests(TestCase):
         self.assertEqual(
             table_statements(captured, "infrastructure_servertelemetry"), ["UPDATE"]
         )
+        # The history costs one INSERT ... ON CONFLICT DO NOTHING and reads nothing.
+        self.assertEqual(
+            table_statements(captured, "infrastructure_servertelemetrysample"), ["INSERT"]
+        )
         self.assertEqual(ServerTelemetry.objects.get().cpu_percent, 20.0)
 
     def test_first_telemetry_creates_the_snapshot(self):

@@ -13,6 +13,7 @@ _TARGET_FIELDS = (
     "port",
     "enabled",
     "assigned_agent",
+    "site",
 )
 _SHARED_FIELDSETS = (
     (
@@ -49,20 +50,33 @@ class NetworkTargetAdmin(admin.ModelAdmin):
         "port",
         "enabled",
         "assigned_agent",
+        "site",
         "customer_name",
         "latest_latency_ms",
         "latest_packet_loss",
         "latest_availability",
         "last_measured_at",
     )
-    list_filter = ("enabled", "protocol", ("assigned_agent", AgentListFilter))
-    list_select_related = ("assigned_agent__server",)
+    list_filter = (
+        "enabled",
+        "protocol",
+        ("assigned_agent", AgentListFilter),
+        "site__customer",
+        # Targets nobody can see in the console yet: Empty = no site.
+        ("site", admin.EmptyFieldListFilter),
+    )
+    list_select_related = ("assigned_agent__server", "site__customer")
     search_fields = (
         "name",
         "hostname_or_ip",
         "customer_name",
         "circuit_identifier",
+        "site__name",
+        "site__customer__name",
     )
+    autocomplete_fields = ("site",)
+    # Place many targets at once (filter on "Site: Empty", pick a site per row, Save).
+    list_editable = ("site",)
     raw_id_fields = ("assigned_agent",)
     # The UUID is generated on create (it is not an editable model field) and
     # shown read-only afterwards for use in the agent-local targets file.

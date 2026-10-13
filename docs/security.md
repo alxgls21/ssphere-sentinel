@@ -61,6 +61,92 @@ They return no configuration, version, host or error details.
   token; `ping` runs with a minimal environment that does not include it.
 - Unknown, disabled and malformed credentials all get the same `401`.
 
+## Console authentication and access control
+
+The web console reads data through `/api/v1/console/`. It shares nothing with
+the agent API: agents authenticate with bearer tokens (`apps/agents`), the
+console with Django sessions (`apps/console`), and neither accepts the other's
+credential. The console never reads the `Authorization` header, an agent token
+does not sign anyone in, and a console session is not accepted by the heartbeat
+endpoint (tests cover both directions). The console only reads: the only
+`POST`s are sign-in and sign-out.
+
+- **Deny by default.** A user needs the permission *Can sign in to the
+  monitoring console* (`console.use_console`, in the default groups *Console
+  viewers …*). Without `view_all_customers` they see only the customers and
+  sites granted to them (**Console → Customer access** / **Site access**). An
+  object that belongs to no site is visible only to `view_all_customers` users
+  and superusers. Servers and network targets have a nullable `site`; the
+  migration that added it left every existing row without one, so they are
+  hidden from restricted users until an administrator assigns a site (the
+  free-text `customer_name` of a network target is display text and never
+  grants access). In the admin, anyone who may view servers or network targets
+  also sees the names of their customers and sites (list column, filter
+  sidebar, form): delegate those permissions only to operators who may see
+  every customer.
+- **Isolation is part of the database query.** Every console queryset is
+  filtered through `apps/console/access.py`: the user's visible sites are read
+  from the grants once per request (a small query on the site table) and the
+  data query is restricted with `WHERE site_id IN (<those sites>)` (a subquery
+  instead of a list for users who see more than 2000 sites; a user who sees no
+  site never queries the data table). Rows a user may not see are never
+  selected, counted or serialized. A requested `customer` or `site` that is not visible is answered
+  exactly like one that does not exist (404), so ids cannot be probed. Grants
+  are read at every request, so revoking one applies immediately.
+- **Sessions.** Server-side Django sessions in an HttpOnly, `SameSite=Lax`
+  cookie (Secure unless `DJANGO_DEBUG`). Only a session created by the
+  console's own sign-in is a console session: it carries a marker with the
+  sign-in time, and a session from anywhere else (the admin login, with its
+  14-day default lifetime and no throttle) is anonymous to the console. The
+  session starts empty and gets a new id at sign-in; it ends after
+  `SENTINEL_CONSOLE_SESSION_SECONDS` (12 hours by default, no sliding renewal;
+  the console also checks the marker's age, so a longer-lived cookie cannot
+  extend it); changing the password ends every session of that user. Expired
+  sessions stay in the database until `manage.py clearsessions` runs (schedule
+  it with the other cleanup jobs, see the README). `POST`s require the CSRF
+  token that `/session/` returns. Responses are `Cache-Control: no-store` and
+  `Vary: Cookie`. Errors raised in a console view, including unexpected
+  exceptions, are JSON without internal details (a hidden or unknown object is
+  404, not 500); the few responses Django's middleware produces before a view
+  runs (a rejected `Host` header, an HTTPS redirect) are Django's own.
+- **Sign-in throttling.** Failed sign-ins are counted per account (5 by
+  default, then a 15 minute lock), *before* the password is checked, so
+  parallel guesses cannot exceed the limit. Names that do not exist share a
+  fixed set of buckets, so the table cannot be filled with random names. A
+  locked account is **not** answered differently: its password is hashed (the
+  same work as for an unknown name) but never compared with the stored hash,
+  which could be timed, and a wrong password, an unknown user, an inactive account, an
+  account without console access and a locked account all get the same `401`
+  with the same text and, as far as it can be controlled, the same timing.
+  Anything else (a `429`, a quicker reply) would reveal which names exist,
+  since locked buckets of unknown names are shared. The price: a locked user
+  sees the ordinary failure message (it also mentions the lock) and, because
+  every attempt still costs a password hash, the throttle limits guessing but
+  not the server's CPU: use front-end rate limiting. Logs identify accounts by
+  id, never by the name or the password that was typed; text that cannot be a
+  name or password (NUL characters, invalid UTF-8) is a `400` that is not
+  counted.
+- **Nothing sensitive is returned**: no password hashes, agent tokens, SNMP
+  credential profiles or settings; the session payload has the user name,
+  display name and the access flags only. The server and container endpoints
+  read an explicit list of columns, never whole model rows, so an agent's token
+  hash is never even loaded (the agent's version is the one agent column read).
+- **Lists are bounded.** Every list is paginated by the server (at most 200
+  rows a page, and a page number cap), accepts only the documented parameters,
+  and rejects anything else with a `400` that does not repeat the input.
+  Counts and totals describe only what the user may see.
+
+Whoever can edit *Customer access*, *Site access*, a user's permissions or
+groups, or a group's permissions in the admin can give any account (their own
+included) access to any customer: treat those permissions as "may see
+everything". Operational notes:
+create console users in the admin (they need no staff access); the throttle is per account because the client address is not
+trustworthy behind a proxy (see above), so it cannot be bypassed by rotating
+addresses but can be used to lock a known account out for the lockout period
+(unlock it under **Console → Login throttles**). Put the console behind the same
+front-end protections as the admin (Cloudflare Access or WAF rate limiting) if
+it is exposed to the internet.
+
 ## Server hardening
 
 - Container runs as UID 10001 with a read-only root filesystem, no Linux
@@ -157,6 +243,8 @@ account to the `docker` group.
 
 ## Known limitations
 
+- Console accounts have passwords only: no second factor, and no audit log of
+  what a console user read. Lock-outs are per account (see above).
 - Agent tokens are bearer tokens: anyone who obtains one can send data as
   that agent until it is rotated. There is no mutual TLS or request signing,
   and no automatic token expiry.
