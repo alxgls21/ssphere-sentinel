@@ -22,6 +22,11 @@ def delete_in_batches(queryset: QuerySet, *, batch_size: int) -> tuple[int, int]
     The keys are fetched first because PostgreSQL may plan
     ``DELETE ... WHERE pk IN (SELECT ... LIMIT n)`` as a full table scan.
     Returns ``(rows_deleted, batches)``.
+
+    The rows are deleted by primary key, without looking at them again: use it
+    for rows nothing else changes after they were selected (measurements,
+    samples). Rows a concurrent writer may update or revive need their own
+    revalidation under a lock (``purge_absent_docker_containers``).
     """
     if batch_size <= 0:
         raise ValueError("batch_size must be positive")
