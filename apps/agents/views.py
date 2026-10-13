@@ -70,8 +70,11 @@ def agent_heartbeat(request):
     if "docker" in payload:
         try:
             docker_report = validate_docker_payload(payload["docker"])
-            apply_docker_report(agent.server, docker_report)
-            response["docker"] = "accepted"
+            if apply_docker_report(agent.server, docker_report):
+                response["docker"] = "accepted"
+            else:
+                response["docker"] = "rejected"
+                response["docker_detail"] = "report is not newer than the inventory already stored"
         except DockerValidationError as exc:
             response["docker"] = "rejected"
             response["docker_detail"] = str(exc)

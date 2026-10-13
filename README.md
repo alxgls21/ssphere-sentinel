@@ -478,7 +478,40 @@ Server storage is **latest-state only** (`DockerHostState` + `DockerContainer`):
   the time its row last changed.)
 - Reports for the same server are serialized with a row lock on its
   `DockerHostState`, so concurrent heartbeats cannot interleave container
-  updates; the last report to commit wins.
+  updates.
+
+**Ordering.** Heartbeats can overlap, so reports can arrive out of order. Under
+that lock each report is compared with the one last applied, by the agent's
+`collected_at` (kept in `DockerHostState.collected_at`): only a **newer** report
+is applied. An older one, or one with the same `collected_at` (a duplicate), is
+answered `"docker": "rejected"` with `docker_detail` `report is not newer than
+the inventory already stored` (the heartbeat itself, liveness and the other
+sections are unaffected) and changes nothing: no container, no host state, and
+neither `received_at` nor `last_discovered_at`, so a report that was not applied
+can neither refresh how current the inventory looks in the console nor make a
+container eligible for the absent-container cleanup. A newer snapshot that no
+longer lists a container still marks it absent.
+
+**Clock rolled back.** An agent whose clock stepped back stamps its reports
+"older" than the stored one. The stored inventory gives way to such a report
+when both hold, judged on the server's clock when the report is received: no
+report has been applied for more than five minutes (so it is not just a late
+one: a late report normally arrives within seconds of the newer one it lost the
+race to; the agent's 10 s and Gunicorn's 30 s timeouts do not strictly bound
+delivery, for example through a proxy, so five minutes is a margin and not a
+guarantee), and the report is plausible, that is collected
+within five minutes of that moment (the same allowance for clock skew that
+every agent timestamp already gets in the future direction, and the time after
+which a telemetry snapshot gives way). Then the agent's own timeline takes
+over and reports are ordered by it again. Limits: a timestamp alone cannot tell
+a clock that stepped back from a replayed report, so a rollback that leaves the
+agent's clock more than five minutes behind the server is **not** recovered by
+time: the inventory resumes once that clock catches up with the stored time, or
+when the server's Docker host state is deleted in the admin (the next report is
+then the first). Equally, a replay that is plausible and arrives after five
+minutes of silence is accepted. During such a freeze the agent logs
+`Sentinel rejected docker: ...` and the console shows the host's containers as
+`unknown`, because the inventory is no longer refreshed.
 
 Long-absent containers are removed by a cleanup command (see
 [Data retention and history](#data-retention-and-history)).
