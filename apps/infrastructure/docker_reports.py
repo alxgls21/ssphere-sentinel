@@ -1,4 +1,38 @@
-"""Validate and apply Docker discovery reports from agents."""
+"""Validate and apply Docker discovery reports from agents.
+
+Ordering. Heartbeats of one agent can overlap (a slow request, two workers), so
+reports reach the server out of order. ``DockerHostState.collected_at`` is the
+authority: it holds the ``collected_at`` of the last report applied, and every
+report is compared with it under the lock of the host row. A report is applied
+only if it is **newer**; an older one, or one with the same ``collected_at`` (a
+duplicate), changes nothing: no container, no host state, and no timestamp that
+says how fresh the inventory is (``received_at``, ``last_discovered_at``, and
+with them the console's freshness and the retention of absent containers).
+
+Recovery. An agent whose clock stepped back stamps its reports "older" than the
+stored one, which would freeze the inventory until the clock catches up. An
+older report is therefore applied anyway when both hold, judged on the server's
+clock at the time it is received:
+
+* no report has been applied for longer than ``RECOVERY_AFTER``, so it is not
+  merely a late one (a late report normally arrives within seconds of the newer
+  one it lost the race to; the agent's 10 s and Gunicorn's 30 s timeouts do not
+  strictly bound delivery, for example through a proxy, so the window is a
+  margin and not a guarantee); and
+* the report is plausible: collected within ``PLAUSIBLE_SKEW`` of that moment,
+  the same allowance the validators give an agent's clock ahead of the server.
+  An old report delivered late, or replayed, is not.
+
+Both are ``MAX_FUTURE_SKEW``, like the recovery of the telemetry snapshot.
+
+The limit is the timestamp itself: it cannot tell a clock that stepped back
+from a replayed report. A rollback that leaves the agent's clock more than
+``PLAUSIBLE_SKEW`` behind the server is indistinguishable from a replay and is
+not recovered; the inventory then resumes when the clock catches up with the
+stored time (or when the server's Docker host state is deleted in the admin,
+which makes the next report the first). A replay that is both within the window
+and arrives after ``RECOVERY_AFTER`` of silence is accepted.
+"""
 
 from __future__ import annotations
 
@@ -11,7 +45,7 @@ from django.db.models import F, Value
 from django.db.models.functions import Greatest
 from django.utils import timezone
 
-from apps.core.validation import parse_timestamp
+from apps.core.validation import MAX_FUTURE_SKEW, parse_timestamp
 from apps.infrastructure.models import DockerContainer, DockerHostState, Server
 
 SUPPORTED_DOCKER_VERSION = 1
@@ -19,6 +53,10 @@ MAX_CONTAINERS_PER_REPORT = 1000
 MAX_CONTAINER_ID_LENGTH = 64
 MAX_NAME_LENGTH = 255
 MAX_IMAGE_LENGTH = 512
+
+# See the module docstring: both bound the recovery of an agent whose clock stepped back.
+RECOVERY_AFTER = MAX_FUTURE_SKEW
+PLAUSIBLE_SKEW = MAX_FUTURE_SKEW
 
 ALLOWED_HOST_STATUSES = frozenset(DockerHostState.Status.values)
 ALLOWED_STATES = frozenset(DockerContainer.State.values)
@@ -117,11 +155,14 @@ def apply_docker_report(
     report: ValidatedDockerReport,
     *,
     received_at: datetime | None = None,
-) -> None:
+) -> bool:
     """Persist host state; sync containers only for authoritative discoveries.
 
     Reports for one server are serialized by locking its ``DockerHostState``
-    row, so concurrent heartbeats cannot interleave container changes.
+    row, so concurrent heartbeats cannot interleave container changes. The
+    report is then compared with the state it finds under that lock (see the
+    module docstring): ``True`` if it was applied, ``False`` if it was not
+    newer than the inventory and nothing was written.
     """
     received = received_at if received_at is not None else timezone.now()
     host_values = {
@@ -130,7 +171,9 @@ def apply_docker_report(
         "collected_at": report.collected_at,
         "received_at": received,
     }
-    host = _lock_host_state(server, host_values)
+    host, created = _lock_host_state(server, host_values)
+    if not created and not _supersedes(host, report, received):
+        return False
 
     if report.authoritative:
         _sync_containers(
@@ -145,16 +188,33 @@ def apply_docker_report(
     for field, value in host_values.items():
         setattr(host, field, value)
     host.save(update_fields=list(host_values))
+    return True
 
 
-def _lock_host_state(server: Server, values: dict[str, Any]) -> DockerHostState:
+def _supersedes(host: DockerHostState, report: ValidatedDockerReport, received: datetime) -> bool:
+    """May ``report`` replace the inventory described by the (locked) ``host``?"""
+    if report.collected_at > host.collected_at:
+        return True
+    if report.collected_at == host.collected_at:
+        return False  # a duplicate, whenever it arrives
+    # Older than what is stored: only a clock that stepped back is let through.
+    return (
+        received - host.received_at > RECOVERY_AFTER
+        and abs(received - report.collected_at) <= PLAUSIBLE_SKEW
+    )
+
+
+def _lock_host_state(server: Server, values: dict[str, Any]) -> tuple[DockerHostState, bool]:
+    """The locked host row of ``server`` and whether this call created it (with the values of the report)."""
     locked = DockerHostState.objects.select_for_update().filter(server=server)
     host = locked.first()
-    if host is None:
-        # get_or_create absorbs a concurrent first report for the same server.
-        DockerHostState.objects.get_or_create(server=server, defaults=values)
-        host = locked.get()
-    return host
+    if host is not None:
+        return host, False
+    # get_or_create absorbs a concurrent first report for the same server.
+    host, created = DockerHostState.objects.get_or_create(server=server, defaults=values)
+    if created:
+        return host, True  # inserted by this transaction, so locked by it
+    return locked.get(), False
 
 
 _SYNCED_CONTAINER_FIELDS = (
