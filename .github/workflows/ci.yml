@@ -80,7 +80,13 @@ jobs:
           done
       - name: Install the server
         run: python -m pip install -e . "Django==${{ matrix.django }}.*"
-      - name: Install the agent and the SNMP simulator (end-to-end tests)
+      # Some server tests run the real agent against the live test server. The
+      # agent is its own distribution (it brings psutil, which the server does
+      # not use), so it is part of every cell's test environment, as in the
+      # development setup of the README, but not of the server's dependencies.
+      - name: Install the agent (server tests run it against the live server)
+        run: python -m pip install ./agent
+      - name: Install the agent's SNMP extra and the SNMP simulator (end-to-end tests)
         if: matrix.primary
         run: python -m pip install "./agent[snmp]" snmpsim pysmi
       - name: Installed versions
