@@ -223,7 +223,8 @@ Then open:
 ### Running tests
 
 ```bash
-# Django apps
+# Django apps (some of these tests run the agent against the live test
+# server, so the agent must be installed too: pip install -e ./agent)
 python manage.py test apps
 
 # Standalone agent (no live Sentinel server required)
