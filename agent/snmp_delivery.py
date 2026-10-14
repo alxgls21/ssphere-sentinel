@@ -9,6 +9,16 @@ responses, a rejected section) leave every row untouched and pause SNMP
 batches with exponential backoff; heartbeats continue without an ``snmp``
 section meanwhile, so a failing SNMP section never delays telemetry, Docker or
 network data. Item-level outcomes are applied per poll.
+
+Size. A batch is the longest run of due polls, in queue order, that keeps the
+request within ``MAX_REQUEST_BYTES`` and the ``snmp`` section within
+``MAX_REPORT_BYTES``, both measured in the bytes that are sent. That is exact,
+not an estimate: serialized JSON is the sum of its parts, so the polls add
+their own sizes and a ``", "`` between two of them to the size of the request
+without them. A poll that does not fit next to the other sections of the
+heartbeat makes the batch ``deferred``: the heartbeat then sends it in a request
+of its own. One that cannot fit even there can never be sent: it is removed
+from the queue, with an error in the log, and the polls behind it go on.
 """
 
 from __future__ import annotations
@@ -21,6 +31,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from agent.acknowledgement import SNMP, Acknowledgement, parse_acknowledgement
+from agent.http_client import MAX_REQUEST_BYTES, encoded_size, size_with_member
 from agent.measurement_queue import MeasurementQueue, QueueError
 from agent.network_delivery import (
     BATCH_BACKOFF_BASE_SECONDS,
@@ -36,10 +47,34 @@ from agent.snmp_payload import (
 
 logger = logging.getLogger("sentinel_agent")
 
+# ", " between two polls of a request.
+POLL_SEPARATOR_BYTES = 2
+
+
+def empty_section() -> dict[str, Any]:
+    return {"version": SNMP_PAYLOAD_VERSION, "polls": []}
+
+
+EMPTY_SECTION_BYTES = encoded_size(empty_section())
+
+
+def request_size_with_empty_section(size: int, has_members: bool) -> int:
+    """The size of a request of ``size`` bytes (``has_members`` unless it is ``{}``) once it gets an
+    empty ``snmp`` section: what the polls of a batch join. Only a request that will carry polls
+    has this section; the size of one that will not is its own."""
+    return size_with_member(size, has_members, "snmp", EMPTY_SECTION_BYTES)
+
+
+# The request that carries nothing but the section of a batch.
+SNMP_ONLY_REQUEST_BYTES = request_size_with_empty_section(2, False)
+
 
 @dataclass(frozen=True)
 class SnmpBatch:
     polls: tuple[dict[str, Any], ...] = ()
+    # The first due poll fits a request of its own but not the one being built:
+    # it has to go in a separate request.
+    deferred: bool = False
 
     @property
     def ids(self) -> list[str]:
@@ -67,11 +102,17 @@ class SnmpDelivery:
         with self._lock:
             return max(0.0, self._backoff_until - self._time_fn())
 
-    def prepare_batch(self) -> SnmpBatch:
+    def prepare_batch(self, request_bytes: int = SNMP_ONLY_REQUEST_BYTES) -> SnmpBatch:
+        """The polls to send now. ``request_bytes`` is the size of the request they would join, with
+        the empty section they bring (``request_size_with_empty_section``); the default is a request
+        of their own.
+        """
         if self.backoff_remaining > 0:
             return SnmpBatch()
         try:
             self.queue.purge_expired_snmp()
+            # The queue's byte cap counts stored bytes, never more than the bytes sent: it only
+            # limits how much is loaded, and the fit below decides.
             polls = self.queue.pending_snmp_batch(
                 max_polls=MAX_POLLS_PER_REPORT,
                 max_interfaces=MAX_INTERFACES_PER_REPORT,
@@ -80,7 +121,42 @@ class SnmpDelivery:
         except QueueError as exc:
             logger.warning("SNMP queue unavailable for delivery: %s", exc)
             return SnmpBatch()
-        return SnmpBatch(tuple(polls))
+        return self._fit(polls, request_bytes)
+
+    def _fit(self, polls: list[dict[str, Any]], request_bytes: int) -> SnmpBatch:
+        selected: list[dict[str, Any]] = []
+        added = 0  # what the selected polls add to the request
+        deferred = False
+        for poll in polls:
+            size = encoded_size(poll)
+            if SNMP_ONLY_REQUEST_BYTES + size > MAX_REQUEST_BYTES:
+                self._drop_unsendable(poll, SNMP_ONLY_REQUEST_BYTES + size)
+                continue
+            grown = added + size + (POLL_SEPARATOR_BYTES if selected else 0)
+            if request_bytes + grown > MAX_REQUEST_BYTES:
+                deferred = not selected
+                break
+            if selected and EMPTY_SECTION_BYTES + grown > MAX_REPORT_BYTES:
+                break
+            selected.append(poll)
+            added = grown
+        return SnmpBatch(tuple(selected), deferred)
+
+    def _drop_unsendable(self, poll: dict[str, Any], request_size: int) -> None:
+        """Remove a poll that no request can carry; it would otherwise block every poll behind it."""
+        poll_id = str(poll.get("poll_id"))
+        logger.error(
+            "SNMP poll %s of device %s cannot be sent and is removed from the queue: the smallest "
+            "request that could carry it is %d bytes, over the limit of %d bytes",
+            poll_id,
+            poll.get("device_id"),
+            request_size,
+            MAX_REQUEST_BYTES,
+        )
+        try:
+            self.queue.remove_snmp([poll_id])
+        except QueueError as exc:
+            logger.warning("Could not remove SNMP poll %s from the queue: %s", poll_id, exc)
 
     def record_failure(self, batch: SnmpBatch, reason: str) -> None:
         """Batch was not acknowledged (transport/HTTP error): keep everything."""

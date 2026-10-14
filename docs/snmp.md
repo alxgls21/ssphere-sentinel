@@ -376,20 +376,35 @@ whitelisted field by field. The table is additive: the schema version did not
 change, an older agent ignores it, and this agent adds it to an existing file.
 
 - A poll is sent in a heartbeat's `snmp` section: at most 50 polls, 2,000
-  interfaces and about 1 MB per report, within what the server accepts. One poll
-  is at most 768 KiB: interface names and descriptions are shortened to 128
-  characters and aliases to 64 (the IF-MIB limit), and a poll of 512 interfaces
-  with the longest text still fits.
-- It is removed from the queue only when the server acknowledges it as `created`
-  or `duplicate`, or rejects it with `retryable: false` (logged and dropped).
-  Retryable rejections (the device is not created, assigned or configured yet,
-  the clock) and polls missing from the response stay queued and are retried with
-  exponential backoff (30 s up to 10 min); a poll that the server fails to
-  acknowledge 10 times is dropped.
-- If the whole section fails (a server without SNMP support, an envelope
-  rejection, HTTP errors, a connection failure) every poll stays queued and SNMP
-  batches pause with the same backoff. Heartbeats, telemetry, Docker and network
-  delivery are not affected.
+  interfaces and 1,000,000 bytes per report, within what the server accepts. The
+  bytes are those of the section as it is sent (see [Request size](#request-size)).
+  The 1,000,000 bytes are a soft limit with one deliberate exception: the first
+  poll of a report is always taken, even if it alone is larger, so that a large
+  poll can never be held back by it; only the request limit of 2,500,000 bytes
+  applies to it, and the polls after it join only while the section stays within
+  1,000,000. One poll is at most 768 KiB in the queue: interface names and
+  descriptions are shortened to 128 characters and aliases to 64 (the IF-MIB
+  limit), and a poll of 512 interfaces whose text needs up to three bytes per
+  character still fits.
+- What happens to a queued poll depends on why it would leave, in three cases:
+  - **Removed after the server's answer.** A poll is removed when the server
+    acknowledges it as `created` or `duplicate`, or rejects it permanently with
+    `retryable: false` (logged). Retryable rejections (the device is not created,
+    assigned or configured yet, the clock) and polls missing from the response stay
+    queued and are retried with exponential backoff (30 s up to 10 min); one the
+    server fails to acknowledge 10 times is dropped, and logged.
+  - **Removed by the agent itself (terminal, and always logged).** A poll that
+    cannot fit any request (see [Request size](#request-size)), one older than
+    `SENTINEL_QUEUE_MAX_AGE_SECONDS`, and the oldest ones when the queue is full
+    (below). None of these depends on the server being reachable.
+  - **Kept after an ordinary failure.** A failed or refused request (an HTTP
+    error, a connection failure or timeout, a request refused as too large, a
+    response that does not acknowledge the section) removes nothing: every poll of
+    that request stays queued, SNMP batches pause with exponential backoff (30 s up
+    to 10 min), and no attempt is counted against the poll. Heartbeats, telemetry,
+    Docker and network delivery are not affected; the backoff belongs to the SNMP
+    section alone, and a failing network request does not delay SNMP or the other
+    way round.
 - The queue holds at most `SENTINEL_SNMP_QUEUE_MAX_POLLS` polls and
   `SENTINEL_SNMP_QUEUE_MAX_BYTES`, and nothing older than
   `SENTINEL_QUEUE_MAX_AGE_SECONDS` (default 7 days, below the server's
@@ -406,6 +421,60 @@ change, an older agent ignores it, and this agent adds it to an existing file.
   outage.
 - Heartbeats that carry no `snmp` section (an agent without SNMP, or an empty
   queue) are exactly what they were before.
+
+#### Request size
+
+A heartbeat is one JSON request carrying the telemetry, Docker, network and SNMP
+sections together. The agent keeps every request within **2,500,000 bytes**,
+counted in the bytes it sends, which is below the 2,621,440 bytes (2.5 MiB) that
+the server accepts. It counts exactly: it measures the serialization it sends,
+not the queued form. The two differ, because a non-ASCII character is a `\uXXXX`
+escape in a request (6 bytes for a Greek letter or a Chinese character, 12 for an
+emoji, against 2, 3 and 4 in the queue) and `,` and `:` are followed by a space.
+A poll with long Greek names takes up to about three times as much in a request
+as in the queue; one with ASCII names about a tenth more.
+
+- The first request carries the telemetry and the Docker report: live snapshots,
+  which are never cut down or split. What is queued joins it while it fits:
+  first the network measurements, then the SNMP polls, which take what room is
+  left (as many as fit, oldest first, up to the report limits above) and leave
+  the rest for the next heartbeat. Nothing is left out to make room for something
+  else. A queued section that does not fit next to the others goes in a request
+  of its own, right after the first has been accepted, in the same order, so
+  everything that fits a request alone is sent in every heartbeat.
+  These requests do not depend on each other: if one fails (its queue is kept and
+  its own backoff starts), the others are still attempted in the same heartbeat, and
+  the agent then reports the first failure.
+- A poll that fits a request of its own but not next to the other sections (for
+  example a very large poll next to a large Docker inventory) is sent in a second
+  request, right after the first one has been accepted, that carries only the
+  `snmp` section. The server records the liveness of the agent for it like for
+  any heartbeat and leaves everything else as it was: it applies a section only
+  when the request has it. It is not sent while SNMP batches are backing off.
+- A poll that cannot fit even a request of its own (it would need more than
+  2,500,000 bytes) can never be sent. It is removed from the queue, the agent
+  logs `SNMP poll <id> of device <id> cannot be sent and is removed from the
+  queue` as an error, with the size of the smallest request that could carry it
+  and the limit, and the polls behind it go on. A poll produced by the collector
+  stays well below that (the largest possible is about 2.1 MB), so this takes an
+  entry that did not come from a device poll, or an older agent's queue.
+- A section that does not fit a request even alone cannot be sent. The only one
+  that can in practice is a Docker report (thousands of containers; the server
+  accepts 1,000): it is left out of the heartbeat whole, never truncated (a partial
+  snapshot would mark the containers it no longer lists as absent), and the agent
+  logs `The Docker report cannot be sent` as an error at every heartbeat, while the
+  rest of the heartbeat goes on. The inventory is not touched on the server; its
+  containers read `unknown` once it is older than `SENTINEL_OFFLINE_THRESHOLD`, and
+  it is current again with the first report that fits (see
+  [agent-deployment.md](agent-deployment.md#docker-reports-too-large-for-a-heartbeat)).
+  A telemetry or network section that cannot fit fails the heartbeat before
+  anything is sent, with the sizes of the sections in the error, and touches
+  nothing that is queued.
+- When the server (or a reverse proxy in front of it) still refuses a request as
+  too large, the agent logs `HTTP 413 (request body N bytes)` or `HTTP 400 (request
+  body N bytes)` and keeps every poll. A proxy that accepts less than the agent
+  sends has to be configured: see
+  [server-deployment.md](server-deployment.md#request-body-size).
 
 ### Resources
 
@@ -588,7 +657,8 @@ Bandwidth utilization is not stored: it is `delta × 8 ÷ interval_seconds ÷ sp
 
 At most 50 polls and 2,000 interfaces per report; 512 interfaces per poll. A
 larger report is rejected as a whole; a single invalid poll is rejected on its
-own. A poll with any invalid interface value is rejected as a whole (the reason
+own. A request body is limited by Django's `DATA_UPLOAD_MAX_MEMORY_SIZE`, 2,621,440
+bytes; an agent sends at most 2,500,000 (see [Request size](#request-size)). A poll with any invalid interface value is rejected as a whole (the reason
 names the interface), so the collector should send `null` rather than an
 out-of-range value.
 

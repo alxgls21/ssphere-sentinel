@@ -10,10 +10,10 @@ from typing import Any
 
 from agent.config import Config, uses_insecure_http
 from agent.docker_discovery import collect_docker
-from agent.errors import HeartbeatError
-from agent.http_client import post_json
+from agent.errors import HeartbeatError, RequestTooLargeError
+from agent.http_client import MAX_REQUEST_BYTES, encoded_size, post_json, size_with_member
 from agent.network_delivery import DeliveryBatch, NetworkDelivery
-from agent.snmp_delivery import SnmpBatch, SnmpDelivery
+from agent.snmp_delivery import SnmpBatch, SnmpDelivery, request_size_with_empty_section
 from agent.telemetry import collect_telemetry
 
 logger = logging.getLogger("sentinel_agent")
@@ -94,6 +94,24 @@ def send_heartbeat(
     persistent queue (``network_fn`` is ignored) and queued measurements are
     removed only according to the server's explicit acknowledgement.
     ``snmp_delivery`` does the same for the ``snmp`` section.
+
+    Size. No request is ever larger than ``MAX_REQUEST_BYTES``, in the bytes
+    that are sent, and none is sent that would be. The telemetry and the Docker
+    report (live snapshots, which are never cut down) make the first request.
+    What is queued, the network batch and then the SNMP polls, joins it while
+    it fits and otherwise goes in a request of its own, right after the first
+    has been accepted: nothing is dropped to make room for something else, and
+    whatever fits a request alone is sent in every heartbeat. The requests of
+    their own do not depend on each other: if one fails (its batch keeps its
+    queue and its own backoff) the others are still attempted, and the first
+    failure is raised at the end. A request of its own carries only its section (the server applies a section only when the
+    request has it) and the liveness every heartbeat carries.
+
+    Only what fits a request even alone can be sent. A Docker report that does
+    not (with the telemetry) is left out of the heartbeat, in the log as an
+    error: the rest goes on. A telemetry or network section that does not fit
+    fails the heartbeat before anything is sent (``RequestTooLargeError``), and
+    nothing queued is touched.
     """
     if uses_insecure_http(config):
         _warn_insecure_http(config.sentinel_url)
@@ -103,19 +121,152 @@ def send_heartbeat(
         batch = network_delivery.prepare_batch()
         network_fn = batch.section
 
-    snmp_batch = SnmpBatch()
-    snmp_fn = None
-    if snmp_delivery is not None:
-        snmp_batch = snmp_delivery.prepare_batch()
-        snmp_fn = snmp_batch.section
-
-    headers = {"Authorization": f"Bearer {config.agent_token}"}
     payload = build_heartbeat_payload(
         collect_fn=collect_fn,
         docker_fn=docker_fn,
         network_fn=network_fn,
-        snmp_fn=snmp_fn,
     )
+    network = payload.pop("network", None)
+    main, size = _fit_snapshots(payload)
+
+    network_alone = False
+    if network is not None:
+        network_size = encoded_size(network)
+        joined = size_with_member(size, bool(main), "network", network_size)
+        if joined <= MAX_REQUEST_BYTES:
+            main["network"] = network
+            size = joined
+        else:
+            _require_to_fit_alone("network", network_size)
+            network_alone = True
+            logger.warning(
+                "The network measurements (%d bytes) do not fit next to the telemetry and the Docker "
+                "report (%d bytes) in a request of at most %d bytes: they are sent in a request of their own",
+                network_size,
+                size,
+                MAX_REQUEST_BYTES,
+            )
+
+    snmp_batch = SnmpBatch()
+    if snmp_delivery is not None:
+        snmp_batch = snmp_delivery.prepare_batch(request_size_with_empty_section(size, bool(main)))
+        if snmp_batch.polls:
+            main["snmp"] = snmp_batch.section()
+
+    _exchange(
+        config,
+        main,
+        timeout=timeout,
+        network_delivery=network_delivery,
+        network_batch=DeliveryBatch() if network_alone else batch,
+        snmp_delivery=snmp_delivery,
+        snmp_batch=snmp_batch,
+    )
+
+    # The requests of their own are independent: each one keeps its own queue and its own backoff,
+    # so one that fails must not stop the others. All are attempted, then the first failure is raised.
+    failures: list[Exception] = []
+    if network_alone:
+        _attempt(
+            failures,
+            config,
+            {"network": network},
+            timeout=timeout,
+            network_delivery=network_delivery,
+            network_batch=batch,
+            snmp_delivery=None,
+            snmp_batch=SnmpBatch(),
+        )
+
+    if snmp_delivery is not None and snmp_batch.deferred:
+        alone = snmp_delivery.prepare_batch()
+        if alone.polls:
+            logger.info(
+                "The SNMP polls do not fit next to the other sections of the heartbeat (%d bytes of "
+                "at most %d): %d of them are sent in a request of their own",
+                size,
+                MAX_REQUEST_BYTES,
+                len(alone.polls),
+            )
+            _attempt(
+                failures,
+                config,
+                {"snmp": alone.section()},
+                timeout=timeout,
+                network_delivery=None,
+                network_batch=DeliveryBatch(),
+                snmp_delivery=snmp_delivery,
+                snmp_batch=alone,
+            )
+
+    if failures:
+        for other in failures[1:]:
+            logger.warning("Another request of this heartbeat failed too: %s", other)
+        raise failures[0]
+
+
+def _attempt(failures: list[Exception], *args: Any, **kwargs: Any) -> None:
+    """``_exchange`` for a request that does not stop the ones after it: a failure is kept, not raised."""
+    try:
+        _exchange(*args, **kwargs)
+    except Exception as exc:  # noqa: BLE001 - raised by send_heartbeat once every request was tried
+        failures.append(exc)
+
+
+def _fit_snapshots(payload: dict[str, Any]) -> tuple[dict[str, Any], int]:
+    """The telemetry and the Docker report as the first request, and its exact size.
+
+    Within the limit they are sent as they are. Otherwise the Docker report is the only part
+    that can be at fault (telemetry is a few hundred bytes): if the request fits without it, the
+    report is left out, whole, because a snapshot cut down would mark the containers it no
+    longer lists as absent. If it does not fit without it either, nothing can be sent.
+    """
+    size = encoded_size(payload)
+    if size <= MAX_REQUEST_BYTES:
+        return payload, size
+
+    if "docker" in payload:
+        without = {key: value for key, value in payload.items() if key != "docker"}
+        without_size = encoded_size(without)
+        if without_size <= MAX_REQUEST_BYTES:
+            logger.error(
+                "The Docker report cannot be sent: with the telemetry it makes a heartbeat of %d bytes, "
+                "over the limit of %d bytes, and a report is never cut down. It is left out of this "
+                "heartbeat, so the console shows this host's containers as unknown until it fits again "
+                "(fewer containers, shorter names)",
+                size,
+                MAX_REQUEST_BYTES,
+            )
+            return without, without_size
+
+    sections = ", ".join(f"{name}={encoded_size(value)}" for name, value in payload.items())
+    raise RequestTooLargeError(
+        f"the heartbeat is {size} bytes ({sections}), over the limit of {MAX_REQUEST_BYTES} bytes "
+        "even without the Docker report; nothing was sent"
+    )
+
+
+def _require_to_fit_alone(name: str, section_size: int) -> None:
+    alone = size_with_member(2, False, name, section_size)
+    if alone > MAX_REQUEST_BYTES:
+        raise RequestTooLargeError(
+            f"the {name} section is {section_size} bytes, so a request of its own would be {alone} bytes, "
+            f"over the limit of {MAX_REQUEST_BYTES} bytes; nothing was sent"
+        )
+
+
+def _exchange(
+    config: Config,
+    payload: dict[str, Any],
+    *,
+    timeout: float | None,
+    network_delivery: NetworkDelivery | None,
+    network_batch: DeliveryBatch,
+    snmp_delivery: SnmpDelivery | None,
+    snmp_batch: SnmpBatch,
+) -> None:
+    """POST one request and apply the response to the batches it carried."""
+    headers = {"Authorization": f"Bearer {config.agent_token}"}
     kwargs: dict[str, Any] = {"payload": payload}
     if timeout is not None:
         kwargs["timeout"] = timeout
@@ -123,9 +274,12 @@ def send_heartbeat(
     try:
         # Token is only passed via the Authorization header, never the URL.
         response = post_json(config.heartbeat_url, headers=headers, **kwargs)
+    except RequestTooLargeError:
+        # Nothing went out: no failure of the server or the network, and no batch is touched.
+        raise
     except Exception:
         if network_delivery is not None:
-            network_delivery.record_failure(batch, "request failed")
+            network_delivery.record_failure(network_batch, "request failed")
         if snmp_delivery is not None:
             snmp_delivery.record_failure(snmp_batch, "request failed")
         raise
@@ -134,21 +288,29 @@ def send_heartbeat(
         logger.debug("Heartbeat accepted by Sentinel")
         log_subsystem_status(response.body)
         if network_delivery is not None:
-            network_delivery.acknowledge(batch, response.body)
+            network_delivery.acknowledge(network_batch, response.body)
         if snmp_delivery is not None:
             snmp_delivery.acknowledge(snmp_batch, response.body)
         return
 
+    failure = _http_failure(response.status, payload)
     if network_delivery is not None:
-        network_delivery.record_failure(batch, f"HTTP {response.status}")
+        network_delivery.record_failure(network_batch, failure)
     if snmp_delivery is not None:
-        snmp_delivery.record_failure(snmp_batch, f"HTTP {response.status}")
+        snmp_delivery.record_failure(snmp_batch, failure)
     if 300 <= response.status < 400:
         raise HeartbeatError(
             f"server returned HTTP {response.status} redirect; redirects are not "
             "followed, set SENTINEL_URL to the final https:// address"
         )
-    raise HeartbeatError(f"server returned HTTP {response.status}")
+    raise HeartbeatError(f"server returned {failure}")
+
+
+def _http_failure(status: int, payload: dict[str, Any]) -> str:
+    """``HTTP <status>``, with the size of the request for the statuses that refuse one for its size."""
+    if status in (400, 413):
+        return f"HTTP {status} (request body {encoded_size(payload)} bytes)"
+    return f"HTTP {status}"
 
 
 @functools.cache
