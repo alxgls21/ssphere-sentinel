@@ -57,6 +57,9 @@ Then put the same value in `.env` and run `docker compose up -d`.
 | `RuntimeError: Environment variable ... must be true or false` | A boolean setting has a typo; values are `true`/`false` (also `1/0`, `yes/no`, `on/off`). |
 | `web` is `unhealthy` | `curl -s http://127.0.0.1:8000/health/ready/`: `503` means the database is unreachable; `docker compose logs web` shows `Readiness check failed: ...` with the reason. |
 | `entrypoint: database unavailable` | `db` is not healthy, or `POSTGRES_PASSWORD` in `.env` no longer matches the database (see above). |
+| `docker compose ps --all` lists `migrate` as `Exited (0)` | Expected: the one-shot `migrate` service runs before `web` on every `docker compose up`; in the default configuration it has nothing to do and its log says so. |
+| `docker compose start web` fails with `missing dependency migrate`, or never returns | The exited `migrate` container was removed (`docker container prune`, `docker compose rm`). Run `docker compose up -d`, which creates it again. |
+| `web` is `Created` but never starts, `docker compose up` reports `service "migrate" didn't complete successfully` | `docker compose logs migrate` shows why. Fix the cause and run `docker compose up -d` again. |
 | `Bad Request (400)` in the browser | The host name is not in `DJANGO_ALLOWED_HOSTS`. The log shows `WARNING django.security.DisallowedHost: Invalid HTTP_HOST header: ...`. |
 | `CSRF verification failed` at admin login | `DJANGO_CSRF_TRUSTED_ORIGINS` must list the exact origin, e.g. `https://sentinel.example.com`. Over plain `http://` (testing), also set the two `*_COOKIE_SECURE` settings to `false`. |
 | Admin login form reloads without an error | Secure cookies over `http://`: use HTTPS (or see the previous row). |

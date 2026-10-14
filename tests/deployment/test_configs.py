@@ -194,6 +194,8 @@ def dotenv_values(path: Path) -> dict[str, str]:
 
 
 POSTGRES_DIR = ROOT / "deploy" / "postgres"
+# The .env of an installation made before SENTINEL_DB_ROLES existed (frozen).
+LEGACY_ENV = Path(__file__).parent / "legacy.env.example"
 # Volume and mount of each supported PostgreSQL major version. 16 keeps the
 # layout (and volume) of installations that predate version selection.
 LAYOUTS = {
@@ -227,7 +229,7 @@ class ComposeTests(unittest.TestCase):
 
     def test_service_and_volume_names_preserve_existing_data(self):
         self.assertNotIn("name", self.compose)  # project name drives volume names
-        self.assertEqual(set(self.compose["services"]), {"web"})
+        self.assertEqual(set(self.compose["services"]), {"web", "migrate"})
         self.assertNotIn("volumes", self.compose)
         self.assertEqual(self.database({})["services"].keys(), {"db"})
 
@@ -250,6 +252,8 @@ class ComposeTests(unittest.TestCase):
         reference = self.yaml.safe_load((Path(__file__).parent / "postgres16-reference.yml").read_text())
         self.assertEqual(database["services"], reference["services"])
         self.assertEqual(database["volumes"], reference["volumes"])
+        # The same for the .env such an installation actually has.
+        self.assertEqual(self.database(dotenv_values(LEGACY_ENV)), database)
 
     def test_the_example_does_not_authorize_database_initialization(self):
         # Copying the example's lines into an existing installation must not
@@ -309,10 +313,14 @@ class ComposeTests(unittest.TestCase):
 
     def test_web_service_hardening(self):
         web = self.compose["services"]["web"]
-        self.assertTrue(web["read_only"])
-        self.assertEqual(web["cap_drop"], ["ALL"])
-        self.assertIn("no-new-privileges:true", web["security_opt"])
-        self.assertEqual(web["depends_on"]["db"]["condition"], "service_healthy")
+        for service in (web, self.compose["services"]["migrate"]):
+            self.assertTrue(service["read_only"])
+            self.assertEqual(service["tmpfs"], ["/tmp"])
+            self.assertEqual(service["cap_drop"], ["ALL"])
+            self.assertIn("no-new-privileges:true", service["security_opt"])
+            self.assertTrue(service["init"])
+            self.assertEqual(service["depends_on"]["db"]["condition"], "service_healthy")
+            self.assertEqual(service["logging"]["options"]["max-size"], "10m")
         services = [web] + [self.version_file(major)["services"]["db"] for major in LAYOUTS]
         for service in services:
             self.assertEqual(service["restart"], "unless-stopped")
@@ -320,6 +328,66 @@ class ComposeTests(unittest.TestCase):
         for major in LAYOUTS:
             db = self.version_file(major)["services"]["db"]
             self.assertIn("no-new-privileges:true", db["security_opt"])
+
+    def test_migrations_run_in_a_one_shot_service_that_web_waits_for(self):
+        migrate = self.compose["services"]["migrate"]
+        web = self.compose["services"]["web"]
+        self.assertEqual(migrate["build"], web["build"])  # the same image
+        self.assertEqual(migrate["command"], ["apply-migrations"])
+        # It runs on every `docker compose up` and exits; a reboot does not
+        # start it again (web, already migrated, restarts on its own).
+        self.assertEqual(migrate["restart"], "no")
+        self.assertEqual(migrate["healthcheck"], {"disable": True})
+        self.assertEqual(set(migrate["depends_on"]), {"db"})
+        self.assertEqual(web["depends_on"]["migrate"], {"condition": "service_completed_successfully"})
+        self.assertNotIn("ports", migrate)
+        self.assertEqual(migrate["environment"]["SENTINEL_DB_ACCESS"], "migrate")
+        self.assertEqual(web["environment"]["SENTINEL_DB_ACCESS"], "runtime")
+        for name in ("POSTGRES_HOST", "POSTGRES_PORT"):
+            self.assertEqual(migrate["environment"][name], web["environment"][name])
+
+    def test_migration_secrets_reach_only_the_migrate_service(self):
+        services = self.compose["services"]
+        self.assertEqual(
+            services["migrate"]["env_file"],
+            [".env", "${SENTINEL_MIGRATE_ENV_FILE:-deploy/compose/no-migration-secrets.env}"],
+        )
+        selectors = [name for name, service in services.items() if "SENTINEL_MIGRATE_ENV_FILE" in str(service)]
+        self.assertEqual(selectors, ["migrate"])
+        # A migration password put in .env by mistake is blanked for web.
+        self.assertEqual(services["web"]["environment"]["SENTINEL_DB_MIGRATE_PASSWORD"], "")
+
+    def test_the_migrate_service_never_lists_an_env_file_twice(self):
+        # Compose releases before 2.24 refuse a service whose env_file list
+        # repeats an entry, which would stop every Compose command.
+        env_files = self.compose["services"]["migrate"]["env_file"]
+        environments = (
+            {},
+            dotenv_values(LEGACY_ENV),
+            dotenv_values(ROOT / ".env.example"),
+            {"SENTINEL_MIGRATE_ENV_FILE": ".env.migrate"},
+        )
+        for environment in environments:
+            with self.subTest(environment=sorted(environment)):
+                resolved = [interpolate(path, environment) for path in env_files]
+                self.assertEqual(len(resolved), len(set(resolved)), resolved)
+        default = ROOT / interpolate(env_files[1], {})
+        self.assertTrue(default.is_file())
+        self.assertEqual(dotenv_values(default), {})  # no settings, no secrets
+
+    def test_an_existing_installation_needs_no_new_setting(self):
+        # Every value compose.yml takes from .env has a default, so an .env
+        # made before a setting existed still resolves.
+        lines = [
+            line
+            for line in (ROOT / "compose.yml").read_text().splitlines()
+            if not line.lstrip().startswith("#")
+        ]
+        references = re.findall(r"\$\{([^}]*)\}", "\n".join(lines))
+        self.assertTrue(references)
+        for reference in references:
+            self.assertRegex(reference, r"^[A-Z_0-9]+:-", reference)
+        self.assertNotIn("SENTINEL_DB_ROLES", dotenv_values(LEGACY_ENV))
 
     def test_tunnel_token_is_kept_away_from_the_web_container(self):
         cloudflared = self.tunnel["services"]["cloudflared"]

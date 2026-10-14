@@ -204,7 +204,7 @@ jobs:
       - name: Check distribution metadata
         run: python -m twine check --strict dist/agent/* dist/server/*
       - name: Shell scripts are lint-clean
-        run: shellcheck scripts/*.sh .github/scripts/*.sh
+        run: shellcheck scripts/*.sh .github/scripts/*.sh entrypoint.sh
       - name: Packaging and deployment-file tests (builds and installs wheels)
         env:
           SENTINEL_TEST_BUILD: "1"
@@ -264,6 +264,12 @@ jobs:
         run: docker compose up --detach --wait --wait-timeout 180
       - name: The preflight recognises the running PostgreSQL 18 installation
         run: scripts/postgres-preflight.sh
+      - name: The one-shot migrate service exited 0 with nothing to do
+        run: |
+          id=$(docker compose ps --all --quiet migrate)
+          [ "$(docker inspect --format '{{.State.Status}} {{.State.ExitCode}}' "$id")" = "exited 0" ]
+          logs=$(docker logs "$id" 2>&1)
+          grep 'nothing to do here' <<<"$logs"
       - name: A new installation runs PostgreSQL 18 in the versioned data directory
         run: |
           query() { docker compose exec -T db sh -c "psql -U \"\$POSTGRES_USER\" -d \"\$POSTGRES_DB\" -Atc \"$1\""; }
@@ -279,6 +285,47 @@ jobs:
       - name: Stop the stack
         if: always()
         run: docker compose down --volumes
+
+  # Docker Compose releases operators run: 2.20 (the first with include, which
+  # the database selection needs), 2.23 (the last before Compose reads env files
+  # with compose-go v2) and the current one. With each, the configuration of an
+  # existing, a new and a separate-roles installation resolves; an installation
+  # of the previous release is updated with its unchanged .env, restarted and
+  # rolled back; and separate database roles run on a new installation.
+  compose-compatibility:
+    name: Docker Compose ${{ matrix.compose }}
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.repository
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        compose: ["2.20.0", "2.23.3", "5.6.0"]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          # The update rehearsal checks out the previous release.
+          fetch-depth: 0
+      - name: Install Docker Compose ${{ matrix.compose }}
+        run: .github/scripts/install-compose.sh "${{ matrix.compose }}"
+      - name: The configuration resolves for every kind of installation
+        run: .github/scripts/compose-config-check.sh
+      - name: Update an installation of the previous release and roll it back
+        # It checks out other commits: run a copy from outside the working tree.
+        run: |
+          cp .github/scripts/compose-upgrade-e2e.sh "$RUNNER_TEMP/"
+          "$RUNNER_TEMP/compose-upgrade-e2e.sh"
+      - name: Throwaway environment files
+        run: .github/scripts/ci-env.sh
+      - name: Separate database roles on a new installation
+        run: .github/scripts/separate-roles-e2e.sh
+      - name: Container logs
+        if: failure()
+        run: docker compose logs --no-color
+      - name: Stop the stack
+        if: always()
+        run: docker compose down --volumes --remove-orphans
 
   # The documented move from PostgreSQL 16 to 18, rehearsed end to end: an
   # installation without the new settings stays on 16, PostgreSQL 18 refuses to
