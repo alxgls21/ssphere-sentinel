@@ -434,6 +434,12 @@ When Docker is unavailable, the agent still reports a machine-readable status
 such as `unavailable`, `permission_denied`, or `error` with an empty container
 list — the heartbeat itself does not fail.
 
+A heartbeat never exceeds 2,500,000 bytes. A report that cannot fit it even
+alone (thousands of containers; the server accepts 1,000) is left out of the
+heartbeat whole, never truncated, with an error in the agent's log; the rest of
+the heartbeat goes on and the inventory on the server ages until a report fits
+again ([details](docs/agent-deployment.md#docker-reports-too-large-for-a-heartbeat)).
+
 Payload version: **`docker.version = 1`**.
 
 Example fragment:

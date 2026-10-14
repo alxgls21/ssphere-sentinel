@@ -13,6 +13,10 @@ class HeartbeatError(AgentError):
     """Raised when a heartbeat request fails."""
 
 
+class RequestTooLargeError(HeartbeatError):
+    """Raised, before anything is sent, for a request body over the size limit."""
+
+
 def redact(text: str, secret: str) -> str:
     """Replace every occurrence of ``secret`` in ``text`` (for printed errors)."""
     if secret and secret in text:

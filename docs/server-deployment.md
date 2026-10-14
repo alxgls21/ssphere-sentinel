@@ -133,6 +133,41 @@ Caddy redirects HTTP to HTTPS and sends HSTS itself, so Django's redirect and
 HSTS settings can stay off. Open ports 80 and 443 in the host firewall; port
 8000 stays bound to `127.0.0.1` (`SENTINEL_HTTP_BIND`).
 
+### Request body size
+
+A heartbeat is one JSON request. It takes a few kilobytes without SNMP, and an
+agent that polls SNMP devices or watches many containers sends more, up to
+**2,500,000 bytes**: the agent counts each request in the bytes it sends and
+never goes above that. Everything between the agent and Sentinel must accept
+bodies of at least that size; 3 MB leaves room.
+
+- **Sentinel.** Django refuses a body over `DATA_UPLOAD_MAX_MEMORY_SIZE`, 2,621,440
+  bytes (2.5 MiB), its default, with HTTP 400. Sentinel does not change it.
+  Gunicorn does not limit the body.
+- **The front end** may refuse less, and it does so before Sentinel sees the
+  request: nothing is recorded, not even that the agent is alive.
+
+| Front end | Default | What to set |
+| --- | --- | --- |
+| nginx | `client_max_body_size 1m`: a larger body gets `413 Request Entity Too Large` | `client_max_body_size 3m;` in the `server` or `location` that proxies Sentinel |
+| Apache httpd | `LimitRequestBody`: 1 GiB in Apache 2.4 (0, no limit, in versions up to 2.4.53) | if you set one, at least `3145728` |
+| Caddy | no limit | if you set one with `request_body { max_size ... }`, at least `3MB` |
+| Traefik | no limit | if you use the `buffering` middleware, `maxRequestBodyBytes` of at least `3000000` |
+| Cloudflare (Tunnel or proxy) | 100 MB on the Free and Pro plans, far above | a WAF or custom rule that limits the body size must allow 3 MB |
+
+Other proxies, API gateways, load balancers and WAFs have limits of their own;
+check them. To test the path, send a body of 2.4 MB without a token. A front end
+that accepts it lets the request through to Sentinel, which answers `401`; one
+that refuses it answers `413` (or `400`):
+
+```bash
+python3 -c 'print("{\"pad\": \"" + "x" * 2_400_000 + "\"}")' | curl -sS -o /dev/null -w '%{http_code}\n' -X POST -H 'Content-Type: application/json' --data-binary @- https://sentinel.example.com/api/v1/agent/heartbeat/
+```
+
+An agent whose heartbeat is refused as too large logs `HTTP 413 (request body N
+bytes)` or `HTTP 400 (request body N bytes)`, and keeps its queued data
+([snmp.md](snmp.md#request-size)).
+
 ### Plain HTTP (testing only)
 
 Without a front end, set `SENTINEL_HTTP_BIND=0.0.0.0` and, to log in to the

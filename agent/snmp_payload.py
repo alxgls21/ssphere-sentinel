@@ -24,14 +24,19 @@ SNMP_PAYLOAD_VERSION = 1
 MAX_POLLS_PER_REPORT = 50
 MAX_INTERFACES_PER_POLL = 512
 MAX_INTERFACES_PER_REPORT = 2000
-# The server reads the whole request body (Django's default limit is
-# 2.5 MiB) and the heartbeat also carries telemetry, Docker and network
-# sections, so the SNMP section stays well below that.
+# The ``snmp`` section of one request stays within this many bytes *as sent*
+# (see ``agent.http_client.encode_json``; the first poll is exempt, so that a
+# large one can always go out alone). The request as a whole is bounded by
+# ``agent.http_client.MAX_REQUEST_BYTES``, which the delivery enforces with the
+# other sections of the heartbeat counted in.
 MAX_REPORT_BYTES = 1_000_000
-# One stored poll must always fit into a report. The collector shortens
-# descriptive text (128 characters for names and descriptions, 64 for aliases)
-# so that even 512 interfaces of text that needs three UTF-8 bytes per
-# character (about 620 KB) stay below this.
+# The most a poll may take in the queue (compact UTF-8 JSON). The collector
+# shortens descriptive text (128 characters for names and descriptions, 64 for
+# aliases), so a poll of 512 interfaces whose text needs up to three UTF-8 bytes
+# per character (about 620 KB) stays within it. What a poll takes in a request
+# is more (a non-ASCII character is an escape there, see ``encode_json``): one
+# that cannot fit even a request of its own is dropped by the delivery, with an
+# error in the log.
 MAX_POLL_PAYLOAD_BYTES = 768 * 1024
 
 # Error categories the server accepts for an unreachable device.

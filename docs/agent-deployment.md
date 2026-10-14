@@ -221,6 +221,29 @@ sockets work the same way through `DOCKER_HOST`.
 The journal shows `Docker discovery available` once it works, or
 `Docker discovery unavailable (permission_denied)` once per state change.
 
+### Docker reports too large for a heartbeat
+
+A heartbeat is never larger than 2,500,000 bytes. A container takes about 300
+bytes in the report (up to about 900 with the longest names and images), and
+Sentinel accepts up to 1,000 containers per host, so a report that Sentinel can use
+fits with room to spare, next to the telemetry and everything else the heartbeat
+carries. If one does not (thousands of containers, which Sentinel would reject
+anyway), the agent:
+
+- leaves the report out of that heartbeat **whole**. It never sends part of it:
+  a partial snapshot would mark the containers it leaves out as absent;
+- logs `The Docker report cannot be sent: ...` as an error at every heartbeat,
+  with the size of the heartbeat and the limit;
+- sends everything else as usual (liveness, telemetry, network measurements and
+  SNMP polls); nothing queued is dropped.
+
+Sentinel's inventory for the host is not touched. Its containers keep their
+last-known values and read `unknown` in the console once the inventory is older than
+`SENTINEL_OFFLINE_THRESHOLD` (90 seconds by default). The agent judges the report
+afresh at every heartbeat, so the inventory is current again with the first report
+that fits: remove stopped containers (`docker container prune`) or spread the
+workload over more hosts.
+
 ## SNMP monitoring (optional)
 
 The agent can poll network devices (switches, routers, firewalls) over SNMPv2c
@@ -333,6 +356,10 @@ or targets. `systemd-analyze security sentinel-agent` summarizes the sandbox.
 | `SNMP monitoring disabled: ...` | The message says why: a configuration error (the file and field are named, never a secret), a credentials file with too-open permissions, or `pysnmp is not installed` (install the `[snmp]` extra). The rest of the agent keeps running. |
 | `SNMP device ... is unreachable: timeout` | No answer from the device: wrong address or port, a firewall, or (SNMPv2c) a wrong community, which devices answer with silence. `auth_failure` means a wrong SNMPv3 user, key or protocol. See [snmp.md](snmp.md#unreachable-devices). |
 | `Sentinel could not accept N SNMP poll(s) yet` | The device is not created, assigned to this agent, enabled or configured for SNMP in Sentinel. Polls are kept and retried; fix the device in the admin. |
+| `Heartbeat failed: server returned HTTP 413 (request body N bytes)` (or `HTTP 400 (request body N bytes)`) | A reverse proxy or WAF in front of Sentinel refuses bodies of that size. The agent sends at most 2,500,000 bytes and keeps its queues; raise the limit of the proxy to at least 3 MB ([server-deployment.md](server-deployment.md#request-body-size)). |
+| `SNMP poll ... cannot be sent and is removed from the queue` | One queued poll is larger than any request can be (more than 2,500,000 bytes as sent). It is dropped and the polls behind it go on; the message gives its size. See [snmp.md](snmp.md#request-size). |
+| `The Docker report cannot be sent: with the telemetry it makes a heartbeat of N bytes, over the limit` | The Docker inventory alone exceeds the request limit (thousands of containers; Sentinel accepts 1,000). It is left out whole at every heartbeat and the rest is sent; see [Docker reports too large for a heartbeat](#docker-reports-too-large-for-a-heartbeat). |
+| `Heartbeat failed: the heartbeat is N bytes (telemetry=..., ...), over the limit` or `the network section is N bytes` | A section other than Docker is larger than a request can be. Nothing was sent and nothing queued was touched. The sizes in the message name the section; this is not expected, so report it. |
 | Service restarts in a loop | `journalctl -u sentinel-agent -n 50`; usually a configuration error (`Agent failed: SENTINEL_URL is not set`). |
 
 ## Uninstall

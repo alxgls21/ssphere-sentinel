@@ -562,10 +562,12 @@ class MeasurementQueue:
     ) -> list[dict[str, Any]]:
         """Due polls in insertion order, within the server's per-report limits.
 
-        The first poll is always taken (a stored poll is smaller than every
-        limit); later ones only while the report stays within ``max_polls``,
-        ``max_interfaces`` and ``max_bytes``. Like ``pending_batch``, rows
-        scheduled implausibly far ahead count as due.
+        The first poll is always taken; later ones only while the report stays
+        within ``max_polls``, ``max_interfaces`` and ``max_bytes``. The bytes
+        are the stored ones, which are never more than the bytes of a request
+        (a non-ASCII character is an escape there): they bound how much is
+        loaded, and ``SnmpDelivery`` fits the polls to the request itself. Like
+        ``pending_batch``, rows scheduled implausibly far ahead count as due.
         """
         now = self._wall_fn()
         rows = self._read(
