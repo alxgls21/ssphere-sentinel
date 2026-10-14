@@ -75,6 +75,7 @@ def raw_data(
     interfaces: dict[int, dict],
     *,
     uptime: int = 1_000_000,
+    uptime_end: int | None | str = "same",
     marker: int | None = 10,
     response_ms: float = 12.5,
     system: dict | None = None,
@@ -93,6 +94,8 @@ def raw_data(
     data = RawDeviceData(
         response_ms=response_ms,
         sys_uptime_ticks=uptime,
+        # "same": the walks were instantaneous, as in a fake; None: the final sysUpTime read failed.
+        sys_uptime_end_ticks=uptime if uptime_end == "same" else uptime_end,
         if_table_last_change=marker,
         columns=columns,
     )

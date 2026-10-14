@@ -41,6 +41,7 @@ PRIV = {"AES": "AES-128", "AES192": "AES-192", "AES256": "AES-256", "NONE": ""}
 
 IF1_IN = "1.3.6.1.2.1.31.1.1.1.6.1"
 IF1_OUT = "1.3.6.1.2.1.31.1.1.1.10.1"
+IF1_DISCONTINUITY = "1.3.6.1.2.1.31.1.1.1.19.1"  # ifCounterDiscontinuityTime
 IF1_ERRORS = "1.3.6.1.2.1.2.2.1.14.1"
 SYS_UPTIME = "1.3.6.1.2.1.1.3.0"
 IF_TABLE_LAST_CHANGE = "1.3.6.1.2.1.31.1.5.0"
@@ -136,6 +137,10 @@ class ProtocolTests(SimulatorTestCase):
         two = found[2]
         self.assertEqual((two["oper_status"], two["speed_bps"]), (2, 10_000_000_000))  # ifHighSpeed beats saturated ifSpeed
         self.assertEqual((two["counters"]["raw"]["in_errors"], two["counters"]["raw"]["in_discards"]), (2, 1))
+
+    def test_sysuptime_is_read_again_after_the_walks_to_bracket_them(self):
+        raw = PysnmpFetcher().fetch(device(self.sim.v2c_port), v2c(), FetchPlan())
+        self.assertEqual((raw.sys_uptime_ticks, raw.sys_uptime_end_ticks), (8_123_456, 8_123_456))
 
     def test_the_loopback_is_listed_but_not_monitored(self):
         found = interfaces(make_poller(self.sim.v2c_port, v2c()).poll())
@@ -355,6 +360,22 @@ class DeltaTests(unittest.TestCase):
         self.sim.set_values("public", {IF1_IN: ("counter64", 150), IF1_OUT: ("counter64", 25), SYS_UPTIME: ("timeticks", 5_000)})
         fifth = self.counters(poller)
         self.assertEqual((fifth["delta_state"], fifth["delta"]["in_octets"]), ("ok", 100))
+
+    def test_a_discontinuity_marker_moved_on_the_device_makes_the_next_delta_a_reset(self):
+        poller = make_poller(self.sim.v2c_port, v2c())
+        self.assertEqual(self.counters(poller)["delta_state"], "first")
+        # The counter was cleared and has grown past its old value: only the marker says so.
+        self.sim.set_values(
+            "public",
+            {IF1_IN: ("counter64", 123_456_789_012 + 3_000_000), IF1_DISCONTINUITY: ("timeticks", 8_100_000), SYS_UPTIME: ("timeticks", 8_200_000)},
+        )
+        second = self.counters(poller)
+        self.assertEqual(second["delta_state"], "reset")
+        self.assertNotIn("delta", second)
+        self.assertEqual(second["raw"]["in_octets"], 123_456_789_012 + 3_000_000)  # the reading itself is kept
+        self.sim.set_values("public", {IF1_IN: ("counter64", 123_456_789_012 + 3_001_000), SYS_UPTIME: ("timeticks", 8_300_000)})
+        third = self.counters(poller)
+        self.assertEqual((third["delta_state"], third["delta"]["in_octets"]), ("ok", 1_000))
 
     def test_a_32_bit_counter_wrap_is_accounted_for(self):
         poller = make_poller(self.sim.v2c_port, v2c("legacy"))

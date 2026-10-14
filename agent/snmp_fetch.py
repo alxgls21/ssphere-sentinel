@@ -140,6 +140,10 @@ class RawDeviceData:
     if_table_last_change: int | None = None
     system: dict[str, str] = field(default_factory=dict)  # name, descr, object_id
     columns: dict[str, dict[int, Any]] = field(default_factory=dict)  # column -> {ifIndex: value}
+    # sysUpTime read again once the interface walks are done (None: that read failed, or a fetcher
+    # that does not do it). The walks are not one atomic snapshot: this and ``sys_uptime_ticks`` bracket
+    # the time they took. Last, so that the arguments that were positional before still are.
+    sys_uptime_end_ticks: int | None = None
 
 
 class Fetcher(Protocol):
@@ -270,6 +274,7 @@ class PysnmpFetcher:
             )
             data = await self._read_system(session, plan)
             await self._read_interfaces(session, plan, data)
+            data.sys_uptime_end_ticks = await self._read_uptime_end(session)
             return data
         finally:
             engine.close_dispatcher()
@@ -301,6 +306,17 @@ class PysnmpFetcher:
                 if isinstance(value, str) and value:
                     data.system[key] = value
         return data
+
+    async def _read_uptime_end(self, session: _Session) -> int | None:
+        """``sysUpTime`` again, after the walks. One more GET, so that a restart, a counter reset or a
+        wrap while the walks ran can be told from a consistent reading. A failure costs the poll nothing
+        (the collector then cannot vouch for the reading), unless the poll itself is cancelled.
+        """
+        try:
+            value = (await session.get([oids.SYS_UPTIME])).get(oids.SYS_UPTIME)
+        except Exception:  # noqa: BLE001 - the poll has its data; only the cross-check is lost
+            return None
+        return value if isinstance(value, int) else None
 
     async def _read_interfaces(self, session: _Session, plan: FetchPlan, data: RawDeviceData) -> None:
         async def walk(column: str) -> dict[int, Any]:
