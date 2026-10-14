@@ -1109,6 +1109,9 @@ Services:
   serves the admin's static files itself (WhiteNoise)
 - `db` — PostgreSQL (18 for new installations, 16 until an existing one is
   migrated), only reachable on the internal Compose network
+- `migrate` — one-shot service that runs before `web` on every
+  `docker compose up` and exits; with the default configuration it has nothing
+  to do (`web` applies the migrations)
 
 Verify:
 

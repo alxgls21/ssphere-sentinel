@@ -9,6 +9,8 @@ from pathlib import Path
 from django.test import SimpleTestCase
 
 BASE_DIR = Path(__file__).resolve().parents[3]
+# The .env.example of the releases before SENTINEL_DB_ROLES existed (frozen).
+LEGACY_ENV_EXAMPLE = BASE_DIR / "tests" / "deployment" / "legacy.env.example"
 BASE_ENV = {
     "DJANGO_SECRET_KEY": "test-only-secret-key-not-used-anywhere-else-0123456789",
     "AGENT_TOKEN_PEPPER": "test-only-pepper",
@@ -35,6 +37,7 @@ print(json.dumps({
     "LOG_LEVEL": s.LOG_LEVEL,
     "SNMP_RETENTION_DAYS": s.SENTINEL_SNMP_RETENTION_DAYS,
     "SNMP_MAX_AGE_DAYS": s.SENTINEL_SNMP_MAX_AGE_DAYS,
+    "DATABASES": s.DATABASES,
 }))
 """
 
@@ -134,3 +137,48 @@ class ProductionSettingsTests(SimpleTestCase):
                     self.assert_refused("must be a positive integer", **{name: value})
             with self.subTest(name=name, value="soon"):
                 self.assert_refused("must be an integer", **{name: "soon"})
+
+    def test_an_existing_installation_keeps_its_database_settings(self):
+        expected = {
+            "ENGINE": "django.db.backends.postgresql",
+            "NAME": "sentinel",
+            "USER": "sentinel",
+            "PASSWORD": "unused",
+            "HOST": "localhost",
+            "PORT": "5432",
+            "OPTIONS": {"connect_timeout": 10},
+        }
+        self.assertEqual(self.settings_for()["DATABASES"], {"default": expected})
+        # The same from an .env made with the example of those releases.
+        legacy = {}
+        for line in LEGACY_ENV_EXAMPLE.read_text().splitlines():
+            if line.strip() and not line.lstrip().startswith("#"):
+                name, _, value = line.partition("=")
+                legacy[name.strip()] = value.strip()
+        legacy.update(DJANGO_SECRET_KEY=BASE_ENV["DJANGO_SECRET_KEY"], AGENT_TOKEN_PEPPER="test-only-pepper")
+        conf = self.settings_for(**legacy)["DATABASES"]["default"]
+        self.assertEqual(
+            {key: conf[key] for key in ("USER", "PASSWORD", "OPTIONS")},
+            {"USER": "sentinel", "PASSWORD": "change-me-db-password", "OPTIONS": {"connect_timeout": 10}},
+        )
+
+    def test_separate_database_roles_select_the_login_of_each_service(self):
+        separate = {"SENTINEL_DB_ROLES": "separate", "SENTINEL_DB_PASSWORD": "app-secret"}
+        web = self.settings_for(**separate)["DATABASES"]["default"]
+        self.assertEqual((web["USER"], web["PASSWORD"]), ("sentinel_app", "app-secret"))
+        self.assertEqual(web["OPTIONS"], {"connect_timeout": 10})
+        migrate = self.settings_for(
+            SENTINEL_DB_ROLES="separate", SENTINEL_DB_ACCESS="migrate", SENTINEL_DB_MIGRATE_PASSWORD="migrate-secret"
+        )["DATABASES"]["default"]
+        self.assertEqual((migrate["USER"], migrate["PASSWORD"]), ("sentinel_migrate", "migrate-secret"))
+        self.assertEqual(migrate["OPTIONS"], {"connect_timeout": 10, "assume_role": "sentinel_owner"})
+
+    def test_invalid_database_role_settings_are_refused(self):
+        self.assert_refused("SENTINEL_DB_ROLES must be one of", SENTINEL_DB_ROLES="yes")
+        self.assert_refused("SENTINEL_DB_PASSWORD is not set", SENTINEL_DB_ROLES="separate")
+        self.assert_refused(
+            "SENTINEL_DB_MIGRATE_PASSWORD is empty",
+            SENTINEL_DB_ROLES="separate",
+            SENTINEL_DB_ACCESS="migrate",
+            SENTINEL_DB_MIGRATE_PASSWORD="",
+        )

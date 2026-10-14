@@ -51,7 +51,7 @@ changing it later invalidates every agent token.
 ```bash
 scripts/postgres-preflight.sh         # read-only check of the database volumes
 docker compose up -d --build
-docker compose ps                     # both services "healthy"
+docker compose ps                     # db and web "healthy"
 curl -fsS http://127.0.0.1:8000/health/ready/
 docker compose exec web python manage.py createsuperuser
 ```
@@ -64,6 +64,11 @@ volume stops the database instead of silently creating an empty one.
 On every start the `web` container waits for PostgreSQL and applies database
 migrations before Gunicorn starts. Both services restart automatically
 (`restart: unless-stopped`), also after a reboot of the Docker host.
+
+Before `web`, every `docker compose up` runs the one-shot `migrate` service,
+which exits with status 0: in the default configuration it has nothing to do,
+because `web` applies the migrations itself (`docker compose ps --all` lists it
+as exited).
 
 Health endpoints, also used by the image's `HEALTHCHECK`:
 
@@ -205,7 +210,7 @@ access logs are off by default; enable them with
    ```bash
    cd /opt/ssphere-sentinel
    git fetch --tags
-   git diff <current-tag> <new-tag> -- .env.example compose.yml
+   git diff <current-tag> <new-tag> -- .env.example compose.yml deploy/ entrypoint.sh
    ```
 
 3. Deploy:
@@ -217,9 +222,23 @@ access logs are off by default; enable them with
    docker compose ps
    ```
 
-Migrations run automatically when the new `web` container starts. To roll
-back, check out the previous tag and restore the backup taken before the
-upgrade: migrations are not guaranteed to be reversible.
+Migrations run automatically when the new `web` container starts. Scripts or
+units that start the stack with `docker compose start` must use
+`docker compose up -d` instead (see [Backups](#backups)).
+
+To roll back, check out the previous tag and restore the backup taken before
+the upgrade: migrations are not guaranteed to be reversible. Before checking
+out a release without the `migrate` service, remove its exited container:
+
+```bash
+docker compose rm --stop --force migrate
+git checkout <previous-tag>
+docker compose up -d --build
+```
+
+Avoid `--remove-orphans` for this: without the same `-f` files the stack was
+started with, it also removes the `cloudflared` container of
+`compose.tunnel.yml`.
 
 Updating the repository never changes the database version of an existing
 installation: the `db` service follows the `SENTINEL_POSTGRES` setting of your
@@ -236,7 +255,9 @@ console users see a server as soon as it has a site they are granted.
 
 ### Database migrations
 
-Applied automatically at container start. To inspect or run them by hand:
+Applied automatically when the `web` container starts (the `migrate` service
+has nothing to do in the default configuration). To inspect or run them by
+hand:
 
 ```bash
 docker compose exec web python manage.py showmigrations
@@ -261,8 +282,14 @@ Restore into the existing database (stops the application meanwhile):
 docker compose stop web
 docker compose exec -T db sh -c 'pg_restore -U "$POSTGRES_USER" -d "$POSTGRES_DB" --clean --if-exists' \
     < sentinel-<timestamp>.dump
-docker compose start web
+scripts/postgres-preflight.sh
+docker compose up -d
 ```
+
+Use `docker compose up -d` to start the application again, not
+`docker compose start web`: `start` waits for the exited `migrate` container,
+and fails (older Compose releases wait indefinitely) when it no longer exists,
+for example after `docker container prune`.
 
 Schedule the dump (for example daily from cron, alongside the retention
 commands in the README), copy it off the host and test a restore regularly.
@@ -381,7 +408,7 @@ data first if you can.
 ```bash
 cd /opt/ssphere-sentinel
 git checkout <tag>                 # a release that includes PostgreSQL 18 support
-docker compose build web
+docker compose build
 scripts/postgres-preflight.sh      # expected: existing PostgreSQL 16 installation
 docker compose stop web
 

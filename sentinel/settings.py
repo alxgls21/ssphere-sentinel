@@ -9,6 +9,8 @@ Django itself (see "HTTPS and reverse proxies" below).
 import os
 from pathlib import Path
 
+from sentinel import database as sentinel_database
+
 BASE_DIR = Path(__file__).resolve().parent.parent
 
 
@@ -259,17 +261,21 @@ TEMPLATES = [
 
 WSGI_APPLICATION = "sentinel.wsgi.application"
 
+# The login (user, password, assumed role) depends on SENTINEL_DB_ROLES and
+# SENTINEL_DB_ACCESS; see sentinel/database.py.
+database_name = env("POSTGRES_DB")
+database_login = sentinel_database.login(os.environ)
 DATABASES = {
     "default": {
         "ENGINE": "django.db.backends.postgresql",
-        "NAME": env("POSTGRES_DB"),
-        "USER": env("POSTGRES_USER"),
-        "PASSWORD": env("POSTGRES_PASSWORD"),
+        "NAME": database_name,
+        "USER": database_login.user,
+        "PASSWORD": database_login.password,
         "HOST": env("POSTGRES_HOST", default="localhost"),
         "PORT": env("POSTGRES_PORT", default="5432"),
         # Fail fast (readiness check, requests) instead of hanging on an
         # unreachable database host.
-        "OPTIONS": {"connect_timeout": 10},
+        "OPTIONS": {"connect_timeout": 10, **database_login.options},
     }
 }
 

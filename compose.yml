@@ -17,6 +17,12 @@
 # PostgreSQL 18 is a dump and restore into a new volume, see
 # docs/server-deployment.md. Keep the service and volume names: renaming them
 # would start a new, empty database volume.
+#
+# The one-shot migrate service runs before web on every `docker compose up` and
+# exits. With the default SENTINEL_DB_ROLES (legacy) it has nothing to do: web
+# applies the migrations as it starts. With SENTINEL_DB_ROLES=separate it applies
+# them with its own login, whose secrets live in the file SENTINEL_MIGRATE_ENV_FILE
+# names; web never reads that file (sentinel/database.py).
 
 include:
   - path: deploy/postgres/postgres-${SENTINEL_POSTGRES:-16}.yml
@@ -30,6 +36,34 @@ x-logging: &default-logging
     max-file: "5"
 
 services:
+  migrate:
+    build: .
+    command: ["apply-migrations"]
+    restart: "no"
+    init: true
+    env_file:
+      - .env
+      # Never .env itself: Compose before 2.24 refuses a file listed twice.
+      - ${SENTINEL_MIGRATE_ENV_FILE:-deploy/compose/no-migration-secrets.env}
+    environment:
+      POSTGRES_HOST: db
+      POSTGRES_PORT: 5432
+      SENTINEL_DB_ACCESS: migrate
+    depends_on:
+      db:
+        condition: service_healthy
+    # The image's health check probes Gunicorn, which this service never runs.
+    healthcheck:
+      disable: true
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    logging: *default-logging
+
   web:
     build: .
     restart: unless-stopped
@@ -40,11 +74,17 @@ services:
     environment:
       POSTGRES_HOST: db
       POSTGRES_PORT: 5432
+      SENTINEL_DB_ACCESS: runtime
+      # The migration login's password belongs to the migrate service only,
+      # even when it was put in .env by mistake.
+      SENTINEL_DB_MIGRATE_PASSWORD: ""
     ports:
       - "${SENTINEL_HTTP_BIND:-0.0.0.0}:${SENTINEL_HTTP_PORT:-8000}:8000"
     depends_on:
       db:
         condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
     # The application writes nothing to disk; /tmp is the only scratch space.
     read_only: true
     tmpfs:
