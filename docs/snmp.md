@@ -256,7 +256,7 @@ the agent read anything else.
 
 | Group | Objects |
 | --- | --- |
-| Every poll | `sysUpTime.0` and `ifTableLastChange.0` (one GET, which also times the response); then walks of `ifOperStatus`, `ifAdminStatus`, `ifHighSpeed`, `ifHCInOctets`, `ifHCOutOctets`, `ifInErrors`, `ifOutErrors`, `ifInDiscards`, `ifOutDiscards` |
+| Every poll | `sysUpTime.0` and `ifTableLastChange.0` (one GET, which also times the response); then walks of `ifOperStatus`, `ifAdminStatus`, `ifHighSpeed`, `ifHCInOctets`, `ifHCOutOctets`, `ifInErrors`, `ifOutErrors`, `ifInDiscards`, `ifOutDiscards`, `ifCounterDiscontinuityTime`; then `sysUpTime.0` once more, to bracket the walks (below) |
 | Discovery polls, too | `sysName.0`, `sysDescr.0`, `sysObjectID.0` and walks of `ifName`, `ifDescr`, `ifAlias`, `ifType` |
 | Only when needed | `ifInOctets` and `ifOutOctets` (32-bit) if any interface has no 64-bit octet counters; `ifSpeed` if any interface has no positive `ifHighSpeed` |
 
@@ -271,7 +271,15 @@ interface, so the server can mark vanished ones absent (`interfaces_complete`).
 It is the first poll after the agent starts and then repeats every
 `discovery_interval_seconds`, and the next poll becomes a discovery poll as soon
 as the agent sees that the device restarted, that `ifTableLastChange` moved or
-that the set of interfaces changed. A **regular poll** lists the monitored
+that the set of interfaces changed. A discovery that a restart interrupts (the uptime read after the walks shows the device
+restarted while they ran, or may have) is not one inventory: some of its names were read
+before the restart and some after. It is sent as a regular poll, without `system` and
+without `interfaces_complete`, so the server renames nothing and marks nothing absent;
+the agent keeps the interfaces it knew (and publishes their trusted names) and
+discovers again at the next poll, as many times as it takes. An agent that knew none
+(its first discovery was the interrupted one) lists no interface in that poll at all:
+a reading cannot be sent without saying which interface it is, and the server takes the
+name from the poll, so nothing provisional is published. A **regular poll** lists the monitored
 interfaces only, with the descriptive fields remembered from the last discovery
 (the server overwrites an interface's name with whatever a poll says, so a poll
 must never omit it).
@@ -299,7 +307,7 @@ The agent decides the state as follows:
 | `first` | No previous reading: the first poll after the agent starts, or nothing countable on both polls. The agent keeps readings in memory, so a restart costs one interval of deltas |
 | `reboot` | `sysUpTime` went backwards (a 32-bit tick wrap, every ~497 days, is recognised and is not a reboot) |
 | `gap` | The previous reading is older than 3.5 poll intervals (for example after an outage), or the clock did not advance. A `gap` or `reboot` after more than a week carries no `interval_seconds` (the server accepts at most a week) |
-| `reset` | A counter went backwards and that is not a plausible wrap, or the octet width changed between polls |
+| `reset` | The counters of the two polls are not comparable: a counter went backwards and that is not a plausible wrap, the octet width changed, or the device reports a counter discontinuity in between (below) |
 | `speed_changed` | Deltas valid, but the interface speed differs from the previous reading |
 | `ok` | Deltas valid |
 
@@ -316,6 +324,92 @@ How a decrease is read:
   practically never wrap, so a large "wrap" is almost surely a counter that was
   cleared.
 
+#### Counter discontinuities
+
+A counter that was cleared, or an interface that was re-initialized, can look like
+ordinary traffic when only the two values are compared (a cleared counter that has
+grown past its old value, or a 32-bit one that restarted near zero after a high
+reading, which passes for a wrap). IF-MIB's `ifCounterDiscontinuityTime` says when
+that happened. It is **not a wall-clock time**: it is the `sysUpTime` value (in
+hundredths of a second since the device's management software started) at which any
+counter of the interface last had a discontinuity, and 0 if none since then. The
+agent therefore reads it with every poll and applies these rules to each interface:
+
+- **A device restart is decided first** (`reboot`), then `gap`. Markers of different
+  `sysUpTime` epochs are never compared.
+- If the marker is **usable on both polls** and **differs**, the delta is a `reset`:
+  no delta values, whatever the counters look like, and the raw readings are kept.
+  The next poll compares again. Unchanged means continuity, so a normal 32-bit
+  rollover, whose marker does not move, stays an `ok` delta.
+- A marker is **usable** if it is an integer in 0–4,294,967,295 that is not above
+  the latest `sysUpTime` of the poll that read it (the reading taken after the walks,
+  see below): a value above it is not a moment the device's uptime has reached, so it
+  is not believed (one warning per interface). The exception is a `sysUpTime` that
+  has wrapped since the device started (every ~497 days) and that the agent saw wrap:
+  a marker from before the wrap is then above it legitimately, and the markers are
+  compared as they are. A restart starts a new epoch.
+- **Startup is ambiguous.** The agent cannot know whether `sysUpTime` wrapped before
+  it first looked, so a marker above the uptime at the first poll may be garbage or may
+  predate a wrap. It is not believed as a proof of continuity (after a table change an
+  interface that has only such a marker is treated as one without), but a *different*
+  plausible marker at the next poll is still a change, whatever the first value was:
+  the result is a `reset`, possibly for a device whose first value was garbage that
+  has now become sensible, which costs one delta. Two equal oversized markers
+  prove nothing and are judged by the values.
+- **The walks are not one snapshot.** `sysUpTime` is read once more after them (one
+  extra GET per poll). A marker up to that later reading counts, so a counter that
+  was reset while the walks ran is found by its marker. If the later reading is
+  *lower* than the first, either the 32-bit tick counter wrapped (every ~497 days)
+  or the device restarted. The agent compares the span through the wrap (100 ticks
+  a second) with how long the collection took on its monotonic clock, not with the
+  poll's time limit: a span longer than that (plus 1 % and one second for the two
+  clocks) cannot be a wrap, so it is a restart, every interface is a `reboot`, and none of the
+  readings becomes a baseline (the next poll is `first`). A span that fits is what
+  a wrap looks like, but also what a restart shortly before the wrap point looks
+  like, and nothing the agent observes tells them apart. It is therefore not
+  vouched for: every delta of that poll is a `reset` (raw readings are kept),
+  baselines are dropped, and no wrap is assumed afterwards: a wrap seen earlier is
+  forgotten too, since the device may have started a new epoch, so a marker above the
+  uptime is not believed again until a new wrap is seen. The cost of the
+  ambiguity is two polls without deltas about once in 497 days. A restart or a wrap
+  *between* two polls is judged against the time that passed between them, as
+  before. If the final read fails, the poll is still sent with its raw counters, but
+  no delta is vouched for (`reset`): the readings cannot be shown to be consistent.
+- **Without a usable marker on both polls** (the device lacks the object, always
+  answers 0, or the value cannot be one) the interface is judged by the values as
+  described above, with one addition below for table changes. A device that never
+  updates its marker is therefore as exposed as before: a counter that was cleared
+  and has grown past its old value cannot be seen.
+- **A marker that moves at poll after poll** is not ignored: each change is a
+  discontinuity and the delta is a `reset`, since a device may really clear its
+  counters that often. The agent logs a warning when it happens at three polls in a
+  row for an interface, at most once an hour per device, because such an interface
+  gets no traffic rates at all.
+
+**Interface identity.** `ifIndex` can be reused by another interface. IF-MIB offers no
+stable identifier that the agent reads, so the agent compares what a discovery poll
+reads: the interface type and `ifName` (`ifDescr` if there is no `ifName`). Both are
+read-only in IF-MIB, so an administrator does not change them; `ifAlias`, the one
+label that can be written, and `ifDescr` alone are not part of the identity, so
+describing an interface does not restart its counters. When the identity changes at
+an `ifIndex`, its previous reading is dropped (`first`). A restart drops the previous
+reading of **every** interface, including those a poll could not read at that moment. Likewise an interface that
+is missing from a poll loses its previous reading, so one that vanishes and returns
+starts afresh. What cannot be detected: an interface replaced by another with the
+same type and name (a re-created VLAN or port channel) on a device that does not
+update the marker; only the counters going backwards (or the next rule) show it.
+
+**Interface table changes.** `ifTableLastChange` moves when a row is created or
+deleted; it does not say which. For an interface that has no usable marker on both
+polls the agent cannot then show it is the same interface as before, so in the poll
+that sees the change its delta is a `reset`, once. If that poll had to skip the interface
+(for example its administrative status row was missing), the doubt is kept until a poll
+reads it: a table change is never used up by an interface that was not read. Interfaces with a usable marker
+are not affected (their marker is the proof), and neither are unrelated ones on
+devices that offer the marker; an interface added or removed is handled by
+discovery as before. If the device has no `ifTableLastChange`, nothing is inferred
+from it.
+
 One implausible counter makes the whole interface `reset`: a partial delta would
 mislead more than none. Intervals are measured between the starts of two polls with
 a monotonic clock.
@@ -325,8 +419,9 @@ two polls** looks like one wrap or none, so its delta is too low; at 300 s that
 happens above about 229 Mbit/s of average traffic (a single wrap, from about
 114 Mbit/s, is handled). And a 32-bit octet counter that is **cleared by hand** on a
 fast link looks like a plausible wrap (a device restart is caught by its uptime
-instead). Devices that offer `ifHC*` counters, almost all of them, have neither
-limit; for the rest, poll more often.
+instead, unless the device updates `ifCounterDiscontinuityTime`). Devices that offer
+`ifHC*` counters, almost all of them, have neither limit; for the rest, poll more
+often.
 
 ### Unreachable devices
 
@@ -647,7 +742,7 @@ recomputed from the raw values later.
 | `speed_changed` | Deltas valid, but the interface speed changed during the interval, so a utilization calculated from them is approximate | as `ok` | required |
 | `first` | No previous counters | must be empty | optional (`0` means unknown) |
 | `reboot` | The device restarted (uptime went backwards) | must be empty | optional (`0` means unknown) |
-| `reset` | A counter went backwards without wrapping | must be empty | optional (`0` means unknown) |
+| `reset` | The counters are not comparable: one went backwards without wrapping, or a counter discontinuity was reported or cannot be ruled out | must be empty | optional (`0` means unknown) |
 | `gap` | The previous sample is too old for a meaningful delta | must be empty | optional (`0` means unknown) |
 
 Bandwidth utilization is not stored: it is `delta × 8 ÷ interval_seconds ÷ speed_bps`

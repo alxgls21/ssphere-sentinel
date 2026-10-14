@@ -88,6 +88,7 @@ def if_rows(
     errors: tuple[int, int] = (0, 0),
     discards: tuple[int, int] = (0, 0),
     writable: bool = True,
+    discontinuity: int | None = None,
 ) -> list[str]:
     ifx = "1.3.6.1.2.1.31.1.1.1"
     rows = [
@@ -118,6 +119,8 @@ def if_rows(
         rows.append(_line(f"{ifx}.15.{index}", "66", high_speed))
     if alias is not None:
         rows.append(_line(f"{ifx}.18.{index}", "4", alias))
+    if discontinuity is not None:  # ifCounterDiscontinuityTime
+        rows.append(_line(f"{ifx}.19.{index}", "67", discontinuity, writable=True))
     return rows
 
 
@@ -131,7 +134,7 @@ def _write(path: Path, rows: list[str]) -> None:
 def write_devices(directory: Path) -> None:
     switch = system_rows()
     switch.append(_line("1.3.6.1.2.1.31.1.5.0", "67", 100, writable=True))  # ifTableLastChange
-    switch += if_rows(1, name="Gi0/1", descr="GigabitEthernet0/1", alias="uplink to dc2", octets=(123_456_789_012, 98_765_432_109))
+    switch += if_rows(1, name="Gi0/1", descr="GigabitEthernet0/1", alias="uplink to dc2", octets=(123_456_789_012, 98_765_432_109), discontinuity=0)
     switch += if_rows(
         2, name="Gi0/2", descr="GigabitEthernet0/2", speed=4_294_967_295, high_speed=10_000, oper=2, octets=(5, 7), errors=(2, 0), discards=(1, 0)
     )

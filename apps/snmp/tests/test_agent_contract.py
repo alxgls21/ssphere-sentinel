@@ -125,6 +125,64 @@ class AcceptanceTests(AgentContractTestCase):
         self.assertTrue(batch.polls[-1]["interfaces_complete"])
         self.assertEqual(list(Interface.objects.filter(present=False).values_list("if_index", flat=True)), [2])
 
+    def test_a_counter_discontinuity_is_stored_as_a_reset_with_its_raw_counters_and_no_deltas(self):
+        self.poll(fake.raw_data(two_interfaces(in_octets64=10_000, discontinuity=0), discover=True))
+        self.deliver()
+        # Cleared and grown past the old value: the device says so by the marker, the values do not.
+        self.poll(fake.raw_data(two_interfaces(in_octets64=15_000, discontinuity=1_020_000), uptime=1_030_000))
+        _batch, response, _ack, _body = self.deliver()
+        self.assertEqual((response["snmp"], response["snmp_rejected"]), ("accepted", 0))
+        sample = InterfaceSample.objects.filter(interface__if_index=1).latest("measured_at")
+        self.assertEqual((sample.delta_state, sample.in_octets, sample.in_octets_delta), ("reset", 15_000, None))
+        self.assertEqual(sample.interval_seconds, 300.0)
+        self.poll(fake.raw_data(two_interfaces(in_octets64=15_400, discontinuity=1_020_000), uptime=1_060_000))
+        self.deliver()
+        sample = InterfaceSample.objects.filter(interface__if_index=1).latest("measured_at")
+        self.assertEqual((sample.delta_state, sample.in_octets_delta), ("ok", 400))
+
+    def test_a_discovery_interrupted_by_a_restart_changes_nothing_in_the_inventory_and_the_next_one_does(self):
+        self.poll(fake.raw_data({1: fake.interface(1), 2: fake.interface(2)}, discover=True))
+        self.deliver()
+        # Interface 1 is read again as "Replacement", interface 2 is missing: metadata from before and
+        # after a restart that happened while the walks ran. That is not an inventory.
+        mixed = fake.raw_data({1: fake.interface(1, name="Replacement", descr="Replacement")}, discover=True, uptime=1_030_000)
+        mixed.sys_uptime_end_ticks = 400
+        self.poller._rediscover = True
+        self.poll(mixed)
+        batch, data, _ack, _body = self.deliver()
+        self.assertNotIn("interfaces_complete", batch.polls[-1])
+        self.assertEqual((data["snmp"], data["snmp_rejected"]), ("accepted", 0))
+        self.assertEqual(
+            sorted(Interface.objects.filter(present=True).values_list("name", flat=True)), ["Gi0/1", "Gi0/2"]
+        )  # nothing renamed, nothing marked absent
+        # The next poll discovers afresh, and this one is complete.
+        self.poll(fake.raw_data({1: fake.interface(1, name="Replacement", descr="Replacement")}, discover=True, uptime=900))
+        batch, _data, _ack, _body = self.deliver()
+        self.assertTrue(batch.polls[-1]["interfaces_complete"])
+        self.assertEqual(list(Interface.objects.filter(present=False).values_list("if_index", flat=True)), [2])
+        self.assertEqual(Interface.objects.get(if_index=1).name, "Replacement")
+
+    def test_an_interrupted_first_discovery_of_a_fresh_agent_leaves_the_stored_identities_alone(self):
+        self.poll(fake.raw_data({1: fake.interface(1, name="old-port", descr="old-port"), 2: fake.interface(2)}, discover=True))
+        self.deliver()
+        self.poller = self.make_poller(fake.v3())  # an agent that restarted: no inventory cached
+        mixed = fake.raw_data({1: fake.interface(1, name="mixed-port", descr="mixed-port")}, discover=True, uptime=1_030_000)
+        mixed.sys_uptime_end_ticks = 400  # the device restarted while the walks ran
+        self.poll(mixed)
+        batch, data, _ack, _body = self.deliver()
+        poll = batch.polls[-1]
+        self.assertEqual((poll["interfaces"], data["snmp"], data["snmp_rejected"]), ([], "accepted", 0))
+        self.assertNotIn("interfaces_complete", poll)
+        self.assertEqual(
+            sorted(Interface.objects.filter(present=True).values_list("name", flat=True)), ["Gi0/2", "old-port"]
+        )  # not renamed, and nothing marked absent
+        # A complete, trusted discovery then renames it.
+        self.poll(fake.raw_data({1: fake.interface(1, name="trusted-port", descr="trusted-port"), 2: fake.interface(2)}, discover=True, uptime=900))
+        batch, _data, _ack, _body = self.deliver()
+        self.assertTrue(batch.polls[-1]["interfaces_complete"])
+        self.assertEqual(Interface.objects.get(if_index=1).name, "trusted-port")
+        self.assertEqual(Interface.objects.filter(present=False).count(), 0)
+
     def test_every_delta_state_the_agent_can_produce_is_accepted_and_stored_as_sent(self):
         self.poll(fake.raw_data(two_interfaces(in_octets64=10_000), discover=True))
         self.deliver()
@@ -146,8 +204,9 @@ class AcceptanceTests(AgentContractTestCase):
                 self.assertEqual(sample.interval_seconds, 300.0)
                 self.assertEqual(sample.octets_bits, 64)
         with self.subTest("gap"):
-            # A long silence between two polls.
-            self.poll(fake.raw_data(two_interfaces(in_octets64=100), uptime=40_000), advance=3_000)
+            # A long silence between two polls. The poll after the reboot is a discovery poll: it names
+            # the interfaces, and the same names keep the previous reading (which is then too old).
+            self.poll(fake.raw_data(two_interfaces(in_octets64=100), uptime=40_000, discover=True), advance=3_000)
             self.deliver()
             sample = InterfaceSample.objects.filter(interface__if_index=1).latest("measured_at")
             self.assertEqual((sample.delta_state, sample.in_octets_delta), ("gap", None))
@@ -195,7 +254,8 @@ class AcceptanceTests(AgentContractTestCase):
                 self.poll(fake.raw_data(two_interfaces(in_octets64=10_000), discover=True))
                 self.deliver()
                 self.clock.now += 8 * 24 * 3600  # the device was silent for 8 days (monotonic time only)
-                self.poll(fake.raw_data(two_interfaces(in_octets64=20_000 if state == "gap" else 5), uptime=uptime))
+                # Eight days later the discovery is due again: its poll names the same interfaces.
+                self.poll(fake.raw_data(two_interfaces(in_octets64=20_000 if state == "gap" else 5), uptime=uptime, discover=True))
                 _batch, data, ack, _body = self.deliver()
                 self.assertEqual((data["snmp"], data["snmp_rejected"]), ("accepted", 0), data)
                 sample = InterfaceSample.objects.filter(interface__if_index=1).latest("measured_at")

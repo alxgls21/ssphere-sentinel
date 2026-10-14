@@ -36,6 +36,8 @@ COLUMNS: dict[str, str] = {
     "out_octets64": f"{_IF_X_ENTRY}.10",
     "high_speed": f"{_IF_X_ENTRY}.15",  # ifHighSpeed: Mbit/s
     "alias": f"{_IF_X_ENTRY}.18",
+    # ifCounterDiscontinuityTime: a sysUpTime value (TimeTicks), 0 if none since the device started.
+    "discontinuity": f"{_IF_X_ENTRY}.19",
 }
 
 # Walked on every poll. ``oper`` goes first: it defines the interface set.
@@ -49,6 +51,7 @@ POLL_COLUMNS = (
     "out_errors",
     "in_discards",
     "out_discards",
+    "discontinuity",
 )
 # Walked only by a discovery poll.
 DISCOVERY_COLUMNS = ("name", "descr", "alias", "type")
