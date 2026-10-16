@@ -325,6 +325,54 @@ describe('empty query', () => {
     expect(first).toHaveTextContent('CRIT')
   })
 
+  describe('with an offline server first in the index', () => {
+    const withOffline: EntityIndex = {
+      ...INDEX,
+      items: [
+        entity({
+          id: 'off',
+          kind: 'server',
+          name: 'pir-fs-01',
+          detail: 'pir-fs-01.internal 10.30.1.20',
+          status: 'critical',
+          offline: true,
+        }),
+        ...INDEX.items,
+      ],
+    }
+    const openProblems = async () => {
+      const { user } = setup({
+        api: createTestApi({ getEntityIndex: vi.fn().mockResolvedValue(withOffline) }),
+      })
+      await openLoaded(user)
+      return within(group('Problems')).getAllByRole('option')
+    }
+
+    it('tags it OFFL, with its own shape, where the others stay CRIT', async () => {
+      const [offline, critical] = await openProblems()
+      // The problems list ranks it as critical: ahead of the critical entities that came after it, before any warning.
+      expect(titles(group('Problems'))).toEqual([
+        'pir-fs-01',
+        'edge-gw-02',
+        'worker-restart',
+        'db-primary',
+        'wan-uplink',
+      ])
+      expect(critical?.querySelector('[data-status]')).toHaveAttribute('data-status', 'critical')
+      expect(critical).toHaveTextContent('CRIT')
+      expect(offline?.querySelector('[data-status]')).toHaveAttribute('data-status', 'offline')
+      expect(offline?.querySelector('svg[data-status]')).toHaveAttribute('data-status', 'offline')
+      expect(offline).toHaveTextContent('OFFL')
+      expect(offline).not.toHaveTextContent('CRIT')
+    })
+
+    it('names the state in full for a screen reader, not by its tag', async () => {
+      const [offline, critical] = await openProblems()
+      expect(offline).toHaveAccessibleName(/^pir-fs-01 .* offline$/)
+      expect(critical).toHaveAccessibleName(/^edge-gw-02 .* critical$/)
+    })
+  })
+
   it('lists the eight screens with their g-key hints and a PLAN tag on the planned ones', async () => {
     const { user } = setup()
     await openLoaded(user)
@@ -346,7 +394,6 @@ describe('empty query', () => {
       .getAllByRole('option')
       .filter((option) => within(option).queryByText('Plan') !== null)
     expect(planned.map((option) => option.querySelector('span')?.textContent)).toEqual([
-      'SNMP',
       'Topology',
       'Alerts',
     ])

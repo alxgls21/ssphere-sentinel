@@ -4,11 +4,15 @@ import { useLocation } from 'react-router'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { usePrefs } from '@/app/prefs'
 import { useShell } from '@/app/shell'
+import { registryOverrides } from '@/config/testing'
 import { stubFocusVisible } from '@/ui/controls/testing'
 import { Topbar } from './Topbar'
 import { renderShell } from './testing'
 
+const overrides = registryOverrides()
+
 afterEach(() => {
+  overrides.restore()
   vi.useRealTimers()
   vi.unstubAllGlobals()
   vi.restoreAllMocks()
@@ -196,10 +200,16 @@ describe('Topbar: clock', () => {
 })
 
 describe('Topbar: provenance and the palette', () => {
-  it('shows the MOCK DATA chip while the data is mock, and not for a real API', async () => {
+  it('shows the DEMO DATA chip while the data is mock, and over an HTTP adapter that is not fully connected', async () => {
     const { unmount } = await setup()
     expect(screen.getByText('Demo data')).toBeInTheDocument()
     unmount()
+    await setup({}, { api: { source: 'http' } })
+    expect(screen.getByText('Demo data')).toBeInTheDocument()
+  })
+
+  it('drops the chip only when every feature is connected and the data is real', async () => {
+    overrides.connectAll()
     await setup({}, { api: { source: 'http' } })
     expect(screen.queryByText('Demo data')).not.toBeInTheDocument()
   })

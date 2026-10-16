@@ -3,11 +3,11 @@ import type { Freshness } from '@/app/live'
 import type { FeatureId } from '@/config/features'
 import { describeCounts, nonZeroCounts, spokenStatus } from '@/lib/blocks'
 import { EMPTY, formatInteger } from '@/lib/format'
-import { needsAttention } from '@/lib/status'
+import { healthOf, needsAttention } from '@/lib/status'
 import { NO_DATA_AFTER_SECONDS } from '@/lib/thresholds'
 import type { Verdict } from '@/lib/verdict'
 
-/** The domains the verdict counts. SNMP and alerts are deliberately absent: they are planned. */
+/** The domains the verdict counts. SNMP and alerts are deliberately absent: the console does not read SNMP yet, and alerts are not implemented. */
 export const VERDICT_FEATURES: readonly FeatureId[] = ['servers', 'docker', 'network']
 
 /**
@@ -15,12 +15,12 @@ export const VERDICT_FEATURES: readonly FeatureId[] = ['servers', 'docker', 'net
  * critical levels are presentational defaults (the backend has no alert rules).
  */
 export const NOT_COUNTED =
-  'Alerts, events and SNMP devices are not counted: not implemented in backend. Warn and critical levels are UI defaults, not backend rules.'
+  'Alerts and events are not counted: not implemented in the backend. SNMP devices are not counted: the console does not read them yet. Warn and critical levels are UI defaults, not backend rules.'
 
-/** "4 critical, 5 warning": the counts that need a look, in words, worst first. Empty when none. */
+/** "3 critical, 1 offline, 5 warning": the counts that need a look, in words, worst first. Empty when none. */
 export function describeProblems(counts: StatusCounts): string {
   return nonZeroCounts(counts)
-    .filter(({ status }) => needsAttention(status))
+    .filter(({ status }) => needsAttention(healthOf(status)))
     .map(({ status, count }) => `${formatInteger(count)} ${spokenStatus(status)}`)
     .join(', ')
 }

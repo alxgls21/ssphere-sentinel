@@ -265,7 +265,495 @@ docker compose run --rm web python manage.py migrate
 ```
 
 Always back up first. Native installations run `python manage.py migrate`
-with the production environment loaded.
+with the production environment loaded. With
+[separate database logins](#separate-database-logins) `web` cannot change the
+schema: the `migrate` service applies them (`docker compose up -d`, or
+`docker compose run --rm migrate apply-migrations`).
+
+### Separate database logins
+
+By default one PostgreSQL login does everything: the superuser the database
+image creates, whose password `web` holds. With `SENTINEL_DB_ROLES=separate`
+no Sentinel process holds a superuser's password or connects as one:
+
+| Login | Used by | Can | Password in |
+| --- | --- | --- | --- |
+| `sentinel_app` | `web` | read and write the application's rows | `.env` (`SENTINEL_DB_PASSWORD`) |
+| `sentinel_migrate` | `migrate` | change the schema, as `sentinel_owner` | `.env.migrate` (`SENTINEL_DB_MIGRATE_PASSWORD`) |
+| bootstrap superuser | `db`, and the operator through `docker compose exec db` | everything | `.env.bootstrap` (`POSTGRES_PASSWORD`) |
+
+Compose gives each password to its own service only. `.env` is the
+environment of `web` and `migrate`, so it must not hold the other two:
+`.env.migrate` is read by `migrate` alone, and `.env.bootstrap` by Compose
+alone, to configure `db`. `migrate` does not get `SENTINEL_DB_PASSWORD` and
+`web` does not get `SENTINEL_DB_MIGRATE_PASSWORD`, even when `.env` has them.
+Every Sentinel process refuses to start with a password that is not its own,
+and with `SENTINEL_DB_ROLES` unset or `legacy` while a password of the
+separate logins is set. The provisioning of the logins needs the bootstrap
+superuser and is the operator's: `scripts/postgres-roles.sh` runs it in the
+`db` container, over its local socket, without the bootstrap password.
+
+The separate logins are supported on a PostgreSQL cluster of Sentinel's own
+only: the `db` service of this Compose project. PostgreSQL roles belong to the
+whole cluster, so a shared or external cluster is not supported in this mode.
+Provisioning, `scripts/postgres-roles.sh status` and every start refuse a
+cluster that holds another database (besides Sentinel's, `postgres`,
+`template0` and `template1`) or another role (besides the bootstrap
+superuser, the three logins' roles and PostgreSQL's own `pg_` roles), and
+name what they found. This is a compatibility check only: it says nothing
+about how the cluster was created or what a superuser has done in it.
+
+A start then goes: `db` healthy; `migrate` logs in (it cannot until the logins
+are provisioned), checks the roles before it runs anything, applies the
+migrations and checks the roles again. The checks are those of
+`scripts/postgres-roles.sh status`, but the passwords (which only the
+superuser may read), in a session PostgreSQL keeps read-only: what each role
+may do, as PostgreSQL decides it, through `PUBLIC` and role memberships too,
+grant options included, on every object of the application's database and of
+what the cluster shares (databases, tablespaces, parameters); the system
+catalogs only beyond what every role may read in them. Another database's objects cannot be seen from
+this one, so the logins may not connect to any other database. `web` starts
+only when that succeeded, checks the same again, and serves. Any failure
+stops the start, with a message that names the database, the object, the
+privilege and who holds it (`PUBLIC`, or a role), never a password; nothing
+is revoked for you.
+
+`django_migrations` records which migrations ran, and so decides the schema
+changes `migrate` makes: `sentinel_app` may only read it. `migrate` creates it
+in a transaction that also takes away the `INSERT`, `UPDATE` and `DELETE` the
+owner's default privileges give every new table, so it is never committed
+writable for `sentinel_app`. Should `sentinel_app` be able to write it
+anyway, by a grant to it, to `PUBLIC`, on a column or through a role, neither
+service starts and no migration runs, not even `manage.py migrate` run by
+hand (it checks before anything else). Revoke it yourself, as
+`scripts/postgres-roles.sh status` names it: `apply` changes nothing while
+the roles differ from what it provisioned.
+
+PostgreSQL itself must keep `sentinel_app` out of what it does not need: by
+default every role may connect to every database, create temporary tables in
+it and create large objects (`lo_creat`, `lo_create`, `lo_from_bytea`, and
+psql's `\lo_import`, which calls them). Before the first provisioning, revoke
+from `PUBLIC`, as the bootstrap superuser, `TEMPORARY` on every database,
+`CONNECT` on every database but Sentinel's (`postgres` and `template1`), and,
+in Sentinel's database, `EXECUTE` on those three functions (grant them back
+to any other role of yours that needs them); `apply` refuses until then and
+prints what is missing, and every start refuses should any of it come back.
+Keep what `PUBLIC` held, to give it back should you not go on:
+
+```bash
+docker compose exec -T db sh -c 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -At' > public-grants.sql <<'SQL'
+SELECT format('GRANT %s ON DATABASE %I TO PUBLIC;', privilege, datname)
+  FROM pg_database, unnest(ARRAY['CONNECT', 'TEMPORARY']) privilege
+ WHERE datallowconn AND has_database_privilege('public', oid, privilege);
+SELECT format('GRANT EXECUTE ON FUNCTION %s TO PUBLIC;', oid::regprocedure)
+  FROM pg_proc WHERE prosrc IN ('be_lo_creat', 'be_lo_create', 'be_lo_from_bytea')
+   AND has_function_privilege('public', oid, 'EXECUTE');
+SQL
+docker compose exec -T db sh -c 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -v ON_ERROR_STOP=1' <<'SQL'
+SELECT format('REVOKE TEMPORARY ON DATABASE %I FROM PUBLIC', datname)
+  FROM pg_database WHERE datallowconn \gexec
+SELECT format('REVOKE CONNECT ON DATABASE %I FROM PUBLIC', datname)
+  FROM pg_database WHERE datallowconn AND datname <> current_database() \gexec
+REVOKE EXECUTE ON FUNCTION pg_catalog.lo_creat(integer), pg_catalog.lo_create(oid),
+    pg_catalog.lo_from_bytea(oid, bytea) FROM PUBLIC;
+SQL
+```
+
+Grants to `PUBLIC` elsewhere in Sentinel's database stop the start as well,
+since they reach `sentinel_app` too: on another schema, its tables, views,
+sequences or functions, on large objects, foreign-data wrappers and
+servers, tablespaces and parameters, and on the system catalogs beyond what
+initdb gave. Revoke them, or move what needs them to another database. Only
+what initdb made counts as PostgreSQL's own: an object created later in
+`pg_catalog` or `information_schema` is treated like any other, and nothing
+created after initdb that runs code (a function, cast, operator, type,
+extension and the like) may be in Sentinel's database at all, granted or
+not; install such tools in another database. `apply` checks all of this
+before it changes anything, and again at its end.
+
+Revoking `CONNECT` keeps new sessions out of the other databases but ends
+none: a session of `sentinel_app` or `sentinel_migrate` still open in one
+stops the start, and `apply` and `status` refuse, naming each one (database,
+pid, login, state) with the statement that would end it. Nothing ends it for
+you. Find out what each is, then end it yourself, as the bootstrap
+superuser, and run the check again:
+
+```bash
+docker compose exec -T db sh -c 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB"' <<'SQL'
+SELECT pid, usename, datname, state, backend_start, query
+  FROM pg_stat_activity
+ WHERE usename IN ('sentinel_app', 'sentinel_migrate') AND datname <> current_database();
+SQL
+docker compose exec -T db sh -c 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c "SELECT pg_terminate_backend(<pid>)"'
+scripts/postgres-roles.sh status
+```
+
+`apply` reads what the cluster holds before it changes anything, and acts
+on one of three states:
+
+- **A, first activation:** none of the three roles and no record of an
+  activation. `apply` creates the roles, their privileges and the record
+  (schema `sentinel_restricted`, owned by the bootstrap superuser, open to no
+  one, naming this database and the three roles), all at once.
+- **B, activated:** the three roles and the record of their activation, as
+  `apply` left them. `apply` checks everything first, then sets the
+  passwords, and changes nothing else: run it again to rotate the passwords
+  (new values in `.env` and `.env.migrate`), or with the same files to no
+  effect.
+- **C, anything else:** some of the roles only, roles without the record or
+  the record without them, a record that names another database or other
+  roles (a role dropped and created again, a database restored elsewhere), or
+  in B anything that differs from what `apply` provisioned. `apply`,
+  `scripts/postgres-roles.sh status` and every start refuse, name what they
+  found, and change nothing; `apply` never takes over a role it did not
+  create. Undo what differs by hand, in a maintenance window, as `status`
+  names it; when roles or the record are missing, partial or another
+  activation's, rebuild instead (the way back below).
+
+`apply` is one transaction. When `scripts/postgres-roles.sh apply` does not
+print `committed`, it says what happened: it refused, or stopped before its
+`COMMIT`, and nothing changed (`nothing was committed`: still A, or B with the
+old passwords); or the connection broke at its very end, after the `COMMIT`
+(`the database is provisioned`). Running `apply` again, with the same files,
+is safe in both cases.
+
+#### A new installation
+
+Follow [Configure](#1-configure), then give each login its own secret, with
+the bootstrap password in its own file instead of `.env`:
+
+```bash
+secret() { python3 -c 'import secrets; print(secrets.token_urlsafe(50))'; }
+umask 077
+printf 'POSTGRES_PASSWORD=%s\n' "$(secret)" > .env.bootstrap
+printf 'SENTINEL_DB_MIGRATE_PASSWORD=%s\n' "$(secret)" > .env.migrate
+sed -i.bak '/^POSTGRES_PASSWORD=/d' .env && rm .env.bak
+cat >> .env <<EOF
+SENTINEL_DB_ROLES=separate
+SENTINEL_DB_PASSWORD=$(secret)
+SENTINEL_BOOTSTRAP_ENV_FILE=.env.bootstrap
+SENTINEL_MIGRATE_ENV_FILE=.env.migrate
+EOF
+```
+
+Start the database alone, revoke temporary tables from `PUBLIC` (above),
+provision the logins, then start everything:
+
+```bash
+scripts/postgres-preflight.sh
+docker compose up -d --wait db
+scripts/postgres-roles.sh apply       # expected: postgres-roles: apply: committed
+docker compose up -d --build
+docker compose ps --all               # migrate exited (0), db and web healthy
+```
+
+Continue with [Start](#2-start) from `createsuperuser`.
+
+#### An existing installation
+
+The tables of an existing installation belong to the bootstrap superuser;
+`apply` hands them to `sentinel_owner` in the same transaction that creates
+the logins. Plan a short maintenance window: `web` stays stopped from step 1
+to step 4. Nothing here touches the database volume: never add `--volumes`
+to a Compose command, and leave `SENTINEL_POSTGRES` in `.env` as it is (an
+installation still on PostgreSQL 16 stays on it).
+
+1. Back up the database (see [Backups](#backups)) and copy `.env`. Stop `web`
+   (`apply` refuses while it is connected):
+
+   ```bash
+   cp .env env.legacy.backup
+   docker compose stop web
+   ```
+
+2. Move the bootstrap password, unchanged, out of `.env` into
+   `.env.bootstrap` (a different value would only recreate the `db` container;
+   the superuser keeps the password it has), and add the two logins:
+
+   ```bash
+   secret() { python3 -c 'import secrets; print(secrets.token_urlsafe(50))'; }
+   umask 077
+   grep '^POSTGRES_PASSWORD=' .env > .env.bootstrap
+   printf 'SENTINEL_DB_MIGRATE_PASSWORD=%s\n' "$(secret)" > .env.migrate
+   sed -i.bak '/^POSTGRES_PASSWORD=/d' .env && rm .env.bak
+   cat >> .env <<EOF
+   SENTINEL_DB_ROLES=separate
+   SENTINEL_DB_PASSWORD=$(secret)
+   SENTINEL_BOOTSTRAP_ENV_FILE=.env.bootstrap
+   SENTINEL_MIGRATE_ENV_FILE=.env.migrate
+   EOF
+   ```
+
+3. Keep and revoke what `PUBLIC` holds (above, `public-grants.sql`), then
+   provision. The first `apply` refuses and lists the tables to hand over;
+   run it again with them:
+
+   ```bash
+   scripts/postgres-roles.sh apply
+   scripts/postgres-roles.sh apply --adopt-table <table> --adopt-table <table> ...
+   ```
+
+4. Start, and check:
+
+   ```bash
+   scripts/postgres-preflight.sh
+   docker compose up -d
+   docker compose ps --all            # migrate exited (0), db and web healthy
+   scripts/postgres-roles.sh status   # expected: postgres-roles: status: verified
+   curl -fsS http://127.0.0.1:8000/health/ready/
+   ```
+
+Going back, as long as nothing was committed (`apply` never printed
+`committed`, and when it failed it said `nothing was committed`): restore
+`env.legacy.backup` as `.env`, remove `.env.migrate` and `.env.bootstrap`,
+give `PUBLIC` back what step 3 took, and start again:
+
+```bash
+cp env.legacy.backup .env
+rm .env.migrate .env.bootstrap
+docker compose exec -T db sh -c 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -v ON_ERROR_STOP=1' < public-grants.sql
+scripts/postgres-preflight.sh
+docker compose up -d
+```
+
+Should you be unsure whether it committed, ask the database (`f`: nothing was
+committed, `t`: the logins are provisioned):
+
+```bash
+docker compose exec -T db sh -c 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -At' <<'SQL'
+SELECT EXISTS (SELECT FROM pg_namespace WHERE nspname = 'sentinel_restricted');
+SQL
+```
+
+Once it has committed, the superuser login is refused for good in this
+cluster: go on from step 4 (`apply` again first, if it was cut short). The way
+back to one superuser login is then a new cluster, which
+`sentinel/database.py` describes; the volume of this one stays as it is.
+To move the data of an installation into a new, dedicated cluster of separate
+logins, verified and without touching the old one, see
+[Recover the data of an installation into a new cluster](#recover-the-data-of-an-installation-into-a-new-cluster).
+
+#### Recover the data of an installation into a new cluster
+
+To bring the data of an existing installation (one superuser login, or the
+separate logins) into a new, dedicated cluster that is provisioned like
+[a new installation](#a-new-installation), use `python3 -m sentinel.recovery`.
+Only data crosses: roles, ownership, privileges and the schema of the old
+database are never imported; the new cluster has the ones `apply` and the
+`migrate` service made. The old database is never changed: its sessions are
+read-only (`export` never writes, `verify-source` proves it), and the old
+Compose project, its volume and its `.env` stay as they are. Nothing of the
+new installation is published until every check has passed: from the first
+change on, a record in the new database that only `sentinel_owner` can change
+makes `web` and `migrate` refuse to start on it, however they are started,
+until `activate` admits it.
+
+The new cluster may be of the same or a newer PostgreSQL major version than
+the old one (the dump is read by the new container's `pg_restore`), never an
+older one. Both installations must run the same release: their migration
+histories are compared as pairs `(app, name)`, whatever their ids, times and
+order, and any difference is refused (update after the recovery).
+
+**What each command does**
+
+| Command | Runs on | Does |
+| --- | --- | --- |
+| `export` | the old installation | reads it (manifest, a data-only dump of schema `public` without `django_migrations`, the manifest again) into a private bundle directory |
+| `verify-source` | the old installation | checks that it is still exactly what the bundle was made from; with `--work` it records the finding, which `activate` requires |
+| `import` | the new installation, before `web` has ever run | checks, restores the data in one transaction as `sentinel_app` (no superuser, no `--disable-triggers`, foreign keys enforced), sets the sequences as `sentinel_owner` through `sentinel_migrate`, verifies; `--bundle-sha256` pins the bundle |
+| `activate` | the new installation | refuses unless the import verified the destination, the bundle is the one imported and `verify-source` recorded the old database unchanged; checks the destination again (login, trust, migrations, tables and schema, every row, the sequences, no session of the application); only then runs `docker compose up --detach --wait` |
+
+`import` stops at the first check that fails, names it, and rejects the
+destination. The checks, in order:
+
+| Check | Fails when |
+| --- | --- |
+| `bundle` | the dump is not the one exported (SHA-256), or the old database it was taken from is unsound (a row with no parent, a sequence behind its column or exhausted), has tables outside schema `public` or large objects |
+| `destination.login` | the restore would run as a superuser, or not as `sentinel_app` |
+| `destination.trusted` | the checks of every start of `web` (those of `scripts/postgres-roles.sh status`, but for the password verifiers) fail: the cluster is not Sentinel's own, or its roles, their record or their privileges differ from what `apply` left |
+| `destination.idle` | any other session of `sentinel_app` or `sentinel_migrate` is connected (a session that is just ending is waited for, up to 3 seconds) |
+| `destination.manifest` | the destination's database changed while it was read |
+| `migrations` | the `(app, name)` pairs of the two `django_migrations` differ |
+| `tables`, `schema` | the tables, columns, constraints or sequences differ, or a column is `GENERATED ALWAYS` |
+| `destination.fresh` | the new database holds data of its own, or was emptied by an attempt that did not finish: a destination is used once |
+| `dump.toc` | the dump is unreadable, or does not hold the data of exactly the application's tables and nothing else |
+| `restore.clear`, `restore.data`, `restore.sequences` | the rows the migrations seeded could not be replaced; the restore failed (one transaction: it leaves none of the data); a sequence could not be set |
+| `verify.data` | a table has other rows than the old one (count, and a fingerprint of every row) |
+| `verify.integrity` | a foreign key has a row with no parent, or a constraint is not validated, or the schema moved |
+| `verify.sequences` | a sequence would not give next what the old one would (`last_value` and `is_called` are read together: the value after the last one given, or the one to give if none was), or its next value is not beyond the largest in its column and within its maximum |
+| `verify.trusted` | the destination is not as trusted as before, or the record of the migrations changed |
+
+Every manifest reads each row once, to fingerprint it: `export` reads the old
+database twice (before and after the dump), `import` reads the new one before
+and after the restore, and `activate` once more. On a large database that is
+minutes of reading on top of the dump and restore; measure it on a copy, and
+size the maintenance window by it.
+
+Exit status: `0` done; `1` rejected (a check failed) or refused (`activate`
+lacks what it needs: nothing was started and the destination is not rejected
+by it); `3` failed for another reason (a program could not run, a connection
+broke, a directory exists, a record is malformed). The old installation is
+never touched, by any status. Up to `dump.toc` a rejection leaves the
+destination as it was: once the cause is fixed, `import` can be run again on it,
+with a new `--work` directory. From `restore.clear` the destination is used,
+and is made again.
+
+**1. Prepare the new installation, while the old one runs**
+
+Take the same release into a directory of its own (its Compose project, volume
+and network take their names from it; set `COMPOSE_PROJECT_NAME` in its `.env`
+should two directories share a name). `OLD` and `NEW` stand for the two
+project directories:
+
+```bash
+OLD=/opt/ssphere-sentinel
+NEW=/opt/ssphere-sentinel-new
+git -C "$OLD" rev-parse HEAD                   # the release the old one runs
+git clone https://github.com/alxgls21/ssphere-sentinel.git "$NEW"
+git -C "$NEW" checkout "$(git -C "$OLD" rev-parse HEAD)"
+cd "$NEW"
+```
+
+Configure it as in [1. Configure](#1-configure) (`SENTINEL_POSTGRES_INITIALIZE=true`
+included) and give each login its own secret in `.env.bootstrap`, `.env` and
+`.env.migrate` as in [A new installation](#a-new-installation): new secrets for
+the database and its logins, but the same `DJANGO_SECRET_KEY`,
+`AGENT_TOKEN_PEPPER` and application settings as the old `.env`, so that the
+agents' tokens and the sessions keep working. Then provision, and migrate,
+without starting `web`:
+
+```bash
+scripts/postgres-preflight.sh
+docker compose build
+docker compose up -d --wait db
+# revoke from PUBLIC as above (keep public-grants.sql), then:
+scripts/postgres-roles.sh apply          # expected: postgres-roles: apply: committed
+docker compose run --rm migrate          # creates the tables, as sentinel_owner
+scripts/postgres-roles.sh status         # expected: postgres-roles: status: verified
+```
+
+Never `docker compose up` the whole stack here: the application must not run
+on the new database before the recovery has been verified (`destination.idle`).
+Remove `SENTINEL_POSTGRES_INITIALIZE` from `.env` once the database exists.
+
+**2. Maintenance window: stop the old application and export**
+
+Agents keep queueing network measurements while the application is stopped
+(see [operations.md](operations.md)). Stop `web` in the old project, so that
+nothing writes to the old database, and read it into a private bundle:
+
+```bash
+docker compose --project-directory "$OLD" stop web
+umask 077
+python3 -m sentinel.recovery export --compose-dir "$OLD" --bundle /var/backups/sentinel-recovery/bundle
+```
+
+Expected: `recovery: exported to ...; the old database was read, never
+written`, then the bundle's SHA-256 (note it: `import` can pin the bundle with
+it, which matters if the bundle travels). If the export reports that the old database changed while it was
+read, `web` was still running or something else wrote to it: stop it and run
+`export` again (a failed export leaves no bundle). The bundle holds the data
+of the old database, password hashes and agent token hashes included: keep it
+private, as the dump of [Backups](#backups), and remove it once the recovery
+is done. If the export says the old database is not sound, `import` will
+refuse it; repair the data of the old installation and export again.
+
+**3. Import and verify**
+
+```bash
+python3 -m sentinel.recovery import --compose-dir "$NEW" \
+    --bundle /var/backups/sentinel-recovery/bundle --bundle-sha256 <sha256 export printed> \
+    --work /var/backups/sentinel-recovery/work
+```
+
+Each check prints `recovery: <check>: passed`. On success the last line is
+`recovery: VERIFIED: the destination holds exactly the data of the old
+database; nothing is started until it is activated`, and `work/state.json`
+says `verified`. The application has not run.
+
+**4. Check the old one is unchanged, then activate**
+
+Statistics are not part of a dump: collect them, then check that the old
+database is still what was exported and start the new stack:
+
+```bash
+docker compose --project-directory "$NEW" exec -T db sh -c 'vacuumdb -U "$POSTGRES_USER" -d "$POSTGRES_DB" --analyze-only'
+python3 -m sentinel.recovery verify-source --compose-dir "$OLD" \
+    --bundle /var/backups/sentinel-recovery/bundle --work /var/backups/sentinel-recovery/work
+python3 -m sentinel.recovery activate --compose-dir "$NEW" --work /var/backups/sentinel-recovery/work
+curl -fsS http://127.0.0.1:8000/health/ready/
+```
+
+`verify-source` must say `the old database is exactly what was exported`, and
+records it in the work directory: `activate` refuses to start anything without
+it, so a restarted old `web` that took writes after the export cannot be
+overlooked (export again, then). `activate` checks the destination again (the
+login, trust, migrations, tables and schema, every row, the sequences and that
+no session of the application is connected), refuses anything but a verified
+work directory and the bundle that was imported, records `activating`, and
+then starts the stack; `recovery: ACTIVATED` is the last line. Point the TLS front
+end at the new project's port (the old `web` is stopped and its port free),
+sign in to the console and the admin, confirm that servers, their history and
+the network targets are there and that agents report again.
+
+**If `activate` does not complete**
+
+When it prints `docker compose up did not complete`, the stack may be partly
+up and `web` may already be serving and writing: the work directory says
+`activating`. Look at `docker compose --project-directory "$NEW" ps` and the
+logs, fix the cause, and run `activate` again: it only starts the stack again,
+without the checks. Never remove this destination's volume, nor `down
+--volumes` in `$NEW`, once the application has run on it: the data it accepted
+is in that database only. To go back instead, see Rollback.
+
+**If a check fails**
+
+The message names the check (`recovery: REJECTED: <check>: <what>`). The
+destination is rejected and is not started, whatever the check, and the old
+installation is as it was. Up to `dump.toc` nothing in the destination
+changed: fix the cause and run `import` again, with a new `--work` directory.
+From `restore.clear` it is used: make a new destination and run `import`
+again with the same bundle (while the old database has not changed:
+`verify-source`), a new `--work` directory, and a database that was not used:
+
+```bash
+cd "$NEW"
+docker compose down --volumes            # only NEW: the old project is another directory
+# then step 1 again: preflight, up -d --wait db, revoke from PUBLIC, apply, run --rm migrate
+```
+
+Never run `--volumes` in `$OLD`. A `restore.data` failure leaves none of the
+data, since the restore is one transaction, but the rows the migrations seeded
+are already replaced and a destination is used once; a killed `import` leaves
+`state.json` at `restoring` and the same rule. A `bundle` rejection means exporting
+again (a bundle that was altered, or an old database that is not sound).
+When the two installations differ (`migrations`, `tables`, `schema`), start
+the old one again (`docker compose --project-directory "$OLD" start web`), take
+both to the same release, and start over.
+
+**Rollback**
+
+At any point until you have chosen to keep the new installation: stop the new
+stack (`docker compose --project-directory "$NEW" down`, without `--volumes`)
+and start the old one (`docker compose --project-directory "$OLD" start web`).
+The old project, its database volume and its `.env` were never changed, so it
+starts exactly as it was when it was stopped; whatever the new installation
+accepted since then is not in it. Remove the old project's volume only once a
+backup of the new database has been restored elsewhere and checked.
+
+#### Operating it
+
+* Management commands run in `web` (`docker compose exec web python manage.py
+  ...`), with its login: the retention commands, `createsuperuser` and
+  `clearsessions` need nothing more. Schema changes go through the `migrate`
+  service.
+* `manage.py dbshell` is disabled. Use psql in the `db` container.
+* New passwords for the two logins: change them in `.env` and `.env.migrate`,
+  stop `web`, run `scripts/postgres-roles.sh apply`, then `docker compose up -d`.
+* Keep `.env.bootstrap` and `.env.migrate` private (`chmod 600`) and back them
+  up with `.env`. Compose reads `.env.bootstrap` on every command, so it stays
+  on the host; no Sentinel container receives it, but the `db` container's
+  configuration (`docker inspect`) shows it, as it always has.
 
 ### Backups
 

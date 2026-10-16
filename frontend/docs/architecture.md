@@ -55,7 +55,7 @@ frontend/
       hotkeys/              the keyboard layer
     config/               features.ts (what the backend implements), nav.ts, shortcuts.ts
     hooks/                useResource, useLiveResource, useStale, ...
-    lib/                  pure helpers: status, thresholds, verdict, format, freshness
+    lib/                  pure helpers: status (health and its offline presentation), thresholds, verdict, format, freshness
     styles/               tokens.css (the only place colors are written), base CSS
     ui/                   design-system primitives
       controls/ meters/ entity-cells/ status/ states/ provenance/ Panel.tsx
@@ -63,7 +63,7 @@ frontend/
     shell/                app frame: sidebar, top bar, status bar, command palette, sheets
     features/
       overview/           hero/ queue/ latency/ load/ health/ alerts/ events/
-      servers/            list (table, cards, search/filter/sort) and detail (summary, history chart, containers)
+      servers/            list (table, cards, search/filter/sort) and detail (summary with sparklines, history chart, containers)
       placeholder/        honest "not designed yet" screens
       design-system/      dev-only gallery at /_ds
     test/                 test setup and render helpers
@@ -113,6 +113,16 @@ panel --useLiveResource(id, key, fetch)--> useApi() --> SentinelApi --> mock | (
   failed) reads NO DATA. A panel also judges its own data age, so one dead
   endpoint is visible on its own panel. A dead dashboard must never look healthy:
   the sidebar badges show the unknown ring, not an old count.
+- **Health vocabulary** (`lib/status.ts`): the one place a domain state becomes a
+  `HealthStatus`, and where the offline presentation lives. `DisplayStatus`
+  adds `'offline'` to the five health statuses; `displayStatus`, `healthOf`,
+  `DISPLAY_ORDER`, `displayCounts` and `countEntities` map between the two.
+  Offline is critical to anything that decides (verdict, ranking, filters, badges,
+  tab title, favicon, severity edge), which reads `HealthStatus`; only marks that
+  describe an entity or a composition show it apart (`design-system.md`).
+- **Incidents** are not a resource. The Recent events panel makes one request and
+  draws two views of it, the log and the incident timeline; the incidents are
+  derived in the console from those events (`features/overview/events/incidentModel.ts`).
 - Types in `api/types.ts` are the UI's own view-models. When the backend ships
   read endpoints, write an HTTP client that maps their payloads onto them; no
   screen changes.
@@ -135,15 +145,66 @@ can be seen and tested without a backend.
 
 ## Honest labelling
 
-`config/features.ts` records what the backend really implements per feature
-(`ingest`, `partial`, `admin-only`, `planned`). `Panel` takes the backing
-features as a required prop and derives its markers: a quiet `mock · 15s` tag
-always, plus a dashed frame, a PLANNED chip and a footer sentence when every
-feature behind it is unimplemented. Planned and sample data never feed the
-verdict, the sidebar badges, the tab title or the palette's PROBLEMS list.
+`config/features.ts` keeps four facts apart, and none implies another:
+
+- `backend`: what the backend offers (`console-api`: the console API serves it;
+  `stored`: stored but not served to the console; `unsupported`; `unknown`).
+- `connected`: whether the console reads it yet. False while a screen shows demo
+  data, even where the backend is ready.
+- `requires`: what an operator must set up for the backend to have data. It is
+  information. It says nothing about whether that was done, and setting it up does
+  not make data appear in a console that is not connected.
+- `configuration`: whether that setup is done, only from reliable evidence (a
+  capability the backend reports). Never inferred from `requires`; absent means
+  unknown, and unknown is not "missing". No entry sets it today: there is no
+  runtime detection.
+
+`availabilityOf(id, source)` derives one state, and every marker follows it.
+Connection comes first, and a feature is `live` only when the console API serves
+it, the console reads it and the data is not demo data (anything unknown, or a
+missing data source, is not live):
+
+| State                 | Meaning                                                           | Marker                                                   |
+| --------------------- | ----------------------------------------------------------------- | -------------------------------------------------------- |
+| `live`                | served, read by the screen, real data                             | the quiet source tag only                                |
+| `not-connected`       | the console API does not serve it, or the screen does not read it | `mock` tag (demo figures) or a dashed NOT CONNECTED chip |
+| `needs-configuration` | otherwise live, and its setup is confirmed missing                | dashed frame, NEEDS SETUP chip                           |
+| `planned`             | the backend does not implement it                                 | dashed frame, PLANNED chip, a "not implemented" footer   |
+| `unknown`             | no entry, or not detected                                         | no claim either way (never shown as unsupported)         |
+
+**One provenance contract.** What rendered content may call itself comes from
+`provenanceOf(features, source)` (`config/features.ts`), read through
+`useProvenance`, and nowhere else:
+
+- `live` only when every feature behind it is `live`, which needs the console API,
+  the screen reading it and an HTTP source. The adapter alone is never enough: an
+  HTTP adapter says nothing about whether this feature's figures are real.
+- `mock` for demo, simulated or stored-only figures, and for any mix that includes
+  them. A panel combining a live and a demo feature is `mock`.
+- `unknown` when nothing can be verified: no source, no feature to judge it by (a
+  component that backs no registered feature), or only unknown features. It fails
+  conservatively and is shown as `unverified`, never `live`.
+
+The visual tag (`live`, `mock`, `unverified`) and the spoken text (nothing for live,
+"mock data", "source not verified") come from the same value, so a screen reader hears
+what a sighted user sees. Entity cells are judged by their own kind's feature. The
+app-wide indicators (top bar chip, notice strip, status bar, tab title) read
+`useShowsDemoData()`: they stay until every feature the screens show is live.
+
+`Panel` takes the backing features as a required prop and derives its markers:
+a quiet `mock · 15s` tag always, plus the dashed frame, chip and footer sentence
+when nothing real is shown behind it (unsupported, or an empty placeholder such as
+the SNMP tile). PLANNED is reserved for what the backend does not implement. SNMP
+is `not-connected`: the agent can collect it and the backend stores it, but the
+console API does not serve it, so configuring it does not make data appear here.
+Placeholder and sample data never feed the verdict, the sidebar badges, the tab
+title or the palette's PROBLEMS list. A screen built on demo data is not called
+unsupported: the registry note says what the console API serves and that the
+screen is not connected to it yet.
 Presentational thresholds (80/95 %, 2 % loss, 150 ms) live in
 `lib/thresholds.ts`, are judged on the value as displayed, and are labelled
-"UI defaults". When the backend gains a capability, change one registry entry.
+"UI defaults". When the backend gains a capability, or a screen is connected to it,
+change one registry entry.
 
 ## Servers screen
 
@@ -153,23 +214,26 @@ Presentational thresholds (80/95 %, 2 % loss, 150 ms) live in
 sorted in the UI (`features/servers/serversModel.ts`, pure and tested) and the
 query lives in the URL (`?q=&status=&sort=&dir=`), like the range and scope.
 Below `md` the table becomes cards (`useMediaQuery`: the DOM differs, so one of
-the two is mounted, never both). The detail page's chart is the third consumer of
-`ChartFrame` and is in the chart contract test.
+the two is mounted, never both). The detail page requests the series once, over the
+range in the top bar, and shares it between the Summary's sparklines and the history
+chart, so one request serves both and they cannot disagree. The chart is the third
+consumer of `ChartFrame` and is in the chart contract test.
 
-What the Django API has to provide for this screen (the console needs nothing else):
+What the console API serves for this screen (the screen reads demo data until it is
+connected to it):
 
-| Need                       | Today in the backend                         | Gap                                               |
-| -------------------------- | -------------------------------------------- | ------------------------------------------------- |
-| Server list                | `Server` rows with status and `last_seen_at` | A read endpoint (list, filter by scope)           |
-| Latest telemetry           | One `ServerTelemetry` row per server         | Include it in the list payload                    |
-| Site / customer per server | Not linked (`site-links`)                    | A `site` foreign key on `Server`: sample data now |
-| Containers per server      | `DockerContainer` rows with state and health | A read endpoint under the server                  |
-| CPU, RAM, disk history     | Only the latest row is kept                  | Store samples (or aggregate): **mock-only**       |
+| Need                       | In the console API                                                                           |
+| -------------------------- | -------------------------------------------------------------------------------------------- |
+| Server list                | `servers/`: `Server` rows with their status, filtered by scope, searched, sorted and paged   |
+| Latest telemetry           | In the list payload, with whether the reading is stale                                       |
+| Site / customer per server | `Server.site`: the list carries the names and scope filters on it (`site-links`)             |
+| Containers per server      | `servers/<id>/`, with each container's state and health                                      |
+| CPU, RAM, disk history     | `servers/<id>/series/`: bucket means of the stored telemetry samples, `null` where none came |
 
-A real client maps those payloads onto `ServerListItem`, `ServerDetail` and
-`ServerSeries` (`api/types.ts`); health is always derived in `lib/status.ts`, so
-the console and the Overview agree. Until history exists the series method
-returns empty data and the panel says "No history".
+`ServerListItem`, `ServerDetail` and `ServerSeries` (`api/types.ts`) are the
+shapes of those payloads. `lib/status.ts` holds the health rules, which the console
+API mirrors, so the console and the Overview agree. A server that has never
+reported has empty series arrays, and the panel says "No history".
 
 ## Authentication and API modes
 
@@ -249,8 +313,10 @@ STALE tag, and only marks and large figures dim.
   (keyboard, states, accessibility roles), not for pixels.
 - `features/overview/OverviewPage.test.tsx`: the page against the real mock API.
 - `styles/tokens.test.ts`: WCAG contrast of every text and mark token, no color
-  literal outside `tokens.css`, status-color utilities only in `ui/status`,
-  `ui/meters` and `charts`.
+  literal outside `tokens.css`, status-color utilities (healthy, warning, critical and
+  offline, with their tint and line) only in `ui/status`, `ui/meters` and `charts`,
+  and offline's derived tint and line, its chroma and its separation from the other
+  status hues and the greys under simulated color vision.
 - `app/auth`, `api/http`, `app/providers.test.tsx`: the transport (CSRF, 401, timeouts), the session
   state, the route guard, `next` handling and the production-mode refusal.
 - `architecture.test.ts`: the layering rules above, and that every chart goes
@@ -278,9 +344,9 @@ from it on purpose:
 - **Breakpoints**: drawer below 1024 px, app bar below 768 px (the spec's table
   and its tablet text disagreed; the tablet text won).
 - **Charts**: the latency plot grows with its panel (the spec fixed its height),
-  the legend is a single row (the warning threshold is labelled on the plot, not
-  in the legend), and chart behavior is shared code with a contract test rather
-  than per-chart wiring.
+  the legend is a single row (the latency chart's 150 ms and loss 2 % limits are
+  both labelled on the plot, not in the legend), and chart behavior is shared code
+  with a contract test rather than per-chart wiring.
 - **Not built (deferred in the spec)**: wall mode, density modes, the inspector
   drawer, "NEW" tags.
 - **Not installed yet**: Cytoscape (Topology screen).

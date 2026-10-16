@@ -1,6 +1,13 @@
 import { describe, expect, it } from 'vitest'
 import type { EventLevel, SentinelEvent } from '@/api/types'
-import { LEVEL_NAME, LEVEL_STATUS, buildTail, countUnseen } from './eventModel'
+import {
+  LEVEL_NAME,
+  LEVEL_STATUS,
+  buildTail,
+  canonicalEvents,
+  countUnseen,
+  groupByParent,
+} from './eventModel'
 
 const at = (hms: string) => `2026-10-12T${hms}Z`
 
@@ -33,6 +40,29 @@ describe('LEVEL_STATUS', () => {
   it('speaks info as info, not as idle, and healthy as ok', () => {
     expect(LEVEL_NAME.info).toBe('info')
     expect(LEVEL_NAME.healthy).toBe('ok')
+  })
+})
+
+describe('groupByParent', () => {
+  it('separates the events that stand on their own from the ones nested under another', () => {
+    const { roots, children } = groupByParent([
+      event('failed', '14:00:00'),
+      event('recovered', '14:05:00', 'failed', 'healthy'),
+      event('orphan', '14:06:00', 'gone', 'healthy'),
+    ])
+    expect(roots.map((e) => e.id)).toEqual(['failed', 'orphan'])
+    expect([...children].map(([id, kids]) => [id, kids.map((e) => e.id)])).toEqual([
+      ['failed', ['recovered']],
+    ])
+  })
+
+  it('leaves events whose parents loop back on their own', () => {
+    const { roots, children } = groupByParent([
+      event('a', '10:00:00', 'b'),
+      event('b', '11:00:00', 'a'),
+    ])
+    expect(roots.map((e) => e.id).sort()).toEqual(['a', 'b'])
+    expect(children.size).toBe(0)
   })
 })
 
@@ -148,5 +178,51 @@ describe('countUnseen', () => {
   it('does not count an event that merely left the list', () => {
     const shown = [event('a', '10:00:00'), event('b', '10:01:00')]
     expect(countUnseen([event('b', '10:01:00')], shown)).toBe(0)
+  })
+})
+
+describe('canonicalEvents', () => {
+  it('keeps one record per id, in the order each id first appears', () => {
+    const a = event('a', '10:00:00')
+    const b = event('b', '10:01:00')
+    expect(canonicalEvents([a, b, { ...a }, { ...b }, { ...a }])).toEqual([a, b])
+  })
+
+  it('keeps events that only look alike: same time and message, different ids', () => {
+    const twin = (id: string): SentinelEvent => ({ ...event('x', '10:00:00'), id, message: 'same' })
+    expect(canonicalEvents([twin('p'), twin('q')]).map((e) => e.id)).toEqual(['p', 'q'])
+  })
+
+  it('settles two different records of one id by the earlier timestamp', () => {
+    const early = { ...event('a', '10:00:00'), message: 'early' }
+    const late = { ...event('a', '10:05:00'), message: 'late' }
+    expect(canonicalEvents([late, early])).toEqual([early])
+    expect(canonicalEvents([early, late])).toEqual([early])
+  })
+
+  it('settles records that differ only in content by a fixed field comparison, in any order', () => {
+    const one = { ...event('a', '10:00:00'), message: 'alpha' }
+    const two = { ...event('a', '10:00:00'), message: 'beta' }
+    expect(canonicalEvents([one, two])).toEqual(canonicalEvents([two, one]))
+    expect(canonicalEvents([one, two])).toHaveLength(1)
+  })
+
+  it('does not change a list that already has unique ids', () => {
+    const events = [event('a', '10:00:00'), event('b', '10:01:00', 'a', 'healthy')]
+    expect(canonicalEvents(events)).toEqual(events)
+  })
+})
+
+describe('events repeated under one id', () => {
+  it('nest and appear once in the tail, wherever the repeat sits in the list', () => {
+    const failure = event('f', '10:00:00', undefined, 'critical')
+    const recovery = event('r', '10:30:00', 'f', 'healthy')
+    expect(ids([failure, recovery, { ...failure }, { ...recovery }])).toEqual(['f', 'r'])
+    expect(ids([{ ...recovery }, { ...failure }, recovery, failure])).toEqual(['f', 'r'])
+  })
+
+  it('count once as unseen', () => {
+    const fresh = event('n', '10:09:00')
+    expect(countUnseen([fresh, { ...fresh }], [event('a', '10:00:00')])).toBe(1)
   })
 })

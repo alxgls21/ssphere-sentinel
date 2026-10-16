@@ -37,6 +37,45 @@ describe('ServersTile', () => {
     ).toBeInTheDocument()
   })
 
+  it('shows an offline server apart from critical, in the line, the bar and the name', () => {
+    const summary = makeSummary()
+    summary.servers = {
+      total: 16,
+      online: 14,
+      counts: counts({ healthy: 13, warning: 2, critical: 1, offline: 1 }),
+    }
+    renderHero(<ServersTile />, { summary: makeResource({ data: summary }) })
+    const link = screen.getByRole('link', {
+      name: 'Servers: 14 of 16 online, 1 offline, 2 warning, mock data',
+    })
+    // Two marks still fit the tile with their words, and offline wears its own shape.
+    expect(link).toHaveTextContent('1 OFFL2 WARN')
+    expect(link.querySelector('svg[data-status="offline"]')).not.toBeNull()
+    expect(link.querySelector('svg[data-status="critical"]')).toBeNull()
+    expect(
+      within(link).getByRole('img', { name: 'Servers: 1 offline, 2 warning, 13 ok' }),
+    ).toBeInTheDocument()
+  })
+
+  it('drops the words, not the marks, when an offline server makes a third', () => {
+    const summary = makeSummary()
+    summary.servers = {
+      total: 16,
+      online: 13,
+      counts: counts({ healthy: 11, warning: 2, critical: 2, offline: 1, unknown: 1 }),
+    }
+    renderHero(<ServersTile />, { summary: makeResource({ data: summary }) })
+    const link = screen.getByRole('link', {
+      name: 'Servers: 13 of 16 online, 1 critical, 1 offline, 2 warning, 1 unknown, mock data',
+    })
+    expect(link).not.toHaveTextContent('OFFL')
+    expect(
+      [...link.querySelectorAll('svg[data-status]')].map((glyph) =>
+        glyph.getAttribute('data-status'),
+      ),
+    ).toEqual(['critical', 'offline', 'warning', 'unknown'])
+  })
+
   it('has no sparkline: the backend keeps only the latest state of a server', () => {
     renderHero(<ServersTile />)
     expect(document.querySelector('[aria-label^="Success rate"]')).toBeNull()
@@ -129,12 +168,14 @@ describe('TargetsTile', () => {
   })
 })
 
-describe('DevicesTile (planned)', () => {
-  it('shows the inventory and that no SNMP data exists, as a plain planned block', () => {
+describe('DevicesTile (not connected)', () => {
+  it('shows the inventory and that no SNMP data exists, as a plain placeholder block', () => {
     const { container } = renderHero(<DevicesTile />)
     expect(screen.queryByRole('link')).not.toBeInTheDocument()
-    expect(screen.getByText('Planned, not implemented')).toBeInTheDocument()
-    expect(screen.getByText('Planned')).toBeInTheDocument()
+    expect(screen.getByText('Not connected to the console yet')).toBeInTheDocument()
+    expect(screen.getByText('Demo')).toBeInTheDocument()
+    expect(screen.queryByText(/setup/i)).not.toBeInTheDocument()
+    expect(screen.queryByText('Planned')).not.toBeInTheDocument()
     expect(screen.queryByText('mock')).not.toBeInTheDocument()
     expect(screen.getByText('12')).toBeInTheDocument()
     expect(screen.getByText('in inventory')).toBeInTheDocument()

@@ -1,9 +1,10 @@
 import { Check, ChevronRight } from 'lucide-react'
 import { useEffect, useRef } from 'react'
 import { cn } from '@/lib/cn'
+import { displayStatus } from '@/lib/status'
 import { Kbd } from '@/ui/controls'
 import { PlannedChip } from '@/ui/provenance/Chips'
-import { StatusTag } from '@/ui/status'
+import { STATUS_NAME, StatusTag } from '@/ui/status'
 import type { PaletteItem } from './model'
 
 interface PaletteRowProps {
@@ -67,15 +68,25 @@ export function PaletteRow({ item, id, active, onActivate, onRun }: PaletteRowPr
       ) : (
         <span className="flex-1" />
       )}
+      {/* Flex layout ignores this space; it keeps the state or shortcut apart from the subtitle in the accessible name. */}{' '}
       <RightSlot item={item} />
     </button>
   )
 }
 
 function RightSlot({ item }: { item: PaletteItem }) {
+  const shown = item.status ? displayStatus(item.status, item.offline) : null
   return (
     <span className="ml-auto flex shrink-0 items-center gap-2 pl-2">
-      {item.status ? <StatusTag status={item.status} /> : null}
+      {shown ? (
+        <>
+          {/* The compact word is made to be scanned, not spoken: the name carries the state in full. */}
+          <span className="sr-only">{STATUS_NAME[shown]}</span>
+          <span aria-hidden="true" className="flex">
+            <StatusTag status={shown} />
+          </span>
+        </>
+      ) : null}
       {item.badge === 'plan' ? (
         <span className="type-tag rounded-sm border border-dashed border-border-strong px-1.5 py-0.5 text-fg-muted">
           Plan

@@ -69,6 +69,6 @@ export interface SentinelApi {
   /** One server and its containers. Rejects with ApiError(404) for an unknown id. */
   getServer(id: string, options?: Pick<RequestOptions, 'signal'>): Promise<ServerDetail>
 
-  /** CPU, memory and disk history. Mock-only (the backend keeps the latest sample only). */
+  /** CPU, memory and disk history. Served by the console API; demo data until the screen is connected. */
   getServerSeries(options: ServerSeriesOptions): Promise<ServerSeries>
 }

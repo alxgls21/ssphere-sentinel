@@ -1,10 +1,18 @@
 import { ChevronRight } from 'lucide-react'
 import type { MouseEventHandler, ReactNode, RefObject } from 'react'
 import { cn } from '@/lib/cn'
-import { EMPTY, formatAge, formatTime, type Timezone } from '@/lib/format'
+import { EMPTY, formatAge, formatClock, type Timezone } from '@/lib/format'
 import { Button, Tooltip } from '@/ui/controls'
 import { STATUS_EDGE, StatusTag } from '@/ui/status'
-import { detailLead, kindLabel, rowKey, rowLabel, siteLabel, type QueueItem } from './queueModel'
+import {
+  detailLead,
+  displayed,
+  kindLabel,
+  rowKey,
+  rowLabel,
+  siteLabel,
+  type QueueItem,
+} from './queueModel'
 import type { OrderLockBinding } from './useOrderLock'
 import type { RowProps } from './useQueueNavigation'
 import { PlaceName } from '@/ui/PlaceName'
@@ -13,7 +21,7 @@ import { PlaceName } from '@/ui/PlaceName'
 const CARD_LIMIT = 5
 
 const SITE_NOTE =
-  'Site assignment is not implemented in the backend for servers, containers and targets. Sample data.'
+  'Servers and probe targets can be placed on a site in the admin. The sites shown here are samples.'
 const NO_HISTORY =
   'No history: the backend stores no start time for this problem, only the latest sample.'
 
@@ -149,7 +157,7 @@ export function QueueTable({
                       className="pointer-events-none absolute inset-0 animate-crit-in"
                     />
                   ) : null}
-                  <StatusTag status={item.severity} word={item.stateLabel} variant="tag" />
+                  <StatusTag status={displayed(item)} word={item.stateLabel} variant="tag" />
                 </td>
                 <td
                   className={cn(
@@ -237,8 +245,8 @@ function Age({ item, nowMs, tz }: { item: QueueItem; nowMs: number; tz: Timezone
       </Tooltip>
     )
   }
-  const at = formatTime(Date.parse(item.ageIso), tz)
-  const since = `${item.ageBasis ? AGE_BASIS[item.ageBasis] : 'Since'} ${at}${tz === 'utc' ? 'Z' : ''}`
+  const at = formatClock(Date.parse(item.ageIso), tz)
+  const since = `${item.ageBasis ? AGE_BASIS[item.ageBasis] : 'Since'} ${at}`
   return (
     <Tooltip content={since}>
       <span className="type-data tnum text-fg-faint">{formatAge(item.ageIso, nowMs)}</span>

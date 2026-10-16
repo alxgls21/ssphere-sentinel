@@ -16,6 +16,8 @@ export interface TooltipRow {
   color: string
   value: string
   label: string
+  /** A limit the value has passed, in words ("62 ms over warn"): shown under the row beside a warning triangle. */
+  flag?: string
 }
 
 export interface TooltipContent {
@@ -36,9 +38,15 @@ const KEY_CLASS: Record<TooltipKey, string> = {
   diamond: 'size-2 rotate-45',
 }
 
+/** The warning triangle the plot draws over a sample that has passed its limit. */
+const FLAG_MARK_CLASS =
+  'size-2 justify-self-center bg-warning [clip-path:polygon(50%_0,100%_100%,0_100%)]'
+
 /**
  * Values lead and labels follow: the value is the strong, right-aligned
- * element in its own column, the series name is secondary beside it.
+ * element in its own column, the series name is secondary beside it. A row
+ * whose value has passed a limit says so in words on a line of its own, led by
+ * a warning triangle, so the state never rests on color.
  */
 export function buildTooltipElement({ title, rows }: TooltipContent): HTMLElement {
   const root = element('div', 'flex min-w-44 flex-col gap-1')
@@ -53,6 +61,12 @@ export function buildTooltipElement({ title, rows }: TooltipContent): HTMLElemen
       element('span', 'type-data-strong text-right text-fg', row.value),
       element('span', 'type-data truncate text-fg-muted', row.label),
     )
+    if (row.flag) {
+      grid.append(
+        element('span', FLAG_MARK_CLASS),
+        element('span', 'type-data col-span-2 text-fg', row.flag),
+      )
+    }
   }
   root.append(grid)
   return root

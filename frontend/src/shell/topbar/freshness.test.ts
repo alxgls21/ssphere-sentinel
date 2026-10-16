@@ -33,11 +33,17 @@ describe('describeFreshness', () => {
   })
 
   it('speaks a state only when it matters: updating is part of being live', () => {
-    expect(describeFreshness('live', 3).spoken).toBe('Data is live')
-    expect(describeFreshness('fetching', 3).spoken).toBe('Data is live')
+    expect(describeFreshness('live', 3).spoken).toBe('Updates are arriving')
+    expect(describeFreshness('fetching', 3).spoken).toBe('Updates are arriving')
     expect(describeFreshness('paused', 41).spoken).toBe('Updates are paused')
     expect(describeFreshness('stale', 52).spoken).toBe('Data is stale')
     expect(describeFreshness('nodata', 120).spoken).toBe('No data')
+  })
+
+  it('never says the data is live: the chip reports that updates arrive, not where the data comes from', () => {
+    for (const state of ['live', 'fetching', 'paused', 'stale', 'nodata'] as const) {
+      expect(describeFreshness(state, 52).spoken).not.toMatch(/\blive\b/i)
+    }
   })
 
   it('never puts the ticking age in what is spoken', () => {

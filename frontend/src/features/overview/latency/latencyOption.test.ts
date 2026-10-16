@@ -5,9 +5,11 @@ import type {
   ChartOption,
   LineSeriesOption,
 } from '@/charts/echarts'
+import { isReferenceSeries } from '@/charts/testing/referenceSeries'
 import { CHART_COLOR_TOKENS, type ChartColors, type ChartTokens } from '@/charts/theme'
-import { LATENCY_WARN_MS } from '@/lib/thresholds'
+import { LATENCY_WARN_MS, LOSS_WARN_PERCENT } from '@/lib/thresholds'
 import { LATENCY_CHART_HEIGHT_PX, LATENCY_GEOMETRY } from './latencyGeometry'
+import { SPIKE_HEADROOM_PX } from './latencyLayout'
 import {
   buildLatencyOption,
   latencyCursorPoint,
@@ -35,6 +37,8 @@ function build(overrides: Partial<LatencyOptionInput> = {}): ChartOption {
 
 type AnySeries = LineSeriesOption | BarSeriesOption
 const seriesOf = (option: ChartOption): AnySeries[] => [option.series ?? []].flat() as AnySeries[]
+/** The series the legend toggles: everything but the static references. */
+const dataSeries = (option: ChartOption) => seriesOf(option).filter((s) => !isReferenceSeries(s))
 const find = (option: ChartOption, id: string) => seriesOf(option).find((s) => s.id === id)
 const line = (option: ChartOption, id: string) => find(option, id) as LineSeriesOption
 const grids = (option: ChartOption) => [option.grid ?? []].flat()
@@ -74,8 +78,21 @@ describe('series wiring', () => {
     })
   })
 
-  it('orders the series p95, p50, loss, failed probes', () => {
-    expect(seriesOf(build()).map((s) => s.id)).toEqual(['p95', 'p50', 'loss', 'failed'])
+  it('orders the series p95, p50, loss, failed probes, then the two static limits', () => {
+    expect(seriesOf(build()).map((s) => s.id)).toEqual([
+      'p95',
+      'p50',
+      'loss',
+      'failed',
+      'reference:latency',
+      'reference:loss',
+    ])
+    expect(dataSeries(build()).map((s) => s.id)).toEqual(['p95', 'p50', 'loss', 'failed'])
+  })
+
+  it('draws p95, the reading to act on, over p50 where the two meet', () => {
+    const option = build()
+    expect(Number(line(option, 'p95').z)).toBeGreaterThan(Number(line(option, 'p50').z))
   })
 
   it('leaves a gap for a bucket without data: null values, no interpolation', () => {
@@ -97,8 +114,10 @@ describe('series wiring', () => {
       symbol: 'circle',
       symbolSize: 8,
       itemStyle: { color: 'token:primary', borderColor: 'token:panel', borderWidth: 2 },
-      data: [{ coord: [T0 + 240_000, 142] }],
     })
+    expect(marks(p95)[0]).toMatchObject({ name: 'last', coord: [T0 + 240_000, 142] })
+    // p50 has only its end mark: it is context, so it carries no spike marks.
+    expect(marks(line(build(), 'p50'))).toHaveLength(1)
   })
 
   it('puts the end label on p95 and loss only, in the text color rather than a series color', () => {
@@ -127,10 +146,8 @@ describe('series wiring', () => {
     const option = build({
       series: makeSeries({ p95: [100, 212, null, 150, null], lossMean: [0, 0.5, null, 2.5, null] }),
     })
-    expect(line(option, 'p95').markPoint).toMatchObject({
-      data: [{ coord: [T0 + 180_000, 150] }],
-      label: { formatter: '150 ms' },
-    })
+    expect(marks(line(option, 'p95'))[0]).toMatchObject({ coord: [T0 + 180_000, 150] })
+    expect(line(option, 'p95').markPoint).toMatchObject({ label: { formatter: '150 ms' } })
   })
 
   it('marks loss at or over the 2% threshold with a warning triangle, so state is not color alone', () => {
@@ -163,45 +180,281 @@ describe('series wiring', () => {
   })
 })
 
-describe('warn threshold', () => {
-  it('is one solid 1px warning line at 150 ms with an fg-faint label at the line start', () => {
-    const markLine = line(build(), 'p95').markLine
-    expect(markLine).toMatchObject({
+describe('warn limits', () => {
+  const limit = (option: ChartOption, id: 'latency' | 'loss') =>
+    find(option, `reference:${id}`) as LineSeriesOption
+  const markLineOf = (series: LineSeriesOption | undefined) =>
+    series?.markLine as { data: { yAxis: number }[]; label: Record<string, unknown> } | undefined
+
+  it('draws the latency limit as one solid 1px warning line at 150 ms in the latency grid', () => {
+    const series = limit(build(), 'latency')
+    expect(series).toMatchObject({ type: 'line', xAxisIndex: 0, yAxisIndex: 0, data: [] })
+    expect(series.markLine).toMatchObject({
       symbol: 'none',
       lineStyle: { color: 'token:warning', width: 1, type: 'solid', opacity: 0.6 },
-      label: {
-        show: true,
-        // The start, not the end: the p95 line runs along the right edge, where a label would collide with it.
-        position: 'insideStartTop',
-        formatter: 'warn 150 ms (UI default)',
-        color: 'token:fgFaint',
-        // The label stays at full contrast although the line is 60%.
-        opacity: 1,
-      },
       data: [{ yAxis: LATENCY_WARN_MS }],
     })
   })
 
-  it('draws it once, on the first visible latency series', () => {
-    const noP95 = build({ hidden: new Set(['p95']) })
-    expect(line(noP95, 'p50').markLine).toBeDefined()
-    expect(
-      seriesOf(build())
-        .filter((s) => s.markLine)
-        .map((s) => s.id),
-    ).toEqual(['p95'])
+  it('draws the loss limit the same way at 2% in the loss grid', () => {
+    const series = limit(build(), 'loss')
+    expect(series).toMatchObject({ type: 'line', xAxisIndex: 1, yAxisIndex: 1, data: [] })
+    expect(series.markLine).toMatchObject({
+      symbol: 'none',
+      lineStyle: { color: 'token:warning', width: 1, type: 'solid', opacity: 0.6 },
+      data: [{ yAxis: LOSS_WARN_PERCENT }],
+    })
   })
 
-  it('goes with the latency lines when both are hidden', () => {
-    const option = build({ hidden: new Set(['p95', 'p50']) })
-    expect(seriesOf(option).some((s) => s.markLine)).toBe(false)
+  it('labels each line in the same grammar, fg-faint at full contrast and 11px, a UI default', () => {
+    for (const [id, text] of [
+      ['latency', 'warn 150 ms (UI default)'],
+      ['loss', 'warn 2% (UI default)'],
+    ] as const) {
+      expect(markLineOf(limit(build(), id))?.label).toMatchObject({
+        show: true,
+        formatter: text,
+        color: 'token:fgFaint',
+        opacity: 1,
+        fontSize: 11,
+      })
+    }
+  })
+
+  it('keeps both lines whatever the legend has hidden: they ride on series of their own', () => {
+    for (const hidden of [
+      ['p95'],
+      ['p95', 'p50'],
+      ['loss', 'failed'],
+      ['p95', 'p50', 'loss', 'failed'],
+    ]) {
+      const option = build({ hidden: new Set(hidden) })
+      for (const id of ['latency', 'loss'] as const) {
+        expect(markLineOf(limit(option, id))?.data).toHaveLength(1)
+      }
+    }
+  })
+
+  it('draws no mark line on a data series, so a hidden series takes no limit with it', () => {
+    expect(dataSeries(build()).some((s) => s.markLine)).toBe(false)
+  })
+
+  it('is no legend entry and no tooltip row: the references have no data to hover', () => {
+    for (const id of ['latency', 'loss'] as const) expect(limit(build(), id).data).toEqual([])
+    const tooltip = build().tooltip as unknown as { formatter: (params: unknown) => HTMLElement }
+    // A sample within both limits: the limits themselves are not rows.
+    expect(tooltip.formatter([{ dataIndex: 0 }]).textContent).not.toContain('warn')
+  })
+
+  it('puts a label in the corner of its line that the data leaves clear', () => {
+    // The default is the start of the line, above it.
+    const calm = build({
+      series: makeSeries({ p95: [60, 70, null, 65, 62], lossMean: [0, 0, null, 0, 0] }),
+    })
+    expect(markLineOf(limit(calm, 'latency'))?.label.position).toBe('insideStartTop')
+    expect(markLineOf(limit(calm, 'loss'))?.label.position).toBe('insideStartTop')
+    // A spike just over the line in the first half crowds the space above it: the label goes below.
+    const crowded = build({
+      series: makeSeries({ p95: [160, 155, null, 60, 60], p50: [50, 50, null, 50, 50] }),
+    })
+    expect(markLineOf(limit(crowded, 'latency'))?.label.position).not.toBe('insideStartTop')
+  })
+
+  it('leaves the label at the start of the line when the spikes are all in the second half', () => {
+    const t = Array.from({ length: 10 }, (_, i) => T0 + i * 60_000)
+    const p95 = [90, 90, 90, 90, 90, 90, 200, 200, 200, 200]
+    const series = makeSeries({
+      t,
+      p95,
+      p50: p95.map(() => 50),
+      lossMean: p95.map(() => 0),
+      failedProbes: p95.map(() => 0),
+      probeCount: p95.map(() => 40),
+    })
+    expect(markLineOf(limit(build({ series }), 'latency'))?.label.position).toBe('insideStartTop')
+  })
+
+  it('keeps the labels out of the compact container too', () => {
+    const option = build({ compact: true })
+    for (const id of ['latency', 'loss'] as const) {
+      expect(markLineOf(limit(option, id))?.label.show).toBe(true)
+    }
+  })
+})
+
+describe('latency spikes', () => {
+  const spikeMarks = (option: ChartOption) =>
+    marks(line(option, 'p95')).filter((mark) => mark.symbol === 'triangle')
+  type Mark = Record<string, unknown> | undefined
+  const labelOf = (mark: Mark) =>
+    (mark?.label ?? {}) as { show?: boolean; formatter?: string; align?: string }
+  /** How far above its sample a mark sits, in px (negative offsets go up). */
+  const riseOf = (mark: Mark) => -((mark?.symbolOffset as number[] | undefined)?.[1] ?? 0)
+
+  it('puts a warning triangle on every p95 sample over the limit, and on no other', () => {
+    expect(spikeMarks(build()).map((mark) => mark.coord)).toEqual([[T0 + 60_000, 212]])
+    const series = makeSeries({ p95: [151, 149, 150, 150.4, 300] })
+    expect(spikeMarks(build({ series })).map((mark) => mark.coord)).toEqual([
+      [T0, 151],
+      [T0 + 240_000, 300],
+    ])
+  })
+
+  it('judges the limit as displayed: 150.4 ms is not a spike, 150.5 ms is', () => {
+    expect(
+      spikeMarks(build({ series: makeSeries({ p95: [150.4, 150.4, 150.4, 150.4, 150.4] }) })),
+    ).toEqual([])
+    expect(
+      spikeMarks(build({ series: makeSeries({ p95: [150.5, 90, 90, 90, 90] }) })),
+    ).toHaveLength(1)
+  })
+
+  it('draws no triangle without a spike, and none on a missed sample', () => {
+    const calm = makeSeries({ p95: [100, 120, null, 140, 150] })
+    expect(spikeMarks(build({ series: calm }))).toEqual([])
+    const gap = makeSeries({ p95: [200, null, null, 200, null] })
+    expect(spikeMarks(build({ series: gap })).map((mark) => mark.coord)).toEqual([
+      [T0, 200],
+      [T0 + 180_000, 200],
+    ])
+  })
+
+  it('draws the triangle the way the loss columns do: 8px, warning token, rising above the sample', () => {
+    const [mark] = spikeMarks(build())
+    expect(mark).toMatchObject({
+      symbol: 'triangle',
+      symbolSize: 8,
+      itemStyle: { color: 'token:warning' },
+    })
+    expect(riseOf(mark)).toBeGreaterThan(0)
+  })
+
+  it('keeps the triangle clear of the end dot, which is 5px out with its ring', () => {
+    const [mark] = spikeMarks(build())
+    // The triangle is 8px tall and centred `rise` above the sample: its base is rise - 4 above it.
+    expect(riseOf(mark) - 4).toBeGreaterThan(5)
+  })
+
+  it('scales the triangle and its rise with the root font size', () => {
+    const [mark] = spikeMarks(build({ tokens: { ...tokens, scale: 1.5 } }))
+    expect(mark).toMatchObject({ symbolSize: 12 })
+    expect(riseOf(mark)).toBeCloseTo(riseOf(spikeMarks(build())[0]) * 1.5)
+  })
+
+  it('shows marks only while p95 is visible: they belong to the p95 series', () => {
+    expect(find(build({ hidden: new Set(['p95']) }), 'p95')).toBeUndefined()
+    const onlyP50 = build({ hidden: new Set(['p95']) })
+    expect(
+      seriesOf(onlyP50).some((s) =>
+        marks(s).some(
+          (mark) => mark.symbol === 'triangle' && mark.name === 'latency over threshold',
+        ),
+      ),
+    ).toBe(false)
+  })
+
+  it('labels the single worst spike with its value and time, and no other sample', () => {
+    const series = makeSeries({ p95: [160, 212, null, 180, 142] })
+    const labelled = spikeMarks(build({ series })).filter((mark) => labelOf(mark).show)
+    expect(labelled).toHaveLength(1)
+    expect(labelled[0]).toMatchObject({
+      coord: [T0 + 60_000, 212],
+      label: { show: true, formatter: '212 ms at 13:39Z', color: 'token:fg' },
+    })
+  })
+
+  it('labels no spike when nothing is over the limit', () => {
+    const calm = makeSeries({ p95: [100, 120, null, 140, 150] })
+    expect(
+      marks(line(build({ series: calm }), 'p95')).some(
+        (mark) => mark.name !== 'last' && (mark.label as { show?: boolean }).show,
+      ),
+    ).toBe(false)
+  })
+
+  it('states the worst spike in the active timezone', () => {
+    expect(labelOf(spikeMarks(build({ tz: 'local' }))[0]).formatter).not.toContain('Z')
+  })
+
+  it('writes the label in 12px text color above its triangle, never in a series color', () => {
+    const [mark] = spikeMarks(build())
+    expect(mark?.label).toMatchObject({
+      position: 'top',
+      fontSize: 12,
+      color: 'token:fg',
+    })
+  })
+
+  it('aligns the label to its side near an edge, so it stays inside the plot', () => {
+    const at = (index: number) => {
+      const p95 = [90, 90, 90, 90, 90, 90, 90, 90, 90, 90]
+      p95[index] = 230
+      const t = Array.from({ length: 10 }, (_, i) => T0 + i * 60_000)
+      const series = makeSeries({
+        t,
+        p95,
+        p50: p95.map(() => 50),
+        lossMean: p95.map(() => 0),
+        failedProbes: p95.map(() => 0),
+        probeCount: p95.map(() => 40),
+      })
+      const [mark] = spikeMarks(build({ series })).filter((m) => labelOf(m).show)
+      return labelOf(mark).align
+    }
+    expect(at(0)).toBe('left')
+    expect(at(5)).toBe('center')
+    expect(at(9)).toBe('right')
+  })
+
+  it('keeps the marks and the worst label in a compact container, which drops only the end labels', () => {
+    const option = build({ compact: true })
+    expect(spikeMarks(option)).toHaveLength(1)
+    expect(labelOf(spikeMarks(option)[0]).show).toBe(true)
+    expect(line(option, 'p95').markPoint).toMatchObject({ label: { show: false } })
+  })
+
+  it('leaves room above the worst spike for its triangle and label, whatever the peak', () => {
+    for (const peak of [160, 200, 212, 250, 300, 400, 800, 1000]) {
+      const option = build({ series: makeSeries({ p95: [100, peak, null, 150, 142] }) })
+      const [axis] = yAxes(option).map(scaleOf)
+      const gridPx = LATENCY_GEOMETRY.latency
+      const above = LATENCY_GEOMETRY.top + ((axis?.max ?? 0) - peak) * (gridPx / (axis?.max ?? 1))
+      // Triangle plus label need SPIKE_HEADROOM_PX inside the grid beyond the top inset.
+      expect(above - LATENCY_GEOMETRY.top).toBeGreaterThanOrEqual(SPIKE_HEADROOM_PX - 1e-6)
+    }
+  })
+
+  it('keeps the axis the same when the legend hides a series', () => {
+    const scale = (option: ChartOption) =>
+      yAxes(option)
+        .map(scaleOf)
+        .map(({ max }) => max)
+    expect(scale(build({ hidden: new Set(['p95']) }))).toEqual(scale(build()))
+  })
+})
+
+describe('loss limit marks', () => {
+  it('marks a column at or over the limit as displayed: 1.96 reads 2.0, so it is marked', () => {
+    const series = makeSeries({ lossMean: [1.94, 1.96, null, 2, 3] })
+    const triangles = marks(find(build({ series }), 'loss')).filter((m) => m.symbol === 'triangle')
+    expect(triangles.map((m) => m.coord)).toEqual([
+      [T0 + 60_000, 1.96],
+      [T0 + 180_000, 2],
+      [T0 + 240_000, 3],
+    ])
+  })
+
+  it('draws no triangle on a missed sample', () => {
+    const series = makeSeries({ lossMean: [3, null, null, null, null] })
+    const triangles = marks(find(build({ series }), 'loss')).filter((m) => m.symbol === 'triangle')
+    expect(triangles.map((m) => m.coord)).toEqual([[T0, 3]])
   })
 })
 
 describe('legend toggling', () => {
   it('omits hidden series and leaves the survivors on their own colors', () => {
     const option = build({ hidden: new Set(['p95']) })
-    expect(seriesOf(option).map((s) => s.id)).toEqual(['p50', 'loss', 'failed'])
+    expect(dataSeries(option).map((s) => s.id)).toEqual(['p50', 'loss', 'failed'])
     expect(find(option, 'p50')).toMatchObject({ lineStyle: { color: 'token:seriesOther' } })
   })
 
@@ -293,9 +546,10 @@ describe('grids and axes', () => {
     expect(Number(latency?.max)).toBeGreaterThan(LATENCY_WARN_MS)
   })
 
-  it('runs the loss axis from 0 to at least 2%', () => {
+  it('runs the loss axis from 0 past the 2% limit, leaving room above the line for its label', () => {
     const [, loss] = yAxes(build({ series: makeSeries({ lossMean: [0, 0, 0, 0, 0.2] }) }))
-    expect(loss).toMatchObject({ min: 0, max: 2 })
+    expect(loss).toMatchObject({ min: 0, max: 4 })
+    expect(Number(loss?.max)).toBeGreaterThan(LOSS_WARN_PERCENT)
     const [, high] = yAxes(build({ series: makeSeries({ lossMean: [0, 12, 0, 3, 0] }) }))
     expect(Number(high?.max)).toBeGreaterThanOrEqual(12)
   })
@@ -337,6 +591,26 @@ describe('linked crosshair and tooltip', () => {
     ]) {
       expect(node.textContent).toContain(text)
     }
+  })
+
+  it('says in the tooltip which values are over their limits, in words under a warning triangle', () => {
+    const tooltip = build().tooltip as unknown as { formatter: (params: unknown) => HTMLElement }
+    // Sample 1: p95 212 ms is over the limit, loss 0.5% is not.
+    const node = tooltip.formatter([{ dataIndex: 1 }])
+    expect(node.textContent).toContain('62 ms over warn')
+    expect(node.querySelectorAll('.bg-warning')).toHaveLength(1)
+    // Sample 4: loss 2.1% is over its limit, p95 142 ms is not.
+    const later = tooltip.formatter([{ dataIndex: 4 }])
+    expect(later.textContent).toContain('0.1% over warn')
+    expect(later.textContent).not.toContain('ms over warn')
+  })
+
+  it('says no data in the tooltip for a missed sample, and flags nothing', () => {
+    const tooltip = build().tooltip as unknown as { formatter: (params: unknown) => HTMLElement }
+    const node = tooltip.formatter([{ dataIndex: 2 }])
+    expect(node.textContent).toContain('no data')
+    expect(node.textContent).toContain('2 of 38')
+    expect(node.textContent).not.toContain('over warn')
   })
 
   it('leaves a hidden series out of the tooltip too', () => {

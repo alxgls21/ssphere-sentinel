@@ -32,7 +32,8 @@ describe('HeroStrip', () => {
       '/network',
     ])
     await screen.findByText('sample')
-    expect(screen.getAllByText('Planned')).toHaveLength(2)
+    expect(screen.getAllByText('Planned')).toHaveLength(1)
+    expect(screen.getAllByText('Demo')).toHaveLength(1)
     expect(screen.getAllByText('mock')).toHaveLength(3)
   })
 

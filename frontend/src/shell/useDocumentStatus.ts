@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react'
-import { useApi } from '@/api/context'
+import { useShowsDemoData } from '@/hooks/useProvenance'
 import { useLive } from '@/app/live'
 import { useShell } from '@/app/shell'
 import { useSummary } from '@/app/summary'
@@ -19,7 +19,6 @@ import { useFreshness } from './topbar/useFreshness'
  * (the verdict depends on how old the data is) and must not re-render the shell.
  */
 export function useDocumentStatus(screen: string): void {
-  const { source } = useApi()
   const { pollMs } = useLive()
   const { announce } = useShell()
   const summary = useSummary()
@@ -27,7 +26,7 @@ export function useDocumentStatus(screen: string): void {
 
   // Until the first answer there is no verdict, and a tab must not say NO DATA for 300 ms.
   const verdict = summary.status === 'loading' ? null : computeVerdict(summary.data, freshness)
-  const mock = source === 'mock'
+  const mock = useShowsDemoData()
 
   const title = documentTitle({ mock, verdict, screen })
   useEffect(() => {

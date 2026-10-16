@@ -1,5 +1,6 @@
 import { useId } from 'react'
 import { useDelayedFlag } from '@/hooks/useDelayedFlag'
+import { PROVENANCE_SPOKEN } from '@/config/features'
 import { useProvenance } from '@/hooks/useProvenance'
 import { cn } from '@/lib/cn'
 import { emptyCounts } from '@/lib/status'
@@ -10,13 +11,23 @@ import { STATUS_FRAME, STATUS_TEXT, StatusGlyph, StatusTag } from '@/ui/status'
 import { CountList } from './CountList'
 import { focusAttentionPanel } from './focusAttention'
 import { useFleetStatus } from './fleetStatus'
+import { listedCounts } from './tileText'
 import { VERDICT_FRAME, VerdictDecor } from './verdictFrame'
 import { VERDICT_FEATURES, describeVerdict } from './verdictText'
 
 const COUNTED_STATUSES = ['critical', 'warning', 'unknown', 'healthy'] as const
 
+/**
+ * Five marks with their words (an offline server is a fifth) need 311px, more than the
+ * 291px block holds, and more than the row from 768px leaves beside its bar at the 96px
+ * minimum: where the button's content is narrower than that, the shapes and numbers stay
+ * and its name carries the words.
+ */
+const CROWDED_WORDS = 'max-xl:@max-[43rem]/hero:hidden xl:@max-[20rem]/hero:hidden'
+const WORDED_MARKS = 4
+
 /** Left padding clears the 4px status edge. */
-const SURFACE = 'flex h-full w-full min-w-0 py-3 pr-3 pl-4 text-left'
+const SURFACE = '@container/hero flex h-full w-full min-w-0 py-3 pr-3 pl-4 text-left'
 
 /**
  * A 291x120 block from xl up; below it the strip is full width and the same
@@ -43,7 +54,7 @@ interface VerdictHeroProps {
  */
 export function VerdictHero({ className }: VerdictHeroProps) {
   const fleet = useFleetStatus()
-  const { source } = useProvenance(VERDICT_FEATURES)
+  const { provenance } = useProvenance(VERDICT_FEATURES)
   const descriptionId = useId()
   const loading = fleet.summary.status === 'loading'
   const showSkeleton = useDelayedFlag(loading)
@@ -63,7 +74,7 @@ export function VerdictHero({ className }: VerdictHeroProps) {
   const dim = stale || noData
   // Old numbers under a NO DATA word would read as a verdict: draw an empty bar and no counts.
   const counted = noData ? emptyCounts() : { ...verdict.counts, idle: 0 }
-  const name = `Fleet status: ${text.summary}${source === 'mock' ? ', mock data' : ''}`
+  const name = `Fleet status: ${text.summary}${PROVENANCE_SPOKEN[provenance] ? `, ${PROVENANCE_SPOKEN[provenance]}` : ''}`
 
   return (
     <Tooltip content={<span className="type-body">{text.scope}</span>}>
@@ -107,7 +118,15 @@ export function VerdictHero({ className }: VerdictHeroProps) {
             label="Fleet"
             className={cn(BAR_WIDTH, dim && 'opacity-60')}
           />
-          <CountList counts={counted} show={COUNTED_STATUSES} />
+          <CountList
+            counts={counted}
+            show={COUNTED_STATUSES}
+            wordClassName={
+              listedCounts(counted, COUNTED_STATUSES).length > WORDED_MARKS
+                ? CROWDED_WORDS
+                : undefined
+            }
+          />
         </span>
         <span id={descriptionId} className="sr-only">
           {text.scope} Enter opens Needs attention.

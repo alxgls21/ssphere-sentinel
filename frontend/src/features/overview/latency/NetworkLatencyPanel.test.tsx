@@ -1,15 +1,19 @@
 /// <reference types="node" />
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { act, screen, waitFor } from '@testing-library/react'
+import { act, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { NetworkSeries } from '@/api/types'
+import { createMockApi } from '@/api/mock/client'
 import { useRange } from '@/app/viewState'
 import { echarts } from '@/charts/echarts'
 import { fakeCharts, resetFakeCharts } from '@/charts/testing/fakeEcharts'
+import { DATA_FEATURES } from '@/config/features'
+import { registryOverrides } from '@/config/testing'
 import { createTestApi, renderApp } from '@/test/render'
 import { NetworkLatencyPanel } from './NetworkLatencyPanel'
+import { describeSample, spikeIndexes, worstSpikeIndex } from './latencyModel'
 import { makeEmptySeries, makeSeries } from './testSeries'
 
 vi.mock('@/charts/echarts', async () =>
@@ -31,11 +35,16 @@ function deferred<T>() {
 const apiWith = (getNetworkSeries: () => Promise<NetworkSeries>) =>
   createTestApi({ getNetworkSeries: vi.fn(getNetworkSeries) })
 
+const overrides = registryOverrides()
+
 beforeEach(() => {
   resetFakeCharts()
   vi.mocked(echarts.init).mockClear()
 })
-afterEach(() => vi.useRealTimers())
+afterEach(() => {
+  vi.useRealTimers()
+  overrides.restore()
+})
 
 describe('NetworkLatencyPanel', () => {
   it('is panel [2], a labelled region following the range, marked mock', async () => {
@@ -86,6 +95,47 @@ describe('NetworkLatencyPanel', () => {
       route: '/?range=24h',
     })
     expect(await screen.findByRole('figure', { name: /last 24 hours/ })).toBeVisible()
+  })
+})
+
+describe('provenance', () => {
+  const overHttp = () =>
+    createTestApi({ getNetworkSeries: vi.fn(async () => makeSeries()), source: 'http' })
+  const header = () =>
+    screen.getByRole('region', { name: 'Network latency' }).querySelector('header') as HTMLElement
+
+  it.each(DATA_FEATURES.filter((id) => id !== 'network'))(
+    'stays mock over http when %s is connected and the network measurements are not',
+    async (id) => {
+      overrides.set(id, { backend: 'console-api', connected: true })
+      renderApp(<NetworkLatencyPanel />, { api: overHttp() })
+      await screen.findByRole('figure')
+      expect(within(header()).getByText(/^mock/)).toBeInTheDocument()
+      expect(within(header()).queryByText(/^live/)).toBeNull()
+    },
+  )
+
+  it('stays mock over http while the console API does not serve the network measurements, connected or not', async () => {
+    overrides.connectAll()
+    overrides.set('network', { backend: 'stored', connected: true })
+    renderApp(<NetworkLatencyPanel />, { api: overHttp() })
+    await screen.findByRole('figure')
+    expect(within(header()).getByText(/^mock/)).toBeInTheDocument()
+  })
+
+  it('reads live over http once the console API serves the network measurements and the screen reads them', async () => {
+    overrides.connectAll()
+    renderApp(<NetworkLatencyPanel />, { api: overHttp() })
+    await screen.findByRole('figure')
+    expect(within(header()).getByText(/^live/)).toBeInTheDocument()
+    expect(within(header()).queryByText(/^mock/)).toBeNull()
+  })
+
+  it('stays mock under the mock adapter even when every feature is connected', async () => {
+    overrides.connectAll()
+    renderApp(<NetworkLatencyPanel />, { api: apiWith(async () => makeSeries()) })
+    await screen.findByRole('figure')
+    expect(within(header()).getByText(/^mock/)).toBeInTheDocument()
   })
 })
 
@@ -247,7 +297,7 @@ describe('keyboard and table', () => {
 
     expect(plot).toHaveAttribute(
       'aria-valuetext',
-      '13:42 UTC, p95 142 ms, p50 70 ms, loss 2.1 percent, failed probes 0 of 40',
+      '13:42 UTC, p95 142 ms, p50 70 ms, loss 2.1 percent, 0.1 percent over warn, failed probes 0 of 40',
     )
     await user.keyboard('{ArrowLeft}{ArrowLeft}')
     expect(plot).toHaveAttribute(
@@ -259,5 +309,92 @@ describe('keyboard and table', () => {
       x: expect.any(Number),
       y: 72,
     })
+  })
+})
+
+describe('spikes', () => {
+  it('says in the spoken sample how far a value is over its limit', async () => {
+    const user = userEvent.setup()
+    renderApp(<NetworkLatencyPanel />, { api: apiWith(async () => makeSeries()) })
+    const plot = await screen.findByRole('slider', { name: 'Latency and loss cursor' })
+    await waitFor(() => expect(fakeCharts[0]?.setOption).toHaveBeenCalled())
+    act(() => plot.focus())
+
+    await user.keyboard('{Home}{ArrowRight}')
+    expect(plot).toHaveAttribute(
+      'aria-valuetext',
+      '13:39 UTC, p95 212 ms, 62 ms over warn, p50 90 ms, loss 0.5 percent, failed probes 0 of 40',
+    )
+  })
+
+  it('names the samples over the limit and the worst one in the figure summary', async () => {
+    renderApp(<NetworkLatencyPanel />, { api: apiWith(async () => makeSeries()) })
+    expect(
+      await screen.findByRole('figure', {
+        name: /1 sample over warn 150 ms \(UI default\), worst 212 ms at 13:39 UTC/,
+      }),
+    ).toBeVisible()
+  })
+
+  it('adds the flags column to the table twin', async () => {
+    const user = userEvent.setup()
+    renderApp(<NetworkLatencyPanel />, { api: apiWith(async () => makeSeries()) })
+    await screen.findByRole('figure')
+    await user.click(screen.getByRole('button', { name: /table/i }))
+    const table = screen.getByRole('table')
+    expect(within(table).getByRole('columnheader', { name: 'Flags' })).toBeVisible()
+    expect(within(table).getByRole('cell', { name: 'p95 62 ms over warn' })).toBeVisible()
+  })
+})
+
+describe('with the mock API', () => {
+  const NOW = Date.parse('2026-10-12T14:05:12Z')
+  const mock = () => createMockApi({ now: () => NOW, delayMs: 0 })
+
+  it('stays marked mock, and its summary says where the story goes over the latency limit', async () => {
+    renderApp(<NetworkLatencyPanel />, { api: mock() })
+    const figure = await screen.findByRole('figure', { name: /^Network latency, last hour/ })
+    expect(figure).toHaveAccessibleName(
+      /\d+ samples over warn 150 ms \(UI default\), worst \d+ ms at \d{2}:\d{2} UTC/,
+    )
+    expect(screen.getByText(/^mock/)).toBeInTheDocument()
+    expect(screen.getByRole('region', { name: 'Network latency' })).not.toHaveAttribute(
+      'data-planned',
+    )
+  })
+
+  it('draws a triangle on exactly the samples the summary counts, and labels the worst', async () => {
+    const series = await mock().getNetworkSeries({ range: '1h' })
+    renderApp(<NetworkLatencyPanel />, { api: mock() })
+    await screen.findByRole('figure')
+    await waitFor(() => expect(fakeCharts[0]?.setOption).toHaveBeenCalled())
+
+    const option = fakeCharts[0]?.setOption.mock.calls.at(-1)?.[0] as {
+      series: {
+        id: string
+        markPoint?: { data: { symbol?: string; label?: { show?: boolean } }[] }
+      }[]
+    }
+    const p95 = option.series.find((s) => s.id === 'p95')
+    const triangles = p95?.markPoint?.data.filter((mark) => mark.symbol === 'triangle') ?? []
+    expect(spikeIndexes(series).length).toBeGreaterThan(0)
+    expect(triangles).toHaveLength(spikeIndexes(series).length)
+    expect(triangles.filter((mark) => mark.label?.show)).toHaveLength(1)
+    expect(worstSpikeIndex(series)).toBeGreaterThanOrEqual(0)
+    // Both limits are on the plot as series of their own.
+    expect(option.series.map((s) => s.id)).toEqual(
+      expect.arrayContaining(['reference:latency', 'reference:loss']),
+    )
+  })
+
+  it('speaks the newest sample the way the model does, over-limit state included', async () => {
+    const series = await mock().getNetworkSeries({ range: '1h' })
+    renderApp(<NetworkLatencyPanel />, { api: mock() })
+    const plot = await screen.findByRole('slider', { name: 'Latency and loss cursor' })
+    expect(plot).toHaveAttribute(
+      'aria-valuetext',
+      describeSample(series, series.t.length - 1, 'utc'),
+    )
+    expect(plot.getAttribute('aria-valuetext')).toContain('over warn')
   })
 })

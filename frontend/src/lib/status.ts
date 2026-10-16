@@ -136,6 +136,67 @@ export function countStatuses(statuses: Iterable<HealthStatus>): StatusCounts {
   return counts
 }
 
+/**
+ * What a mark shows. "offline" is a presentation of critical, not a health
+ * status: a server whose agent stopped reporting is critical to everything that
+ * decides (the verdict, attention counts, ranking, sorting, filters, badges, the
+ * document title) and is only drawn and named apart where the console
+ * describes a state or breaks a count down.
+ */
+export type DisplayStatus = HealthStatus | 'offline'
+
+/** The one mapping from a health status and the offline flag an entity may carry to what is shown. */
+export function displayStatus(status: HealthStatus, offline = false): DisplayStatus {
+  return offline && status === 'critical' ? 'offline' : status
+}
+
+/** The health status a shown state is counted as. */
+export function healthOf(status: DisplayStatus): HealthStatus {
+  return status === 'offline' ? 'critical' : status
+}
+
+/** Worst first, as every composition lists its states: offline sits directly after the critical it is part of. */
+export const DISPLAY_ORDER: readonly DisplayStatus[] = [
+  'critical',
+  'offline',
+  'warning',
+  'unknown',
+  'idle',
+  'healthy',
+]
+
+export type DisplayCounts = Record<DisplayStatus, number>
+
+/**
+ * Counts for a composition: critical without its offline members, and offline
+ * apart. For display only: the figures that drive something keep reading
+ * `counts.critical`, which still holds both.
+ */
+export function displayCounts(counts: StatusCounts): DisplayCounts {
+  const offline = Math.min(Math.max(counts.offline ?? 0, 0), counts.critical)
+  return {
+    healthy: counts.healthy,
+    warning: counts.warning,
+    critical: counts.critical - offline,
+    offline,
+    unknown: counts.unknown,
+    idle: counts.idle,
+  }
+}
+
+/** Counts by health status for entities that may be flagged offline; `offline` is set only when one is. */
+export function countEntities(
+  entities: Iterable<{ status: HealthStatus; offline?: boolean }>,
+): StatusCounts {
+  const counts = emptyCounts()
+  let offline = 0
+  for (const entity of entities) {
+    counts[entity.status] += 1
+    if (displayStatus(entity.status, entity.offline) === 'offline') offline += 1
+  }
+  return offline > 0 ? { ...counts, offline } : counts
+}
+
 /** Worst non-healthy status present in the counts, or null when everything is healthy/idle. */
 export function worstOf(counts: StatusCounts): 'critical' | 'warning' | 'unknown' | null {
   if (counts.critical > 0) return 'critical'

@@ -14,6 +14,7 @@ export interface FreshnessText {
   /**
    * What assistive technology hears. It changes only when the state does:
    * "updating" is a normal part of live (every poll), so it is not a state here.
+   * It says that updates arrive, never that the data is real: the chip does not know that.
    */
   spoken: string
 }
@@ -29,10 +30,10 @@ export function describeFreshness(state: Freshness, ageSeconds: number | null): 
     case 'live':
       return {
         text: ageSeconds === null ? 'updating' : `updated ${compactAge(ageSeconds)} ago`,
-        spoken: 'Data is live',
+        spoken: 'Updates are arriving',
       }
     case 'fetching':
-      return { text: 'updating', spoken: 'Data is live' }
+      return { text: 'updating', spoken: 'Updates are arriving' }
     case 'paused':
       return { text: `PAUSED${age}`, spoken: 'Updates are paused' }
     case 'stale':

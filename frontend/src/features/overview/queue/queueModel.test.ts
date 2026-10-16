@@ -246,3 +246,49 @@ describe('newCriticalKeys', () => {
     expect(newCriticalKeys(after, before).size).toBe(0)
   })
 })
+
+describe('an offline server', () => {
+  /** The first reference row, as the API serves a server whose agent stopped reporting. */
+  const offline = makeItem({ offline: true })
+
+  it('is read as offline in its label and its copied line', () => {
+    expect(rowLabel(offline, 1, 9, NOW)).toBe(
+      'Row 1 of 9, offline, srv edge-gw-02, offline, last heartbeat 6m ago, Acme Athens-DC, 6 minutes',
+    )
+    expect(rowCopyText(offline, NOW)).toBe(
+      'OFFL srv edge-gw-02 | offline · last heartbeat 6m ago | Acme / Athens-DC | 6m',
+    )
+  })
+
+  it('reads as critical when the flag is absent', () => {
+    expect(rowLabel(edge, 1, 9, NOW)).toContain('Row 1 of 9, critical, srv edge-gw-02')
+    expect(rowCopyText(edge, NOW)).toMatch(/^CRIT srv edge-gw-02/)
+  })
+
+  it('is still critical for the filter, the counts and the problem list', () => {
+    const items = [offline, ...referenceItems().filter((item) => item.id !== offline.id)]
+    expect(filterItems(items, 'critical').map((item) => item.name)).toContain('edge-gw-02')
+    expect(filterItems(items, 'warning').map((item) => item.name)).not.toContain('edge-gw-02')
+    expect(countItems(items)).toEqual(countItems(referenceItems()))
+    expect(isProblem(offline)).toBe(true)
+  })
+
+  it('counts no update for the flag alone, and a new offline server as a new critical', () => {
+    const before = referenceItems()
+    const after = before.map((item) => (item.id === offline.id ? { ...item, offline: true } : item))
+    expect(describeUpdates(before, after)).toBeNull()
+    expect(
+      describeUpdates(before, [...before, makeItem({ id: 'srv-new', offline: true })]),
+    ).toEqual({
+      count: 1,
+      arrived: 1,
+      newCritical: 1,
+    })
+    expect([
+      ...newCriticalKeys(
+        snapshot([...before, makeItem({ id: 'srv-new', offline: true })]),
+        snapshot(before),
+      ),
+    ]).toEqual(['server:srv-new'])
+  })
+})

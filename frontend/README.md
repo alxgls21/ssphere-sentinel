@@ -9,8 +9,9 @@ of the Django backend**.
 > and reads the customers and sites you may see from it. Every other number on
 > screen is built-in sample data, marked `DEMO DATA` (a strip above the screen, a
 > chip in the top bar, per-panel `mock` tags) and never filtered by your real
-> customers. A dashed `PLANNED` frame marks anything the backend does not
-> implement yet.
+> customers. A dashed frame with a `PLANNED` chip marks what the backend does
+> not implement, and with `NOT CONNECTED` what the backend may support but the
+> console does not read yet (SNMP: configuring it does not make data appear here).
 > Two screens are designed and built: **Overview** and **Servers**. The other six
 > are routed and show an honest "not designed yet" placeholder.
 
@@ -118,11 +119,12 @@ updates, `r` refreshes. Single-key shortcuts can be turned off in the Display me
 
 ## Documentation
 
-| Document                                         | Contents                                                                                    |
-| ------------------------------------------------ | ------------------------------------------------------------------------------------------- |
-| [`docs/architecture.md`](docs/architecture.md)   | Stack, folder structure, layering rules, data flow, sign-in, how the API replaces demo data |
-| [`docs/design-system.md`](docs/design-system.md) | Principles, palette, status alphabet, typography, geometry, components                      |
-| [`docs/design-spec.md`](docs/design-spec.md)     | The full design spec with exact values and per-component behavior                           |
+| Document                                                 | Contents                                                                                                  |
+| -------------------------------------------------------- | --------------------------------------------------------------------------------------------------------- |
+| [`docs/architecture.md`](docs/architecture.md)           | Stack, folder structure, layering rules, data flow, sign-in, how the API replaces demo data               |
+| [`docs/design-system.md`](docs/design-system.md)         | Principles, palette, status alphabet, typography, geometry, components, meters, charts, incident timeline |
+| [`docs/design-spec.md`](docs/design-spec.md)             | The full design spec with exact values and per-component behavior                                         |
+| [`docs/data-requirements.md`](docs/data-requirements.md) | What the console needs from the backend for visualizations it does not draw yet                           |
 
 ## Connecting more of the backend
 
@@ -133,8 +135,8 @@ backend endpoint follows the same steps:
    the view-models in `src/api/types.ts`.
 2. Move the matching method of `SentinelApi` from the demo side to the real side
    in `src/api/demo.ts` (`composeDemoApi`).
-3. Update `src/config/features.ts`; the demo and `PLANNED` markers of that
-   feature disappear on their own.
+3. Set `connected: true` for it in `src/config/features.ts`; its demo markers
+   disappear on their own.
 
 No screen imports the mock or the HTTP layer, so none of them changes.
 

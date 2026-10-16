@@ -1,6 +1,7 @@
 import type { NetworkSeries, ProbeProtocol, RangeKey } from '@/api/types'
+import { RANGE_MS } from '@/lib/range'
 import { clamp, hash01, hashString, round1, round2, valueNoise } from './random'
-import { DAY, HOUR, MINUTE } from './time'
+import { DAY, MINUTE } from './time'
 
 /**
  * The synthetic measurement model behind every network number on the Overview.
@@ -11,13 +12,6 @@ import { DAY, HOUR, MINUTE } from './time'
  * and scrolls forward as the clock advances; the headline counts and the
  * target's own latest state come from the same function, so they agree.
  */
-
-export const RANGE_MS: Record<RangeKey, number> = {
-  '15m': 15 * MINUTE,
-  '1h': HOUR,
-  '6h': 6 * HOUR,
-  '24h': DAY,
-}
 
 /** Aggregation bucket per range (the spec: 1 min for 15m and 1h, 5 min for 6h, 15 min for 24h). */
 export const BUCKET_MS: Record<RangeKey, number> = {

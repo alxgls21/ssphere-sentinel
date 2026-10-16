@@ -1,8 +1,9 @@
-import type { ServerListItem } from '@/api/types'
+import type { ServerListItem, ServerSeries } from '@/api/types'
 import { usePrefs } from '@/app/prefs'
-import { EMPTY, formatBytes, formatTime } from '@/lib/format'
+import { EMPTY, formatBytes, formatClock } from '@/lib/format'
 import { Panel, type PanelProps } from '@/ui/Panel'
-import { CellMeter } from '@/ui/meters'
+import { CellMeter, Sparkline } from '@/ui/meters'
+import { historyLabel, valuesOf } from './historyModel'
 import { heartbeatText, uptimeText } from './serversModel'
 
 function Fact({ label, children }: { label: string; children: React.ReactNode }) {
@@ -17,6 +18,10 @@ function Fact({ label, children }: { label: string; children: React.ReactNode })
 interface SummaryPanelProps extends Pick<PanelProps, 'status' | 'error' | 'onRetry' | 'updatedAt'> {
   item: ServerListItem | undefined
   nowMs: number
+  /** The history behind the sparklines, once it has loaded. Until then each keeps its place, empty. */
+  series?: ServerSeries
+  /** The history could not be refreshed or is older than the stale threshold: its newest sample is no longer "now". */
+  seriesStale?: boolean
   className?: string
 }
 
@@ -24,13 +29,21 @@ interface SummaryPanelProps extends Pick<PanelProps, 'status' | 'error' | 'onRet
  * [1] Summary: the latest reading of one server. Offline, the same meters show
  * the last reading before the agent stopped, labelled as such, because "it was
  * at 92% disk when it went quiet" is exactly what an operator needs to know.
+ * Each meter has its history beside it, from the series the history panel draws.
  */
-export function SummaryPanel({ item, nowMs, className, ...data }: SummaryPanelProps) {
+export function SummaryPanel({
+  item,
+  nowMs,
+  series,
+  seriesStale = false,
+  className,
+  ...data
+}: SummaryPanelProps) {
   const { tz } = usePrefs()
   const server = item?.server
   const telemetry = server?.telemetry ?? null
   const live = server?.status === 'online' || server?.status === 'warning'
-  const clock = (iso: string) => `${formatTime(Date.parse(iso), tz)}${tz === 'utc' ? 'Z' : ''}`
+  const clock = (iso: string) => formatClock(Date.parse(iso), tz)
   const memoryUsed = telemetry ? (telemetry.memoryTotalBytes * telemetry.memoryPercent) / 100 : null
   const diskUsed = telemetry ? (telemetry.diskTotalBytes * telemetry.diskPercent) / 100 : null
 
@@ -50,25 +63,46 @@ export function SummaryPanel({ item, nowMs, className, ...data }: SummaryPanelPr
             <div className="grid gap-x-6 gap-y-2 lg:grid-cols-3">
               {(
                 [
-                  ['CPU', telemetry.cpuPercent, null],
+                  ['cpu', 'CPU', telemetry.cpuPercent, null],
                   [
+                    'memory',
                     'RAM',
                     telemetry.memoryPercent,
                     `${formatBytes(memoryUsed)} of ${formatBytes(telemetry.memoryTotalBytes, 0)}`,
                   ],
                   [
+                    'disk',
                     'Disk',
                     telemetry.diskPercent,
                     `${formatBytes(diskUsed)} of ${formatBytes(telemetry.diskTotalBytes, 0)}`,
                   ],
                 ] as const
-              ).map(([label, percent, detail]) => (
-                <div key={label} className="flex flex-col gap-1">
+              ).map(([id, label, percent, detail]) => (
+                <div key={id} className="flex flex-col gap-1">
                   <span className="type-label flex justify-between gap-2 text-fg-faint">
                     {label}
                     {detail ? <span className="type-data normal-case">{detail}</span> : null}
                   </span>
-                  <CellMeter percent={percent} label={`${label} of ${server.name}`} />
+                  {/* Right of the meter; wraps under it rather than squeezing it below 12rem. */}
+                  <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+                    <CellMeter
+                      percent={percent}
+                      label={`${label} of ${server.name}`}
+                      className="min-w-0 grow basis-48"
+                    />
+                    {series ? (
+                      <Sparkline
+                        values={valuesOf(series, id)}
+                        times={series.t}
+                        tz={tz}
+                        label={historyLabel(label, server.name, series)}
+                        inspectable
+                        stale={seriesStale}
+                      />
+                    ) : (
+                      <span aria-hidden="true" className="h-6 w-16 shrink-0" />
+                    )}
+                  </div>
                 </div>
               ))}
             </div>

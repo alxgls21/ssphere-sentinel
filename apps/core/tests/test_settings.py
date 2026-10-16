@@ -43,7 +43,8 @@ print(json.dumps({
 
 
 def load_settings(**overrides):
-    env = {**BASE_ENV, **overrides}
+    # None removes a variable.
+    env = {name: value for name, value in {**BASE_ENV, **overrides}.items() if value is not None}
     return subprocess.run(
         [sys.executable, "-c", REPORT],
         cwd=BASE_DIR,
@@ -139,8 +140,9 @@ class ProductionSettingsTests(SimpleTestCase):
                 self.assert_refused("must be an integer", **{name: "soon"})
 
     def test_an_existing_installation_keeps_its_database_settings(self):
+        # The engine is Django's PostgreSQL backend with the check of sentinel/postgresql.
         expected = {
-            "ENGINE": "django.db.backends.postgresql",
+            "ENGINE": "sentinel.postgresql",
             "NAME": "sentinel",
             "USER": "sentinel",
             "PASSWORD": "unused",
@@ -163,22 +165,41 @@ class ProductionSettingsTests(SimpleTestCase):
         )
 
     def test_separate_database_roles_select_the_login_of_each_service(self):
-        separate = {"SENTINEL_DB_ROLES": "separate", "SENTINEL_DB_PASSWORD": "app-secret"}
+        # Without the bootstrap superuser's password, which neither service gets.
+        separate = {"SENTINEL_DB_ROLES": "separate", "SENTINEL_DB_PASSWORD": "app-secret", "POSTGRES_PASSWORD": None}
         web = self.settings_for(**separate)["DATABASES"]["default"]
         self.assertEqual((web["USER"], web["PASSWORD"]), ("sentinel_app", "app-secret"))
         self.assertEqual(web["OPTIONS"], {"connect_timeout": 10})
         migrate = self.settings_for(
-            SENTINEL_DB_ROLES="separate", SENTINEL_DB_ACCESS="migrate", SENTINEL_DB_MIGRATE_PASSWORD="migrate-secret"
+            SENTINEL_DB_ROLES="separate", SENTINEL_DB_ACCESS="migrate", SENTINEL_DB_MIGRATE_PASSWORD="migrate-secret",
+            POSTGRES_PASSWORD=None,
         )["DATABASES"]["default"]
         self.assertEqual((migrate["USER"], migrate["PASSWORD"]), ("sentinel_migrate", "migrate-secret"))
         self.assertEqual(migrate["OPTIONS"], {"connect_timeout": 10, "assume_role": "sentinel_owner"})
 
     def test_invalid_database_role_settings_are_refused(self):
         self.assert_refused("SENTINEL_DB_ROLES must be one of", SENTINEL_DB_ROLES="yes")
-        self.assert_refused("SENTINEL_DB_PASSWORD is not set", SENTINEL_DB_ROLES="separate")
+        self.assert_refused("SENTINEL_DB_PASSWORD is not set", SENTINEL_DB_ROLES="separate", POSTGRES_PASSWORD=None)
         self.assert_refused(
             "SENTINEL_DB_MIGRATE_PASSWORD is empty",
             SENTINEL_DB_ROLES="separate",
             SENTINEL_DB_ACCESS="migrate",
             SENTINEL_DB_MIGRATE_PASSWORD="",
+            POSTGRES_PASSWORD=None,
         )
+
+    def test_a_password_that_is_not_the_process_own_stops_every_command(self):
+        # sentinel/database.py check_passwords: the settings run it for Gunicorn and manage.py alike.
+        self.assert_refused(
+            "POSTGRES_PASSWORD is set, but with SENTINEL_DB_ROLES=separate",
+            SENTINEL_DB_ROLES="separate", SENTINEL_DB_PASSWORD="app-secret",
+        )
+        self.assert_refused(
+            "SENTINEL_DB_PASSWORD is set, but with SENTINEL_DB_ROLES=separate",
+            SENTINEL_DB_ROLES="separate", SENTINEL_DB_ACCESS="migrate", SENTINEL_DB_MIGRATE_PASSWORD="migrate-secret",
+            SENTINEL_DB_PASSWORD="app-secret", POSTGRES_PASSWORD=None,
+        )
+        self.assert_refused("but SENTINEL_DB_ROLES is legacy", SENTINEL_DB_MIGRATE_PASSWORD="migrate-secret")
+        result = load_settings(SENTINEL_DB_ROLES="separate", SENTINEL_DB_PASSWORD="app-secret")
+        self.assertNotIn("unused", result.stderr)  # the value of POSTGRES_PASSWORD
+        self.assertNotIn("app-secret", result.stderr)

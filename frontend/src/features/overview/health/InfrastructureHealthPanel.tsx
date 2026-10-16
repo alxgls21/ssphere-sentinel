@@ -1,17 +1,17 @@
 import { useMemo } from 'react'
 import { Link } from 'react-router'
 import { useApi } from '@/api/context'
-import type { HealthStatus } from '@/api/types'
 import { useLive } from '@/app/live'
 import { scopeKey, useScope } from '@/app/viewState'
 import type { FeatureId } from '@/config/features'
 import { useLiveResource } from '@/hooks/useLiveResource'
+import { cn } from '@/lib/cn'
 import { Panel } from '@/ui/Panel'
 import { EmptyState, Skeleton } from '@/ui/states'
-import { StatusTag } from '@/ui/status'
+import { StatusLegend } from '@/ui/status'
 import { DomainRows } from './DomainRows'
 import { SiteSection } from './SiteRows'
-import { SITE_ROWS, isHealthEmpty, rankedSites } from './healthModel'
+import { SITE_ROWS, isHealthEmpty, legendStates, rankedSites } from './healthModel'
 import { useViewTo } from '@/app/viewSearch'
 
 /**
@@ -20,7 +20,14 @@ import { useViewTo } from '@/app/viewSearch'
  */
 const FEATURES_USED: readonly FeatureId[] = ['servers', 'docker', 'network', 'snmp', 'site-links']
 
-const LEGEND: readonly HealthStatus[] = ['healthy', 'warning', 'critical', 'unknown', 'idle']
+/**
+ * The legend shares the 28px footer with the "more sites" link. Its rows are 12px
+ * tall, so two fit without growing the footer: from five states it wraps at three
+ * marks a row (11rem holds three marks with their words, never four) until the
+ * panel is wide enough for one line beside the link.
+ */
+const STACKED_FROM = 5
+const STACKED_LEGEND = 'max-w-44 @min-[30rem]:max-w-none'
 
 /** Placeholder rows at the real row height: four domains, then three sites. */
 function HealthSkeleton() {
@@ -35,23 +42,11 @@ function HealthSkeleton() {
   )
 }
 
-function StatusLegend() {
-  return (
-    <ul aria-label="Status legend" className="flex flex-wrap items-center gap-x-3">
-      {LEGEND.map((status) => (
-        <li key={status}>
-          <StatusTag status={status} />
-        </li>
-      ))}
-    </ul>
-  )
-}
-
 /**
  * [4] Infrastructure health: composition of each monitored domain, then the
- * worst sites. Mock data until the backend has a read API; the SNMP row and
- * BY SITE are PLANNED sub-elements (nothing collects SNMP, nothing links
- * servers or targets to a site).
+ * worst sites. Demo data until the screen is connected to the console API; the
+ * SNMP row and BY SITE are marked sub-elements (the console does not read SNMP
+ * yet, and sites need servers and targets placed on them in the admin).
  */
 export function InfrastructureHealthPanel({ className }: { className?: string }) {
   const viewTo = useViewTo()
@@ -68,7 +63,9 @@ export function InfrastructureHealthPanel({ className }: { className?: string })
   )
 
   const sites = useMemo(() => (data ? rankedSites(data.sites) : []), [data])
+  const listed = useMemo(() => sites.slice(0, SITE_ROWS), [sites])
   const hidden = sites.length - SITE_ROWS
+  const legend = useMemo(() => legendStates(data?.domains ?? [], listed), [data, listed])
 
   return (
     <Panel
@@ -92,11 +89,14 @@ export function InfrastructureHealthPanel({ className }: { className?: string })
       skeleton={<HealthSkeleton />}
       footer={
         <>
-          <StatusLegend />
+          <StatusLegend
+            statuses={legend}
+            className={cn('min-w-0 leading-3', legend.length >= STACKED_FROM && STACKED_LEGEND)}
+          />
           {hidden > 0 ? (
             <Link
               to={viewTo('/customers')}
-              className="ml-auto whitespace-nowrap text-primary hover:text-primary-hover"
+              className="ml-auto shrink-0 whitespace-nowrap text-primary hover:text-primary-hover"
             >
               +{hidden} more {hidden === 1 ? 'site' : 'sites'}
             </Link>
@@ -107,7 +107,7 @@ export function InfrastructureHealthPanel({ className }: { className?: string })
       {data ? (
         <>
           <DomainRows domains={data.domains} />
-          <SiteSection sites={sites.slice(0, SITE_ROWS)} />
+          <SiteSection sites={listed} />
         </>
       ) : null}
     </Panel>

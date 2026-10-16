@@ -1,4 +1,5 @@
 export { StatusGlyph, type GlyphSize } from './StatusGlyph'
+export { StatusLegend } from './StatusLegend'
 export { StatusTag } from './StatusTag'
 export {
   STATUS_EDGE,

@@ -3,9 +3,12 @@ import userEvent from '@testing-library/user-event'
 import { lazy, type ComponentType } from 'react'
 import { Route, Routes } from 'react-router'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { registryOverrides } from '@/config/testing'
 import { keyInit } from '@/app/hotkeys/testing'
 import { AppShell } from './AppShell'
 import { DESKTOP, LAPTOP, PHONE, TABLET, renderShell, stubViewport } from './testing'
+
+const overrides = registryOverrides()
 
 // The palette is another module's; the shell only has to mount it.
 vi.mock('./command-palette', async () => {
@@ -42,6 +45,7 @@ function renderApp(route = '/', width = DESKTOP) {
 }
 
 afterEach(() => {
+  overrides.restore()
   vi.unstubAllGlobals()
   vi.restoreAllMocks()
   document.title = ''
@@ -308,7 +312,21 @@ describe('AppShell: demo data', () => {
     expect(screen.queryByRole('complementary', { name: 'Demo data' })).toBeNull()
   })
 
-  it('does not say it when the data is real', () => {
+  it('still says it over an HTTP adapter while features are not connected', () => {
+    stubViewport(DESKTOP)
+    renderShell(
+      <Routes>
+        <Route element={<AppShell />}>
+          <Route index element={<p>overview page</p>} />
+        </Route>
+      </Routes>,
+      { api: { source: 'http' } },
+    )
+    expect(screen.getByRole('complementary', { name: 'Demo data' })).toBeInTheDocument()
+  })
+
+  it('does not say it when every feature is connected and the data is real', () => {
+    overrides.connectAll()
     stubViewport(DESKTOP)
     renderShell(
       <Routes>

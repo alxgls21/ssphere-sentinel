@@ -1,10 +1,15 @@
 import { act, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { registryOverrides } from '@/config/testing'
 import { createTestApi, renderApp } from '@/test/render'
 import { PlannedBar, StatTile, type StatTileProps, type TileContent } from './StatTile'
 
-afterEach(() => vi.useRealTimers())
+const overrides = registryOverrides()
+afterEach(() => {
+  vi.useRealTimers()
+  overrides.restore()
+})
 
 const content = (over: Partial<TileContent> = {}): TileContent => ({
   summary: '15 of 16 online, 1 critical',
@@ -59,7 +64,17 @@ describe('StatTile (implemented domain)', () => {
     expect(screen.getAllByText(/^(mock|Planned|live)$/)).toHaveLength(1)
   })
 
-  it('drops the mock wording once the data is live', () => {
+  it('keeps the mock wording over an HTTP adapter while the feature is not connected', () => {
+    renderApp(tile(), { api: { ...createTestApi(), source: 'http' } })
+    expect(
+      screen.getByRole('link', { name: 'Servers: 15 of 16 online, 1 critical, mock data' }),
+    ).toBeVisible()
+    expect(screen.getByText('mock')).toBeInTheDocument()
+    expect(screen.queryByText('live')).not.toBeInTheDocument()
+  })
+
+  it('drops the mock wording once the feature is connected and the data is real', () => {
+    overrides.set('servers', { connected: true })
     renderApp(tile(), { api: { ...createTestApi(), source: 'http' } })
     expect(screen.getByRole('link', { name: 'Servers: 15 of 16 online, 1 critical' })).toBeVisible()
     expect(screen.queryByText('mock')).not.toBeInTheDocument()
@@ -137,7 +152,7 @@ describe('StatTile value flash', () => {
   })
 })
 
-describe('StatTile (planned)', () => {
+describe('StatTile (placeholder)', () => {
   const planned = (over: Partial<StatTileProps> = {}) =>
     tile({
       label: 'Devices',
@@ -152,16 +167,28 @@ describe('StatTile (planned)', () => {
       ...over,
     })
 
-  it('is not a link and reads as planned and not implemented', () => {
+  it('is not a link and, for SNMP, reads as not connected to the console: configuring it does not enable it here', () => {
     const { container } = renderApp(planned())
     expect(screen.queryByRole('link')).not.toBeInTheDocument()
-    expect(screen.getByText('Planned, not implemented')).toBeInTheDocument()
+    expect(screen.getByText('Not connected to the console yet')).toBeInTheDocument()
+    expect(screen.queryByText('Planned, not implemented')).not.toBeInTheDocument()
     expect(container.querySelector('[data-planned="true"]')).not.toBeNull()
   })
 
-  it('carries the PLANNED chip and no mock tag', () => {
-    renderApp(planned())
+  it('says PLANNED, not "not connected", for a feature the backend does not implement', () => {
+    const { container } = renderApp(planned({ features: 'alerts', to: '/alerts' }))
+    expect(screen.getByText('Planned, not implemented')).toBeInTheDocument()
     expect(screen.getByText('Planned')).toBeInTheDocument()
+    expect(screen.queryByText('Demo')).not.toBeInTheDocument()
+    expect(container.querySelector('[data-planned="true"]')).not.toBeNull()
+  })
+
+  it('carries the short NOT CONNECTED chip, with its reason, and no mock tag', () => {
+    renderApp(planned())
+    expect(screen.getByText('Demo')).toHaveAttribute(
+      'title',
+      expect.stringContaining('configuring SNMP does not make data appear in this console'),
+    )
     expect(screen.queryByText('mock')).not.toBeInTheDocument()
   })
 

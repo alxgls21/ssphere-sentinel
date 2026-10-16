@@ -1,5 +1,6 @@
 import { useId } from 'react'
 import { useDelayedFlag } from '@/hooks/useDelayedFlag'
+import { PROVENANCE_SPOKEN } from '@/config/features'
 import { useProvenance } from '@/hooks/useProvenance'
 import { cn } from '@/lib/cn'
 import { Skeleton } from '@/ui/states'
@@ -25,7 +26,7 @@ interface VerdictBarProps {
  */
 export function VerdictBar({ className }: VerdictBarProps) {
   const { verdict, freshness, stale, summary } = useFleetStatus()
-  const { source } = useProvenance(VERDICT_FEATURES)
+  const { provenance } = useProvenance(VERDICT_FEATURES)
   const descriptionId = useId()
   const loading = summary.status === 'loading'
   const showSkeleton = useDelayedFlag(loading)
@@ -40,7 +41,7 @@ export function VerdictBar({ className }: VerdictBarProps) {
   }
 
   const text = describeVerdict(verdict, { hasData: summary.data !== undefined, freshness })
-  const name = `Fleet status: ${text.summary}${source === 'mock' ? ', mock data' : ''}`
+  const name = `Fleet status: ${text.summary}${PROVENANCE_SPOKEN[provenance] ? `, ${PROVENANCE_SPOKEN[provenance]}` : ''}`
 
   return (
     <button

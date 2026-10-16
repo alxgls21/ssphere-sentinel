@@ -1,11 +1,12 @@
-import type { HealthStatus } from '@/api/types'
 import { cn } from '@/lib/cn'
+import type { DisplayStatus } from '@/lib/status'
 import { StatusGlyph, type GlyphSize } from './StatusGlyph'
 import { STATUS_TEXT, STATUS_TINT, STATUS_WORD } from './style'
 
 interface StatusTagProps {
-  status: HealthStatus
-  /** A more specific domain word (ONLINE, OFFLINE, UNHEALTHY, RESTARTING, ...) replacing OK/WARN/CRIT. */
+  /** A health status, or 'offline' for a server whose agent stopped reporting (see displayStatus). */
+  status: DisplayStatus
+  /** A more specific domain word (ONLINE, OFFLINE, UNHEALTHY, RESTARTING, ...) replacing OK/WARN/CRIT/OFFL. */
   word?: string
   /**
    * plain: glyph + word, no tint (dense lists, tooltips).

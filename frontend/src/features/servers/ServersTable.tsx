@@ -3,7 +3,7 @@ import { Link, useLocation, useNavigate } from 'react-router'
 import type { ServerListItem } from '@/api/types'
 import { useViewTo } from '@/app/viewSearch'
 import { cn } from '@/lib/cn'
-import { EMPTY, formatTime, type Timezone } from '@/lib/format'
+import { EMPTY, formatClock, type Timezone } from '@/lib/format'
 import { PlaceName } from '@/ui/PlaceName'
 import { Tooltip } from '@/ui/controls'
 import { STATUS_EDGE, StatusTag } from '@/ui/status'
@@ -16,6 +16,7 @@ import {
   reportsLoad,
   serverPath,
   seenAtOf,
+  serverDisplay,
   stateWord,
   uptimeText,
   type ServersQuery,
@@ -121,7 +122,7 @@ export function ServersTable({ rows, query, onSort, nowMs, tz }: ServersTablePro
                     aria-hidden="true"
                     className={cn('absolute inset-y-0 left-0 w-0.5', STATUS_EDGE[item.health])}
                   />
-                  <StatusTag status={item.health} word={stateWord(item)} variant="tag" />
+                  <StatusTag status={serverDisplay(item)} word={stateWord(item)} variant="tag" />
                 </td>
                 {/* oxlint-disable-next-line jsx-a11y/control-has-associated-label -- the link inside carries the text */}
                 <td className={cn(CELL, 'min-w-36 px-1')}>
@@ -176,7 +177,7 @@ export function ServersTable({ rows, query, onSort, nowMs, tz }: ServersTablePro
                   {seen === null ? (
                     heartbeatText(item, nowMs)
                   ) : (
-                    <Tooltip content={`${formatTime(seen, tz)}${tz === 'utc' ? 'Z' : ''}`}>
+                    <Tooltip content={formatClock(seen, tz)}>
                       <span>{heartbeatText(item, nowMs)}</span>
                     </Tooltip>
                   )}

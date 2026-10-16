@@ -1,17 +1,20 @@
 import type { ReactNode } from 'react'
-import type { HealthStatus, StatusCounts } from '@/api/types'
+import type { StatusCounts } from '@/api/types'
 import { describeCounts, nonZeroCounts } from '@/lib/blocks'
 import { cn } from '@/lib/cn'
 import { formatInteger } from '@/lib/format'
+import type { DisplayStatus } from '@/lib/status'
 import { STATUS_WORD } from '@/ui/status'
 
 /**
  * Class names are written out in full so Tailwind's scanner sees them. Unknown
- * is a hollow outline and idle a half-height flat bar (the shapes of the UNKN
- * ring and IDLE bar), so the bar never leans on color alone.
+ * is a hollow outline, idle a half-height flat bar and offline two thin bars
+ * with a 2px break between them (the shapes of the UNKN ring, the IDLE bar and
+ * the OFFL slash), so the bar never leans on color alone.
  */
-const SEGMENT: Record<HealthStatus, string> = {
+const SEGMENT: Record<DisplayStatus, string> = {
   critical: 'bg-critical',
+  offline: 'flex flex-col gap-0.5 overflow-hidden',
   warning: 'bg-warning',
   unknown: 'border border-fg-faint',
   idle: 'h-1/2 self-center bg-fg-muted',
@@ -29,11 +32,21 @@ interface SegmentedBarProps {
   /** The feature behind this bar is not implemented: a dashed outline carrying `plannedText`. */
   planned?: boolean
   plannedText?: string
+  /**
+   * A hover title on each segment ("CRIT 1 of 16"). Off where a Tooltip already
+   * describes the bar, or the two would open together.
+   */
+  segmentTitles?: boolean
   className?: string
 }
 
+/** The two halves of an offline segment. */
+const OFFLINE_HALF = 'min-h-0 flex-1 bg-offline'
+
 /**
- * Composition by state, worst first: critical, warning, unknown, idle, healthy.
+ * Composition by state, worst first: critical, offline, warning, unknown, idle,
+ * healthy. Offline servers are part of critical everywhere that decides
+ * something; here they are drawn apart, directly after the rest of it.
  * Widths are flex-grow shares of the counts, so the browser resolves the
  * "every non-zero segment at least 3px" floor by shrinking the others in
  * proportion. The 2px gaps are real gaps (the surface shows through), and only
@@ -45,6 +58,7 @@ export function SegmentedBar({
   label,
   planned = false,
   plannedText = 'no data',
+  segmentTitles = true,
   className,
 }: SegmentedBarProps) {
   const present = nonZeroCounts(counts)
@@ -68,10 +82,21 @@ export function SegmentedBar({
       <span
         key={status}
         data-status={status}
-        title={`${STATUS_WORD[status]} ${formatInteger(count)} of ${formatInteger(total)}`}
+        title={
+          segmentTitles
+            ? `${STATUS_WORD[status]} ${formatInteger(count)} of ${formatInteger(total)}`
+            : undefined
+        }
         style={{ flexGrow: count }}
         className={cn('min-w-0.75 basis-0 first:rounded-l-sm last:rounded-r-sm', SEGMENT[status])}
-      />
+      >
+        {status === 'offline' ? (
+          <>
+            <span className={OFFLINE_HALF} />
+            <span className={OFFLINE_HALF} />
+          </>
+        ) : null}
+      </span>
     ))
   }
 

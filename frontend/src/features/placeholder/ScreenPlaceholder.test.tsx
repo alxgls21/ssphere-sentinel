@@ -1,6 +1,6 @@
 import { screen, within } from '@testing-library/react'
 import { describe, expect, it } from 'vitest'
-import { FEATURES, isUnimplemented } from '@/config/features'
+import { AVAILABILITY_WORD, FEATURES, isPlaceholder, shortfallOf } from '@/config/features'
 import { NAV_ITEMS } from '@/config/nav'
 import { renderApp } from '@/test/render'
 import { NotFoundPage } from './NotFoundPage'
@@ -32,22 +32,86 @@ describe('ScreenPlaceholder', () => {
   )
 
   it.each(SCREENS.map((item) => [item.label, item] as const))(
-    '%s: lists what backend work is missing',
+    '%s: lists what is still missing',
     (_label, item) => {
       renderApp(<ScreenPlaceholder item={item} />)
-      const section = screen.getByRole('heading', { name: 'Missing in the backend' })
+      const section = screen.getByRole('heading', { name: 'Not available yet' })
         .parentElement as HTMLElement
       expect(within(section).getAllByRole('listitem').length).toBeGreaterThan(0)
     },
   )
 
-  it('marks screens whose backend feature is not implemented with the PLANNED chip, and only those', () => {
+  it('marks a screen with the chip its availability calls for, and only those that need one', () => {
     for (const item of SCREENS) {
+      const feature = item.feature as NonNullable<typeof item.feature>
       const { unmount } = renderApp(<ScreenPlaceholder item={item} />)
-      const planned = isUnimplemented(item.feature as NonNullable<typeof item.feature>)
-      expect(screen.queryByText('Planned') !== null, item.label).toBe(planned)
+      // Only a screen with nothing but a placeholder behind it takes a chip.
+      const gap = shortfallOf(feature)
+      const chip = gap && isPlaceholder(feature) ? AVAILABILITY_WORD[gap] : null
+      for (const word of ['Planned', 'Needs setup', 'Not connected']) {
+        expect(
+          screen.queryAllByText(word, { selector: 'span' }).length > 0,
+          `${item.label} ${word}`,
+        ).toBe(word === chip)
+      }
       unmount()
     }
+  })
+
+  describe('says what is true of each feature', () => {
+    const byId = (id: string) =>
+      NAV_ITEMS.find((nav) => nav.id === id) as (typeof NAV_ITEMS)[number]
+    const text = () => document.body.textContent ?? ''
+
+    it('Docker: the console API serves containers; the screen is what is missing', () => {
+      renderApp(<ScreenPlaceholder item={byId('docker')} />)
+      expect(text()).toContain('Served by the console API; this screen is not connected to it yet')
+      expect(text()).not.toMatch(/read API/i)
+      expect(text()).not.toContain('Not implemented in the backend')
+    })
+
+    it('Network: stored, and not served to the console yet', () => {
+      renderApp(<ScreenPlaceholder item={byId('network')} />)
+      expect(text()).toContain('Stored by the backend; the console API does not serve it yet')
+      expect(text()).toContain('A console API for probe targets and their measurements.')
+      // Probe targets can be placed on a site, so a missing site link is not a gap.
+      expect(text()).not.toContain('Site link')
+    })
+
+    it('SNMP: stored but not served to the console; prerequisites do not enable it here', () => {
+      renderApp(<ScreenPlaceholder item={byId('snmp')} />)
+      expect(text()).toContain('Stored by the backend; the console API does not serve it yet')
+      // The chip is NOT CONNECTED, never NEEDS SETUP: nothing says that setup is missing.
+      expect(screen.getByText('Not connected', { selector: 'span' })).toBeInTheDocument()
+      expect(screen.queryByText('Needs setup')).toBeNull()
+      expect(screen.getByRole('heading', { name: 'Prerequisites' })).toBeInTheDocument()
+      expect(text()).toContain('credentials file on the agent host')
+      expect(text()).toContain('Doing this does not show data in this console')
+      expect(text()).toContain('configuring SNMP does not make data appear in this console')
+      expect(text()).not.toContain('collector is not implemented')
+      expect(text()).not.toContain('Not implemented in the backend')
+    })
+
+    it('Topology and Alerts: genuinely not implemented, and say so', () => {
+      for (const id of ['topology', 'alerts']) {
+        const { unmount } = renderApp(<ScreenPlaceholder item={byId(id)} />)
+        expect(text()).toContain('Not implemented in the backend')
+        expect(screen.getByText('Planned')).toBeInTheDocument()
+        unmount()
+      }
+    })
+
+    it('Customers & Sites: customers and sites are listed by the console API already', () => {
+      renderApp(<ScreenPlaceholder item={byId('customers')} />)
+      expect(text()).toContain('lists the customers and sites you may see')
+      expect(text()).not.toContain('A Site link')
+    })
+
+    it('never shows a chip for a feature that only has no screen yet', () => {
+      for (const id of ['docker', 'network', 'customers']) {
+        expect(shortfallOf(FEATURES[id as keyof typeof FEATURES].id)).toBe('not-connected')
+      }
+    })
   })
 
   it('mentions docs/snmp.md for SNMP as plain text in the repository, not as a link', () => {

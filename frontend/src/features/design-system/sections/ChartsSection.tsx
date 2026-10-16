@@ -8,7 +8,7 @@ import { latencyTable } from '@/features/overview/latency/latencyModel'
 import { POLL_MS } from '@/lib/thresholds'
 import { Panel } from '@/ui/Panel'
 import { Skeleton } from '@/ui/states'
-import { SAMPLE_SERIES } from '../sample/data'
+import { SAMPLE_SPIKE_SERIES } from '../sample/latency'
 import { Specimen } from '../Specimen'
 
 // The chart runtime is its own chunk, as it is on the Overview: the rest of the gallery paints first.
@@ -19,14 +19,14 @@ const PLOT_REM = LATENCY_CHART_HEIGHT_PX / BASE_ROOT_PX
 
 export function ChartsSection() {
   const { tz } = usePrefs()
-  const table = useMemo(() => latencyTable(SAMPLE_SERIES, '1h', tz), [tz])
+  const table = useMemo(() => latencyTable(SAMPLE_SPIKE_SERIES, '1h', tz), [tz])
 
   return (
     <div className="grid gap-x-3 gap-y-4 xl:grid-cols-2">
       <Specimen
         label="Chart frame"
         bare
-        note="Two linked grids on one time axis, never a dual axis. The legend toggles series (Shift-click isolates). The plot takes focus: Left, Right, Home and End move the crosshair. The Table button shows the same values."
+        note="Two linked grids on one time axis, never a dual axis. Each grid draws its warn limit, a warning triangle marks every sample over it and the worst latency spike is labelled. The legend toggles series (Shift-click isolates). The plot takes focus: Left, Right, Home and End move the crosshair. The Table button shows the same values."
       >
         <Panel
           title="Network latency"
@@ -38,7 +38,7 @@ export function ChartsSection() {
           footer={<span className="truncate">p95 and p50 across 40 targets, loss = mean</span>}
         >
           <Suspense fallback={<ChartSkeleton />}>
-            <LatencyChart series={SAMPLE_SERIES} range="1h" />
+            <LatencyChart series={SAMPLE_SPIKE_SERIES} range="1h" />
           </Suspense>
         </Panel>
       </Specimen>
@@ -76,7 +76,7 @@ export function ChartsSection() {
         <Panel
           title="Interface traffic"
           features="snmp"
-          plannedNote="Interface counters are not collected yet."
+          plannedNote="The console does not read interface counters yet."
           scope="30m"
           refreshMs={POLL_MS}
           flush

@@ -1,6 +1,6 @@
 import { AtSign, Hash, Terminal, type LucideIcon } from 'lucide-react'
 import type { EntityIndexItem, EntityKind, HealthStatus } from '@/api/types'
-import { isUnimplemented } from '@/config/features'
+import { isPlaceholder, isPlanned } from '@/config/features'
 import { NAV_ITEMS, type NavItem } from '@/config/nav'
 import { compareSeverity, needsAttention } from '@/lib/status'
 import { containsScore, fuzzyScore } from './fuzzy'
@@ -33,6 +33,8 @@ export interface PaletteItem {
   keywords?: readonly string[]
   /** Set on entities: the worst-state tag in the right slot, and the severity tie-break. */
   status?: HealthStatus
+  /** A server whose agent stopped reporting: critical in `status`, tagged apart in the right slot. */
+  offline?: boolean
   kind?: EntityIndexItem['kind']
   /** Right-slot tag for things the backend does not do (or does not yet), or the active scenario. */
   badge?: 'plan' | 'planned' | 'current'
@@ -109,6 +111,7 @@ export function entityItem(
       Boolean(text),
     ),
     status: entity.status,
+    ...(entity.offline ? { offline: true } : {}),
     kind: entity.kind,
     run: () => open(entity),
   }
@@ -122,7 +125,7 @@ export function screenItems(open: (screen: NavItem) => void, showKeys: boolean):
     subtitle: screen.description,
     icon: screen.icon,
     hint: showKeys ? ['g', screen.chord] : undefined,
-    badge: screen.feature !== null && isUnimplemented(screen.feature) ? 'plan' : undefined,
+    badge: screen.feature !== null && isPlanned(screen.feature) ? 'plan' : undefined,
     run: () => open(screen),
   }))
 }
@@ -172,7 +175,7 @@ export function problemItems(entities: readonly PaletteItem[]): PaletteItem[] {
     .filter(({ kind, status }) => {
       if (kind === undefined || !isEntityKind(kind) || status === undefined) return false
       const { feature } = screenOf(kind)
-      return feature !== null && !isUnimplemented(feature) && needsAttention(status)
+      return feature !== null && !isPlaceholder(feature) && needsAttention(status)
     })
     .sort((a, b) => compareSeverity(statusOf(a), statusOf(b)))
     .slice(0, PROBLEM_LIMIT)

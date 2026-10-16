@@ -17,6 +17,12 @@ describe('describeProblems', () => {
   it('is empty when nothing needs a look', () => {
     expect(describeProblems(counts({ healthy: 9, idle: 3 }))).toBe('')
   })
+
+  it('names offline servers apart from the critical they are part of', () => {
+    expect(describeProblems(counts({ healthy: 9, warning: 2, critical: 4, offline: 1 }))).toBe(
+      '3 critical, 1 offline, 2 warning',
+    )
+  })
 })
 
 describe('formatFigure', () => {
@@ -37,11 +43,28 @@ describe('describeVerdict', () => {
     expect(text.summary).toBe('critical, 9 need attention of 121, 4 critical, 5 warning, 112 ok')
   })
 
+  it('reads the same figures with an offline server, and breaks critical down in words only', () => {
+    const summary = makeSummary()
+    summary.servers.counts = counts({ healthy: 13, warning: 2, critical: 1, offline: 1 })
+    const text = describeVerdict(verdictOf('live', summary), { hasData: true, freshness: 'live' })
+    expect(text.figure).toBe('9')
+    expect(text.caption).toBe('need attention of 121')
+    expect(text.short).toBe('9 need attention')
+    expect(text.summary).toBe(
+      'critical, 9 need attention of 121, 3 critical, 1 offline, 5 warning, 112 ok',
+    )
+  })
+
   it('says what the count excludes: idle entities and the planned domains', () => {
     const text = describeVerdict(verdictOf(), { hasData: true, freshness: 'live' })
     expect(text.scope).toBe(`3 idle entities are not counted. ${NOT_COUNTED}`)
-    expect(NOT_COUNTED).toContain('Alerts, events and SNMP devices are not counted')
-    expect(NOT_COUNTED).toContain('not implemented in backend')
+    // Alerts and events do not exist in the backend; SNMP does, but the console does not read it yet.
+    expect(NOT_COUNTED).toContain(
+      'Alerts and events are not counted: not implemented in the backend',
+    )
+    expect(NOT_COUNTED).toContain(
+      'SNMP devices are not counted: the console does not read them yet',
+    )
   })
 
   it('uses the singular for one idle entity and omits the idle sentence for none', () => {

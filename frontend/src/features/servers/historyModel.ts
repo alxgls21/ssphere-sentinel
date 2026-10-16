@@ -3,6 +3,7 @@ import type { ChartTableModel } from '@/charts/ChartTable'
 import type { ChartColorName, ChartColors } from '@/charts/theme'
 import type { TooltipContent } from '@/charts/tooltip'
 import { EMPTY, formatPercent, formatTime, timezoneLabel, type Timezone } from '@/lib/format'
+import { RANGE_MS, RANGE_WORDS } from '@/lib/range'
 
 /**
  * Everything the resource-history chart says in words and numbers, from one
@@ -27,11 +28,19 @@ export const HISTORY_SERIES: readonly HistorySpec[] = [
 
 export const HISTORY_IDS: readonly HistoryMetric[] = HISTORY_SERIES.map(({ id }) => id)
 
-const RANGE_WORDS: Record<RangeKey, string> = {
-  '15m': 'last 15 minutes',
-  '1h': 'last hour',
-  '6h': 'last 6 hours',
-  '24h': 'last 24 hours',
+/**
+ * The range a series covers, read from its own buckets: a series kept on screen
+ * while another range loads must not wear that range's name.
+ */
+function rangeOf(series: ServerSeries): RangeKey | undefined {
+  const span = series.t.length * series.bucketMs
+  return (Object.keys(RANGE_MS) as RangeKey[]).find((key) => RANGE_MS[key] === span)
+}
+
+/** Names the series behind a sparkline: "CPU history of api-02, last hour". */
+export function historyLabel(metric: string, name: string, series: ServerSeries): string {
+  const range = rangeOf(series)
+  return `${metric} history of ${name}${range ? `, ${RANGE_WORDS[range]}` : ''}`
 }
 
 export const valuesOf = (series: ServerSeries, id: HistoryMetric) => series[id]

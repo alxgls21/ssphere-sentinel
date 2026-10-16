@@ -67,6 +67,71 @@ describe('VerdictHero: critical (the reference story)', () => {
   })
 })
 
+describe('VerdictHero: an offline server', () => {
+  const offline = () =>
+    makeResource({
+      data: fleet(
+        { healthy: 13, warning: 2, critical: 1, offline: 1 },
+        { healthy: 62, warning: 1, critical: 2, idle: 3 },
+        { healthy: 37, warning: 2, critical: 1 },
+      ),
+    })
+
+  it('decides exactly as without it: CRITICAL, 9 of 121, a critical frame and edge', () => {
+    renderHero(<VerdictHero />, { summary: offline() })
+    const button = hero()
+    expect(button).toHaveAttribute('data-verdict', 'critical')
+    expect(within(button).getByText('9')).toHaveClass('type-hero')
+    expect(within(button).getByText('need attention of 121')).toBeInTheDocument()
+    expect(button.querySelector('svg.size-6')).toHaveAttribute('data-status', 'critical')
+    expect(button).toHaveClass(STATUS_FRAME.critical)
+    const [tint, edge] = [...button.querySelectorAll(':scope > span[aria-hidden="true"]')]
+    expect(tint).toHaveClass(STATUS_TINT.critical)
+    expect(edge).toHaveClass(STATUS_EDGE.critical)
+  })
+
+  it('breaks critical down in the bar and in the name, offline directly after it', () => {
+    renderHero(<VerdictHero />, { summary: offline() })
+    const bar = within(hero()).getByRole('img', {
+      name: 'Fleet: 3 critical, 1 offline, 5 warning, 112 ok',
+    })
+    expect(
+      [...bar.querySelectorAll('[data-status]')].map((part) => part.getAttribute('data-status')),
+    ).toEqual(['critical', 'offline', 'warning', 'healthy'])
+    expect(hero()).toHaveAccessibleName(
+      'Fleet status: critical, 9 need attention of 121, 3 critical, 1 offline, 5 warning, 112 ok, mock data',
+    )
+  })
+
+  it('lists the offline mark in the counts, and keeps the words where they fit', () => {
+    renderHero(<VerdictHero />, { summary: offline() })
+    expect(hero()).toHaveTextContent('3 CRIT1 OFFL5 WARN112 OK')
+    expect(hero().querySelector('svg[data-status="offline"]')).not.toBeNull()
+  })
+
+  it('hides the words of five marks, by container width, where they would not fit', () => {
+    const crowded = fleet({ healthy: 13, warning: 2, critical: 2, offline: 1, unknown: 1 })
+    renderHero(<VerdictHero />, { summary: makeResource({ data: crowded }) })
+    const words = [...hero().querySelectorAll('span.text-fg-muted')].filter((word) =>
+      /^(CRIT|OFFL|WARN|UNKN|OK)$/.test(word.textContent ?? ''),
+    )
+    expect(words).toHaveLength(5)
+    for (const word of words) expect(word.className).toContain('@max-[20rem]/hero:hidden')
+    // The accessible name still carries every word.
+    expect(hero()).toHaveAccessibleName(
+      'Fleet status: critical, 5 need attention of 18, 1 critical, 1 offline, 2 warning, 1 unknown, 13 ok, mock data',
+    )
+  })
+
+  it('keeps the words when four marks fit', () => {
+    renderHero(<VerdictHero />, {
+      summary: makeResource({ data: fleet({ healthy: 13, warning: 2, critical: 1, offline: 1 }) }),
+    })
+    for (const word of hero().querySelectorAll('span.text-fg-muted'))
+      expect(word.className).not.toContain('/hero:hidden')
+  })
+})
+
 describe('VerdictHero: the other verdicts', () => {
   it('DEGRADED when there are warnings but nothing critical', () => {
     renderHero(<VerdictHero />, {

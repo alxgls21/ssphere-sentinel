@@ -72,7 +72,7 @@ interface ContainersPanelProps {
   className?: string
 }
 
-/** The Docker containers of one server, worst first. Mock data (the backend stores them, but nothing reads them). */
+/** The Docker containers of one server, worst first. Demo data until connected to the console API, which serves them. */
 export function ContainersPanel({ index, resource, hostOffline, className }: ContainersPanelProps) {
   const rows = resource.data ? sortContainers(resource.data.containers) : []
   const nowMs = resource.data ? Date.parse(resource.data.generatedAt) : 0

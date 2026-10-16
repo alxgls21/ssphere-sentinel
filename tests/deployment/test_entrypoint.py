@@ -23,6 +23,7 @@ ENTRYPOINT = ROOT / "entrypoint.sh"
 
 WAIT = "-m sentinel.database wait"
 MIGRATE = "manage.py migrate --noinput"
+VERIFY = "-m sentinel.database verify"
 
 PYTHON_STUB = """#!/bin/sh
 echo "python $*" >> "$STUB_CALLS"
@@ -105,23 +106,53 @@ class EntrypointTests(unittest.TestCase):
         self.assertEqual(self.recorded(), [])
         self.assertIn("run manage.py commands in the web service", result.stderr)
 
-    def test_separate_web_waits_and_starts_without_migrating(self):
+    def test_separate_web_waits_verifies_and_starts_without_migrating(self):
         result = self.run_entrypoint("gunicorn", SENTINEL_DB_ROLES="separate", SENTINEL_DB_ACCESS="runtime")
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(self.recorded(), [WAIT, "command "])
+        self.assertEqual(self.recorded(), [WAIT, VERIFY, "command "])
         self.assertNotIn("applying database migrations", result.stderr)
 
-    def test_separate_migrate_service_applies_the_migrations_and_exits(self):
+    def test_separate_migrate_service_checks_applies_the_migrations_verifies_and_exits(self):
+        # The roles, django_migrations included, are checked before any migration runs.
         result = self.run_entrypoint("apply-migrations", SENTINEL_DB_ROLES="separate", SENTINEL_DB_ACCESS="migrate")
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(self.recorded(), [WAIT, MIGRATE])
+        self.assertEqual(self.recorded(), [WAIT, VERIFY, MIGRATE, VERIFY])
+        self.assertIn("entrypoint: checking the database roles before anything runs", result.stderr)
+
+    def test_a_password_not_its_own_stops_a_process_before_anything_runs(self):
+        cases = (
+            ("gunicorn", {"SENTINEL_DB_ROLES": "separate", "POSTGRES_PASSWORD": "bootstrap-secret"}),
+            ("gunicorn", {"SENTINEL_DB_ROLES": "separate", "SENTINEL_DB_MIGRATE_PASSWORD": "migration-secret"}),
+            ("apply-migrations", {"SENTINEL_DB_ROLES": "separate", "SENTINEL_DB_ACCESS": "migrate",
+                                  "POSTGRES_PASSWORD": "bootstrap-secret"}),
+            ("apply-migrations", {"SENTINEL_DB_ROLES": "separate", "SENTINEL_DB_ACCESS": "migrate",
+                                  "SENTINEL_DB_PASSWORD": "runtime-secret"}),
+            # The migrate service given its password but not SENTINEL_DB_ROLES: never "nothing to do".
+            ("apply-migrations", {"SENTINEL_DB_ACCESS": "migrate", "SENTINEL_DB_MIGRATE_PASSWORD": "migration-secret"}),
+            ("gunicorn", {"SENTINEL_DB_PASSWORD": "runtime-secret"}),
+        )
+        for command, environment in cases:
+            with self.subTest(command=command, environment=sorted(environment)):
+                result = self.run_entrypoint(command, **environment)
+                self.assertEqual(result.returncode, 2)
+                self.assertEqual(self.recorded(), [])
+                self.assertNotIn("nothing to do", result.stderr)
+                self.assertRegex(result.stderr, r"entrypoint: [A-Z_ ]+(?: and [A-Z_]+)? (is|are) set, but ")
+                for secret in ("bootstrap-secret", "migration-secret", "runtime-secret"):
+                    self.assertNotIn(secret, result.stdout + result.stderr)
 
     def test_separate_migrate_service_runs_other_commands_with_its_login(self):
         result = self.run_entrypoint(
             "gunicorn", "showmigrations", SENTINEL_DB_ROLES="separate", SENTINEL_DB_ACCESS="migrate"
         )
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(self.recorded(), [WAIT, "command showmigrations"])
+        # Any of its commands could migrate (manage.py migrate): checked first all the same.
+        self.assertEqual(self.recorded(), [WAIT, VERIFY, "command showmigrations"])
+        result = self.run_entrypoint(
+            "gunicorn", "migrate", fail="verify", SENTINEL_DB_ROLES="separate", SENTINEL_DB_ACCESS="migrate"
+        )
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual(self.recorded(), [WAIT, VERIFY])
 
     def test_apply_migrations_is_refused_outside_the_migrate_service(self):
         for roles in ("legacy", "separate"):
@@ -151,7 +182,10 @@ class EntrypointTests(unittest.TestCase):
         cases = (
             ("sentinel.database wait", {}, [WAIT]),
             ("migrate", {}, [WAIT, MIGRATE]),
-            ("migrate", {"SENTINEL_DB_ROLES": "separate", "SENTINEL_DB_ACCESS": "migrate"}, [WAIT, MIGRATE]),
+            ("migrate", {"SENTINEL_DB_ROLES": "separate", "SENTINEL_DB_ACCESS": "migrate"}, [WAIT, VERIFY, MIGRATE]),
+            # The check before the migrations stops them, and anything else.
+            ("verify", {"SENTINEL_DB_ROLES": "separate", "SENTINEL_DB_ACCESS": "migrate"}, [WAIT, VERIFY]),
+            ("verify", {"SENTINEL_DB_ROLES": "separate"}, [WAIT, VERIFY]),
         )
         for fail, environment, calls in cases:
             with self.subTest(fail=fail, environment=environment):

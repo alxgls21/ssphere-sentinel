@@ -6,8 +6,9 @@ import { emptyCounts } from './status'
  * Tier-0 verdict: one word for the whole fleet, readable from across a room.
  *
  * Counts come ONLY from implemented ingest domains (servers, containers,
- * targets). Alerts, events and SNMP devices are not implemented in the
- * backend, so they never feed the verdict (it says so in a tooltip).
+ * targets). Alerts and events are not implemented in the backend and SNMP
+ * devices are not read by the console yet, so none of them feeds the verdict
+ * (it says so in a tooltip).
  *
  *   NO DATA   data older than 120 s, every resource failed, or nothing monitored
  *   CRITICAL  any critical entity
@@ -51,10 +52,12 @@ export interface Verdict {
 
 export function sumCounts(...parts: StatusCounts[]): StatusCounts {
   const total = emptyCounts()
+  let offline = 0
   for (const part of parts) {
     for (const key of Object.keys(total) as HealthStatus[]) total[key] += part[key]
+    offline += part.offline ?? 0
   }
-  return total
+  return offline > 0 ? { ...total, offline } : total
 }
 
 export function computeVerdict(

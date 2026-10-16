@@ -57,3 +57,39 @@ describe('describeEntities', () => {
     expect(describeEntities('Site', many(4, 'healthy', 'ok'))).toBe('Site: 4 ok')
   })
 })
+
+describe('describeEntities with an offline server', () => {
+  const offline = (name: string): SiteEntity => ({ ...entity(name, 'critical'), offline: true })
+
+  it('names the offline servers apart from the critical entities, directly after them', () => {
+    const entities = [
+      ...many(15, 'healthy', 'ok'),
+      entity('api-02', 'warning'),
+      offline('pir-fs-01'),
+      entity('edge-gw-02', 'critical'),
+    ]
+    expect(describeEntities('Meridian / Piraeus', entities)).toBe(
+      'Meridian / Piraeus: 1 critical (edge-gw-02), 1 offline (pir-fs-01), 1 warning (api-02), 15 ok',
+    )
+  })
+
+  it('says only "offline" when every critical entity is offline', () => {
+    expect(describeEntities('Site', [offline('a'), offline('b'), entity('c', 'healthy')])).toBe(
+      'Site: 2 offline (a, b), 1 ok',
+    )
+  })
+
+  it('lists three offline names, then how many more', () => {
+    const entities = Array.from({ length: 5 }, (_, index) => offline(`srv-${index + 1}`))
+    expect(describeEntities('Site', entities)).toBe(
+      'Site: 5 offline (srv-1, srv-2, srv-3, +2 more)',
+    )
+  })
+
+  it('does not depend on the order entities arrive in', () => {
+    const entities = [entity('a', 'healthy'), offline('b'), entity('c', 'critical')]
+    expect(describeEntities('Site', entities)).toBe(
+      describeEntities('Site', [...entities].reverse()),
+    )
+  })
+})

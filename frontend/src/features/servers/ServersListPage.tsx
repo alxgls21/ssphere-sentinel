@@ -55,8 +55,8 @@ const FOOTER_NOTE = 'cell = 10% · warn at 80 · crit at 95 · UI defaults'
 
 /**
  * Servers: every monitored host, worst first. Search, status filter and sort
- * live in the URL. Mock data until the backend has a read API (it already
- * stores every number shown here, one latest row per server).
+ * live in the URL. Demo data until the screen is connected to the console API,
+ * which already serves the list (`servers/`).
  */
 export default function ServersListPage() {
   const api = useApi()

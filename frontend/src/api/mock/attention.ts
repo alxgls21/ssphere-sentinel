@@ -21,6 +21,7 @@ import type { Fleet } from './fixtures'
 import {
   containerHealthOf,
   makeLookup,
+  offlineFlag,
   serverHealthOf,
   targetHealthOf,
   type Lookup,
@@ -201,6 +202,7 @@ export function listAttention(fleet: Fleet, now: number, includeIdle: boolean): 
       id: server.id,
       name: server.name,
       severity,
+      ...offlineFlag(server),
       ...describeServer(server, now),
       ...withPlace(lookup.placeOfSite(server.siteId)),
     }))

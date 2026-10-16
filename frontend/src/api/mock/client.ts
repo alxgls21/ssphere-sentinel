@@ -1,6 +1,7 @@
 import type { SentinelApi } from '../client'
 import { ApiError } from '../errors'
 import type { RequestOptions, Scope } from '../types'
+import { RANGE_MS } from '@/lib/range'
 import { deriveActivity } from './activity'
 import { listAttention } from './attention'
 import { entityIndex, fleetLoad, healthBreakdown, scopeOptions, summarize } from './derive'
@@ -8,7 +9,7 @@ import { buildServerSeries, listServers, serverDetail } from './servers'
 import { buildEstate, scopeEstate, type Estate, type FleetProfile } from './fixtures'
 import { hash01, hashString } from './random'
 import type { MockScenario } from './scenario'
-import { buildNetworkSeries, RANGE_MS } from './series'
+import { buildNetworkSeries } from './series'
 import type { Clock } from './time'
 
 export interface MockApiOptions {

@@ -9,6 +9,7 @@ import { BASE_ROOT_PX, readRootFontSize, type ChartTokens } from '@/charts/theme
 import {
   growingGridHeight,
   niceAxis,
+  referenceLine,
   sharedCrosshair,
   timeAxis,
   timeCursorX,
@@ -18,12 +19,39 @@ import {
 import { formatInteger, formatLatency, formatPercent, type Timezone } from '@/lib/format'
 import { LATENCY_WARN_MS, LOSS_WARN_PERCENT } from '@/lib/thresholds'
 import { LATENCY_GEOMETRY } from './latencyGeometry'
-import { lastValueIndex, tooltipContent } from './latencyModel'
+import {
+  LATENCY_WARN_LABEL,
+  LOSS_WARN_LABEL,
+  lastValueIndex,
+  lossOverIndexes,
+  spikeIndexes,
+  tooltipContent,
+  worstSpikeIndex,
+  worstSpikeText,
+} from './latencyModel'
+import {
+  LIMIT_LABEL_FONT_PX,
+  LOSS_AXIS_FLOOR,
+  LOSS_TRIANGLE_RISE_PX,
+  SPIKE_LABEL_GAP_PX,
+  SPIKE_TRIANGLE_RISE_PX,
+  TRIANGLE_PX,
+  VALUE_LABEL_FONT_PX,
+  axisFractions,
+  latencyAxisTarget,
+  latencyOccupants,
+  lossOccupants,
+  placeLimitLabel,
+  textWidthPx,
+  worstAlign,
+} from './latencyLayout'
 
 /**
  * Two grids on one shared time axis, never a dual axis: p95 and p50 latency
- * above, packet-loss columns and failed-probe diamonds below. Pure: data and
- * tokens in, an ECharts option out, so the wiring is testable without a canvas.
+ * above, packet-loss columns and failed-probe diamonds below. Each grid draws
+ * its warning limit, and a warning triangle marks every sample over it. Pure:
+ * data and tokens in, an ECharts option out, so the wiring is testable without
+ * a canvas.
  */
 
 function latencyTick(value: number): string {
@@ -69,6 +97,11 @@ export function buildLatencyOption({
   const visible = (id: string) => !hidden.has(id)
 
   const extent = timeExtent(series.t, series.bucketMs)
+  const at = axisFractions(series.t, extent.min, extent.max)
+  const spikes = spikeIndexes(series)
+  const lossOver = lossOverIndexes(series)
+  const worst = worstSpikeIndex(series)
+  const worstText = worst >= 0 ? worstSpikeText(series, worst, tz) : ''
 
   const points = (values: readonly (number | null)[]): [number, number | null][] =>
     series.t.map((time, index) => [time, values[index] ?? null])
@@ -80,31 +113,69 @@ export function buildLatencyOption({
     return time === undefined || value == null ? null : [time, value]
   }
 
-  const endLabel = {
-    position: 'right',
-    distance: px(8),
+  /** Direct value labels: the end of a line, the worst spike. Text color, never a series color. */
+  const valueLabel = {
     color: colors.fg,
     fontFamily,
-    fontSize: px(12),
+    fontSize: px(VALUE_LABEL_FONT_PX),
     fontWeight: 500,
   } as const
+  const endLabel = { ...valueLabel, position: 'right', distance: px(8) } as const
 
-  /** The last measured point of a line: an 8px dot with a 2px panel ring, and optionally its value as a label. */
+  /** The warning triangle over a sample past its limit, as on the loss columns. */
+  const warningTriangle = (name: string, coord: [number, number], rise: number) => ({
+    name,
+    coord,
+    symbol: 'triangle',
+    symbolSize: px(TRIANGLE_PX),
+    symbolOffset: [0, -px(rise)],
+    itemStyle: { color: colors.warning, borderWidth: 0 },
+    label: { show: false },
+  })
+
+  /**
+   * The last measured point of a line: an 8px dot with a 2px panel ring, and optionally its value
+   * as a label. On p95 also a triangle over every sample above the limit, the worst of them
+   * labelled with its value and time above its triangle.
+   */
   const lineEnd = (
     values: readonly (number | null)[],
     color: string,
     labelled: boolean,
+    spiking: readonly number[] = [],
   ): LineSeriesOption['markPoint'] => {
-    const at = lastPoint(values)
-    if (!at) return undefined
+    const last = lastPoint(values)
+    const triangles = spiking.flatMap((index) => {
+      const time = series.t[index]
+      const value = values[index]
+      if (time === undefined || value == null) return []
+      const mark = warningTriangle('latency over threshold', [time, value], SPIKE_TRIANGLE_RISE_PX)
+      return [
+        index === worst
+          ? {
+              ...mark,
+              label: {
+                ...valueLabel,
+                show: true,
+                position: 'top',
+                distance: px(SPIKE_LABEL_GAP_PX),
+                align: worstAlign(at[index] ?? 0, worstText),
+                formatter: worstText,
+              },
+            }
+          : mark,
+      ]
+    })
+    if (!last && triangles.length === 0) return undefined
     return {
       silent: true,
       animation: false,
       symbol: 'circle',
       symbolSize: px(8),
       itemStyle: { color, borderColor: colors.panel, borderWidth: 2 },
-      label: { ...endLabel, show: labelled && !compact, formatter: formatLatency(at[1]) },
-      data: [{ name: 'last', coord: at }],
+      label: { ...endLabel, show: labelled && !compact, formatter: formatLatency(last?.[1]) },
+      // The end dot first: a triangle that reaches it is drawn whole, over the dot.
+      data: [...(last ? [{ name: 'last', coord: last }] : []), ...triangles],
     }
   }
 
@@ -116,7 +187,8 @@ export function buildLatencyOption({
       type: 'line',
       xAxisIndex: 0,
       yAxisIndex: 0,
-      z: 3,
+      // p95 is the reading to act on: it draws over p50 where the two meet.
+      z: id === 'p95' ? 4 : 3,
       data: points(values),
       // Measurements are discrete: a missed probe is a gap, never an interpolated line.
       smooth: false,
@@ -128,29 +200,21 @@ export function buildLatencyOption({
       lineStyle: { width: 2, color, join: 'round', cap: 'round' },
       itemStyle: { color, borderColor: colors.panel, borderWidth: 2 },
       emphasis: { scale: false, lineStyle: { width: 2 } },
-      // Direct end label on p95 only: p50 is context.
-      markPoint: lineEnd(values, color, id === 'p95'),
+      // Direct end label and spike marks on p95 only: p50 is context.
+      markPoint: lineEnd(values, color, id === 'p95', id === 'p95' ? spikes : []),
     }
   }
 
   const lossColumns = (): BarSeriesOption => {
     const lossPoints = points(series.lossMean)
     const tip = lastPoint(series.lossMean)
-    const triangles = lossPoints.flatMap(([time, value]) =>
-      value != null && value >= LOSS_WARN_PERCENT
-        ? [
-            {
-              name: 'loss at or over threshold',
-              coord: [time, value],
-              symbol: 'triangle',
-              symbolSize: px(8),
-              symbolOffset: [0, -px(7)],
-              itemStyle: { color: colors.warning },
-              label: { show: false },
-            },
-          ]
-        : [],
-    )
+    const triangles = lossOver.flatMap((index) => {
+      const time = series.t[index]
+      const value = series.lossMean[index]
+      return time === undefined || value == null
+        ? []
+        : [warningTriangle('loss at or over threshold', [time, value], LOSS_TRIANGLE_RISE_PX)]
+    })
     return {
       id: 'loss',
       name: 'loss',
@@ -214,38 +278,64 @@ export function buildLatencyOption({
     ...(visible('p95') ? [latencyLine('p95', series.p95)] : []),
     ...(visible('p50') ? [latencyLine('p50', series.p50)] : []),
   ]
-  const [anchor] = latencyLines
-  if (anchor) {
-    // Solid, 1px, warning at 60%: dashed is reserved for "planned". It rides on the first visible latency line.
-    anchor.markLine = {
-      silent: true,
-      animation: false,
-      symbol: 'none',
-      lineStyle: { color: colors.warning, opacity: 0.6, width: 1, type: 'solid' },
-      label: {
-        show: true,
-        // At the start, not the end: the p95 line runs along the right edge and would collide with the label.
-        position: 'insideStartTop',
-        formatter: `warn ${LATENCY_WARN_MS} ms (UI default)`,
-        color: colors.fgFaint,
-        // The line is 60%; its label must stay at full contrast.
-        opacity: 1,
-        fontFamily,
-        fontSize: px(11),
-      },
-      data: [{ yAxis: LATENCY_WARN_MS }],
-    }
-  }
 
+  const latencyHeight = latencyGridHeight(height, scale)
   const latencyAxis = niceAxis(
-    Math.max(LATENCY_WARN_MS * 1.1, ...present(series.p95), ...present(series.p50)),
+    latencyAxisTarget(
+      Math.max(0, ...present(series.p95)),
+      Math.max(0, ...present(series.p50)),
+      worst >= 0,
+      latencyHeight,
+    ),
     4,
   )
-  const lossAxis = niceAxis(Math.max(LOSS_WARN_PERCENT, ...present(series.lossMean)), 2)
+  const lossAxis = niceAxis(Math.max(LOSS_AXIS_FLOOR, ...present(series.lossMean)), 2)
+
+  // Both limits are static references, drawn whatever the legend has hidden. Each label takes the
+  // corner of its line that the data leaves clear.
+  const limitLines = [
+    referenceLine({
+      id: 'latency',
+      gridIndex: 0,
+      value: LATENCY_WARN_MS,
+      label: LATENCY_WARN_LABEL,
+      position: placeLimitLabel(
+        latencyOccupants({
+          at,
+          p95: series.p95,
+          p50: series.p50,
+          axisMax: latencyAxis.max,
+          gridPx: latencyHeight,
+          spikes,
+          worst,
+          worstText,
+          last: lastValueIndex(series.p95),
+        }),
+        textWidthPx(LATENCY_WARN_LABEL, LIMIT_LABEL_FONT_PX),
+      ),
+      tokens,
+    }),
+    referenceLine({
+      id: 'loss',
+      gridIndex: 1,
+      value: LOSS_WARN_PERCENT,
+      label: LOSS_WARN_LABEL,
+      position: placeLimitLabel(
+        lossOccupants({
+          at,
+          loss: series.lossMean,
+          axisMax: lossAxis.max,
+          gridPx: g.loss,
+          over: lossOver,
+        }),
+        textWidthPx(LOSS_WARN_LABEL, LIMIT_LABEL_FONT_PX),
+      ),
+      tokens,
+    }),
+  ]
 
   const left = px(g.left)
   const right = px(compact ? g.rightCompact : g.right)
-  const latencyHeight = latencyGridHeight(height, scale)
   const bottomGridTop = g.top + latencyHeight + g.gap
 
   return {
@@ -271,6 +361,7 @@ export function buildLatencyOption({
       ...latencyLines,
       ...(visible('loss') ? [lossColumns()] : []),
       ...(visible('failed') ? [failedProbes()] : []),
+      ...limitLines,
     ],
   }
 }

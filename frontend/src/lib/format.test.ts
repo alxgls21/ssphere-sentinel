@@ -4,10 +4,12 @@ import {
   formatAge,
   formatBitsPerSecond,
   formatBytes,
+  formatClock,
   formatDuration,
   formatInteger,
   formatLatency,
   formatPercent,
+  formatQuantity,
 } from './format'
 
 describe('format', () => {
@@ -63,5 +65,18 @@ describe('format', () => {
     expect(formatAge('2026-10-12T09:00:00Z', now)).toBe('3h')
     expect(formatAge('2026-10-10T12:00:00Z', now)).toBe('2d')
     expect(formatAge('2026-10-12T12:05:00Z', now)).toBe('now')
+  })
+
+  it('writes clock times with the Z of UTC, seconds by default', () => {
+    const at = Date.parse('2026-10-12T15:32:07Z')
+    expect(formatClock(at, 'utc')).toBe('15:32:07Z')
+    expect(formatClock(at, 'utc', false)).toBe('15:32Z')
+    expect(formatClock(at, 'local')).not.toMatch(/Z$/)
+  })
+
+  it('pluralizes a quantity unless it is exactly one', () => {
+    expect(formatQuantity(1, 'minute')).toBe('1 minute')
+    expect(formatQuantity(0, 'minute')).toBe('0 minutes')
+    expect(formatQuantity(28, 'minute')).toBe('28 minutes')
   })
 })

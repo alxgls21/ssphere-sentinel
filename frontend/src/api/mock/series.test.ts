@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest'
 import type { RangeKey } from '@/api/types'
+import { RANGE_MS } from '@/lib/range'
 import { buildEstate } from './fixtures'
 import {
   BUCKET_MS,
-  RANGE_MS,
   buildNetworkSeries,
   percentile,
   probeAt,

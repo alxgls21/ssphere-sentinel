@@ -9,6 +9,7 @@ import {
   heartbeatText,
   noLoadReason,
   reportsLoad,
+  serverDisplay,
   serverPath,
   stateWord,
   uptimeText,
@@ -45,7 +46,7 @@ export function ServerCards({ rows, nowMs }: { rows: readonly ServerListItem[]; 
               className="flex flex-col gap-1.5 py-2.5 pr-3 pl-4 -outline-offset-2 hover:bg-hover"
             >
               <span className="flex items-center gap-2">
-                <StatusTag status={item.health} word={stateWord(item)} variant="tag" />
+                <StatusTag status={serverDisplay(item)} word={stateWord(item)} variant="tag" />
                 <span className="type-data-strong min-w-0 flex-1 truncate">{server.name}</span>
                 <span className="type-data tnum shrink-0 text-fg-faint">
                   {heartbeatText(item, nowMs)}

@@ -7,7 +7,7 @@ import { useStale } from '@/hooks/useStale'
 import type { ResourceStatus } from '@/hooks/useResource'
 import { cn } from '@/lib/cn'
 import { formatTime } from '@/lib/format'
-import { PlannedChip, SourceTag } from '@/ui/provenance/Chips'
+import { FeatureChip, PlannedChip, SourceTag } from '@/ui/provenance/Chips'
 import { ErrorState } from '@/ui/states/ErrorState'
 import { StatusTag } from '@/ui/status'
 import { SkeletonRows } from '@/ui/states/Skeleton'
@@ -93,7 +93,7 @@ export function Panel({
 }: PanelProps) {
   const titleId = useId()
   const descId = useId()
-  const { source, planned, note } = useProvenance(features)
+  const { provenance, planned, availability, note } = useProvenance(features)
   const { tz } = usePrefs()
   // A panel also judges its own data: pass `stale` to force it, otherwise it follows `updatedAt`.
   const ownStale = useStale(updatedAt)
@@ -131,7 +131,7 @@ export function Panel({
   }
 
   const footerSentence = planned
-    ? `Sample data. ${plannedNote ?? 'Not implemented in the backend yet.'}`
+    ? `Sample data. ${plannedNote ?? (availability === 'planned' ? 'Not implemented in the backend yet.' : note)}`
     : null
   const hasFooter = footer != null || footerSentence != null
 
@@ -175,7 +175,15 @@ export function Panel({
           {scope ? <span className="type-tag hidden text-fg-faint @sm:inline">{scope}</span> : null}
           {actions}
           {stale ? <StatusTag status="warning" word="STALE" variant="tag" /> : null}
-          {planned ? <PlannedChip /> : <SourceTag source={source} refreshMs={refreshMs} />}
+          {planned ? (
+            availability === 'planned' ? (
+              <PlannedChip />
+            ) : (
+              <FeatureChip availability={availability ?? 'unknown'} title={note} />
+            )
+          ) : (
+            <SourceTag source={provenance} refreshMs={refreshMs} />
+          )}
         </div>
       </header>
 

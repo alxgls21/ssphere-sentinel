@@ -20,6 +20,7 @@ const SECTION_TITLES = [
   'Panel states',
   'Hero',
   'Charts',
+  'Timeline',
   'Motion',
 ]
 
@@ -144,7 +145,15 @@ describe('status alphabet', () => {
   it('draws every glyph at every size, labelled', () => {
     renderPage()
     const status = within(section('Status alphabet'))
-    for (const name of ['healthy', 'warning', 'critical', 'unknown', 'idle', 'planned']) {
+    for (const name of [
+      'healthy',
+      'warning',
+      'critical',
+      'offline',
+      'unknown',
+      'idle',
+      'planned',
+    ]) {
       for (const size of [6, 10, 12, 16, 24]) {
         expect(status.getByRole('img', { name: `${name}, ${size}px` })).toBeInTheDocument()
       }
@@ -154,10 +163,33 @@ describe('status alphabet', () => {
   it('pairs a word with each status, domain words included', () => {
     renderPage()
     const status = within(section('Status alphabet'))
-    for (const word of ['OK', 'WARN', 'CRIT', 'UNKN', 'IDLE', 'ONLINE', 'OFFLINE', 'RESTARTING']) {
-      // Once as a plain tag and once on its tint.
-      expect(status.getAllByText(word)).toHaveLength(2)
+    // Once as a plain tag and once on its tint; the class words are listed a third time in the legend.
+    for (const word of ['OK', 'WARN', 'CRIT', 'OFFL', 'UNKN', 'IDLE']) {
+      expect(status.getAllByText(word), word).toHaveLength(3)
     }
+    for (const word of ['ONLINE', 'OFFLINE', 'RESTARTING']) {
+      expect(status.getAllByText(word), word).toHaveLength(2)
+    }
+  })
+
+  it('shows offline as a state of its own: shape, word and tint distinct from critical', () => {
+    renderPage()
+    const status = within(section('Status alphabet'))
+    const offline = status.getAllByText('OFFLINE').map((word) => word.closest('[data-status]'))
+    for (const tag of offline) expect(tag).toHaveAttribute('data-status', 'offline')
+    const critical = status.getAllByText('UNHEALTHY').map((word) => word.closest('[data-status]'))
+    for (const tag of critical) expect(tag).toHaveAttribute('data-status', 'critical')
+    expect(offline.some((tag) => tag?.classList.contains('bg-offline-tint'))).toBe(true)
+  })
+
+  it('closes with the legend of every state', () => {
+    renderPage()
+    const legend = within(section('Status alphabet')).getByRole('list', { name: 'Status legend' })
+    expect(
+      within(legend)
+        .getAllByRole('listitem')
+        .map((item) => item.textContent),
+    ).toEqual(['OK', 'WARN', 'CRIT', 'OFFL', 'UNKN', 'IDLE'])
   })
 })
 
@@ -204,6 +236,25 @@ describe('meters', () => {
         name: 'Few: 1 critical (srv-01), 1 warning (srv-04), 4 ok',
       }),
     ).toBeInTheDocument()
+  })
+
+  it('names a strip row with an offline server apart from the critical ones', () => {
+    renderPage()
+    expect(
+      within(section('Meters')).getByRole('button', {
+        name: 'One server offline: 1 critical (srv-01), 1 offline (srv-02), 1 warning (srv-04), 3 ok',
+      }),
+    ).toBeInTheDocument()
+  })
+
+  it('draws the segmented bar with an offline segment after critical', () => {
+    renderPage()
+    const bar = within(section('Meters')).getByRole('img', {
+      name: 'One server offline: 3 critical, 1 offline, 5 warning, 3 idle, 112 ok',
+    })
+    expect(
+      [...bar.querySelectorAll('[data-status]')].map((part) => part.getAttribute('data-status')),
+    ).toEqual(['critical', 'offline', 'warning', 'idle', 'healthy'])
   })
 
   it('selects a cell of the entity grid', async () => {

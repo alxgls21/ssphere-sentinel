@@ -7,11 +7,12 @@ import type {
   ServerListItem,
   ServerSeries,
 } from '../types'
+import { RANGE_MS } from '@/lib/range'
 import { countStatuses } from '@/lib/status'
 import type { Fleet } from './fixtures'
 import { containerHealthOf, makeLookup, serverHealthOf, type Lookup } from './lookup'
 import { clamp, hash01, hashString, round1, valueNoise } from './random'
-import { BUCKET_MS, RANGE_MS } from './series'
+import { BUCKET_MS } from './series'
 import { DAY, MINUTE, toIso } from './time'
 
 /**

@@ -1,10 +1,10 @@
 import type { SiteEntity } from '@/api/types'
 import { cn } from '@/lib/cn'
-import { countStatuses } from '@/lib/status'
+import { countEntities } from '@/lib/status'
 import { SegmentedBar } from '@/ui/meters'
 import { EntityGlyph } from './EntityGlyph'
 import { GlyphCounts } from './GlyphCounts'
-import { entityKey, worstFirst } from './entities'
+import { displayOf, entityKey, worstFirst } from './entities'
 
 const STRIP_CAPACITY = 20
 
@@ -31,7 +31,7 @@ export function EntityStrip({
   if (entities.length === 0) return null
 
   if (entities.length > capacity) {
-    const counts = countStatuses(entities.map((entity) => entity.status))
+    const counts = countEntities(entities)
     return (
       <span aria-hidden="true" className={cn('flex items-center gap-2', className)}>
         <SegmentedBar counts={counts} height={8} label={label} className="min-w-6 flex-1" />
@@ -43,7 +43,7 @@ export function EntityStrip({
   return (
     <span aria-hidden="true" className={cn('flex items-center gap-0.5', className)}>
       {worstFirst(entities).map((entity) => (
-        <EntityGlyph key={entityKey(entity)} status={entity.status} />
+        <EntityGlyph key={entityKey(entity)} status={displayOf(entity)} />
       ))}
     </span>
   )

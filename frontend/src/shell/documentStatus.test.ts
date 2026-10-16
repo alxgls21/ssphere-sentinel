@@ -71,3 +71,30 @@ describe('verdictSentence', () => {
     expect(verdictSentence(verdict({}, 'nodata'))).toBe('Verdict NO DATA.')
   })
 })
+
+describe('an offline server in the verdict', () => {
+  const flagged = verdict({
+    servers: { critical: 1, offline: 1 },
+    containers: { critical: 2 },
+    targets: { critical: 1 },
+  })
+  const plain = verdict({
+    servers: { critical: 1 },
+    containers: { critical: 2 },
+    targets: { critical: 1 },
+  })
+
+  it('counts an offline server as critical in the tab title', () => {
+    expect(documentTitle({ mock: true, verdict: flagged, screen: 'Overview' })).toBe(
+      '[MOCK] ◆ 4 CRIT - Overview - Sentinel',
+    )
+    expect(documentTitle({ mock: true, verdict: flagged, screen: 'Overview' })).toBe(
+      documentTitle({ mock: true, verdict: plain, screen: 'Overview' }),
+    )
+  })
+
+  it('counts an offline server as critical in the spoken verdict', () => {
+    expect(verdictSentence(flagged)).toBe(verdictSentence(plain))
+    expect(verdictSentence(flagged)).toBe('Verdict CRITICAL. 4 of 42 need attention.')
+  })
+})

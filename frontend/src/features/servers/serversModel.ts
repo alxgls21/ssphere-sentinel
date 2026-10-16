@@ -1,6 +1,6 @@
 import type { HealthStatus, ServerListItem } from '@/api/types'
 import { EMPTY, formatAge, formatDuration } from '@/lib/format'
-import { compareSeverity, countStatuses } from '@/lib/status'
+import { compareSeverity, countStatuses, displayStatus, type DisplayStatus } from '@/lib/status'
 import { resourceLevel } from '@/lib/thresholds'
 
 /**
@@ -122,6 +122,13 @@ export const uptimeOf = (item: ServerListItem): number | null =>
 
 export const seenAtOf = (item: ServerListItem): number | null =>
   item.server.lastSeenAt === null ? null : Date.parse(item.server.lastSeenAt)
+
+/**
+ * What the status tag shows: the health, or offline for a server whose agent stopped
+ * reporting. The health still decides (the severity edge, the status filter and the sort).
+ */
+export const serverDisplay = (item: ServerListItem): DisplayStatus =>
+  displayStatus(item.health, item.server.status === 'offline')
 
 /** The domain word for the status tag: what is wrong, not just how bad. */
 export function stateWord(item: ServerListItem): string {

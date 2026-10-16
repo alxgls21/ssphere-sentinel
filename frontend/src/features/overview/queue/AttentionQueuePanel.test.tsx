@@ -135,7 +135,7 @@ describe('the table', () => {
     await renderLoaded()
     await user.hover(screen.getByRole('button', { name: 'Sample data' }))
     expect(await screen.findByRole('tooltip')).toHaveTextContent(
-      'Site assignment is not implemented in the backend for servers, containers and targets. Sample data.',
+      'Servers and probe targets can be placed on a site in the admin. The sites shown here are samples.',
     )
   })
 })
@@ -160,6 +160,66 @@ describe('the panel', () => {
   it('lists the keys in the footer', async () => {
     await renderLoaded()
     expect(screen.getByText('j/k move · Enter open · y copy · f filter')).toBeInTheDocument()
+  })
+})
+
+describe('an offline server', () => {
+  /** The reference queue with its first row (a server) flagged as offline. */
+  const withOffline = () =>
+    referenceItems().map((item, index) => (index === 0 ? { ...item, offline: true } : item))
+
+  it('shows the offline indicator and the word OFFLINE, apart from the CRIT rows', async () => {
+    await renderLoaded(withOffline())
+    const tag = within(rows()[0] as HTMLElement)
+      .getByText('OFFLINE')
+      .closest('[data-status]')
+    expect(tag).toHaveAttribute('data-status', 'offline')
+    expect(tag?.querySelector('svg')).toHaveAttribute('data-status', 'offline')
+    expect(tag).toHaveClass('bg-offline-tint', 'text-offline')
+    // Another critical row keeps the critical indicator.
+    const down = within(rows()[1] as HTMLElement)
+      .getByText('DOWN')
+      .closest('[data-status]')
+    expect(down).toHaveAttribute('data-status', 'critical')
+  })
+
+  it('keeps the critical severity edge', async () => {
+    await renderLoaded(withOffline())
+    const edge = rows()[0]?.querySelector('.w-0\\.5')
+    expect(edge).toHaveClass('bg-critical')
+    expect(edge?.className).not.toContain('offline')
+  })
+
+  it('is read as offline, with the rest of its line', async () => {
+    await renderLoaded(withOffline())
+    expect(labelOf(rows()[0])).toBe(
+      'Row 1 of 9, offline, srv edge-gw-02, offline, last heartbeat 6m ago, Acme Athens-DC, 6 minutes',
+    )
+  })
+
+  it('stays in the CRIT count and the CRIT filter', async () => {
+    const user = userEvent.setup()
+    await renderLoaded(withOffline())
+    expect(screen.getByRole('button', { name: 'CRIT 4' })).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'CRIT 4' }))
+    expect(names()).toEqual([
+      'srv edge-gw-02',
+      'tcp acme-vpn:443',
+      'ctr payments-api',
+      'ctr redis-cache',
+    ])
+    expect(within(rows()[0] as HTMLElement).getByText('OFFLINE')).toBeInTheDocument()
+  })
+
+  it('copies its row with the offline word', async () => {
+    const user = userEvent.setup()
+    const { shell } = await renderLoaded(withOffline())
+    focusRow(0)
+    await user.keyboard('y')
+    await waitFor(() => expect(shell.flashStatus).toHaveBeenCalledWith('Copied row'))
+    expect(await navigator.clipboard.readText()).toBe(
+      'OFFL srv edge-gw-02 | offline · last heartbeat 6m ago | Acme / Athens-DC | 6m',
+    )
   })
 })
 
