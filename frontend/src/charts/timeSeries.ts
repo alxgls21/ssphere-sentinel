@@ -2,9 +2,11 @@ import { formatTime, type Timezone } from '@/lib/format'
 import type {
   ChartInstance,
   ChartOption,
+  LineSeriesOption,
   XAXisComponentOption,
   YAXisComponentOption,
 } from './echarts'
+import type { ChartTokens } from './theme'
 import { buildTooltipElement, type TooltipContent } from './tooltip'
 
 /**
@@ -84,6 +86,69 @@ export function valueAxis({ gridIndex, axis, format }: ValueAxisInput): YAXisCom
     max: axis.max,
     interval: axis.interval,
     axisLabel: { formatter: format },
+  }
+}
+
+/** Id prefix of a series that only carries a static reference, such as a threshold line. */
+export const REFERENCE_SERIES_PREFIX = 'reference:'
+
+export type ReferenceLabelPosition =
+  'insideStartTop' | 'insideStartBottom' | 'insideEndTop' | 'insideEndBottom'
+
+interface ReferenceLineInput {
+  /** Names the line; the series id is this behind REFERENCE_SERIES_PREFIX. */
+  id: string
+  gridIndex: number
+  /** In the units of the grid's value axis. */
+  value: number
+  label: string
+  position: ReferenceLabelPosition
+  tokens: ChartTokens
+}
+
+/**
+ * A threshold drawn on one grid, labelled on the line itself. A mark line must
+ * belong to a series, and the data series come and go with the legend, so it
+ * rides on a series of its own that has no data and is always present: the
+ * line stays whatever the legend has hidden.
+ */
+export function referenceLine({
+  id,
+  gridIndex,
+  value,
+  label,
+  position,
+  tokens,
+}: ReferenceLineInput): LineSeriesOption {
+  const { colors, fontFamily, scale } = tokens
+  return {
+    id: `${REFERENCE_SERIES_PREFIX}${id}`,
+    type: 'line',
+    xAxisIndex: gridIndex,
+    yAxisIndex: gridIndex,
+    data: [],
+    silent: true,
+    markLine: {
+      silent: true,
+      animation: false,
+      symbol: 'none',
+      // Solid, 1px, warning at 60%: dashed is reserved for "planned".
+      lineStyle: { color: colors.warning, opacity: 0.6, width: 1, type: 'solid' },
+      label: {
+        show: true,
+        position,
+        formatter: label,
+        color: colors.fgFaint,
+        // The line is 60%; its label must stay at full contrast.
+        opacity: 1,
+        fontFamily,
+        fontSize: scale * 11,
+        // A panel-colored edge keeps the text legible where a line runs behind it.
+        textBorderColor: colors.panel,
+        textBorderWidth: scale * 3,
+      },
+      data: [{ yAxis: value }],
+    },
   }
 }
 

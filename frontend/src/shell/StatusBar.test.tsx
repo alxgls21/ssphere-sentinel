@@ -3,13 +3,17 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { HotkeyContext, type HotkeyState } from '@/app/hotkeys/mode'
 import { LiveContext, LiveStore, type LiveControls } from '@/app/live'
 import { useShell } from '@/app/shell'
+import { registryOverrides } from '@/config/testing'
 import { STATUS_TEXT } from '@/ui/status'
 import { FlashStrip, StatusBar } from './StatusBar'
 import { renderShell } from './testing'
 
 const T0 = Date.UTC(2026, 0, 1, 14, 5, 0)
 
+const overrides = registryOverrides()
+
 afterEach(() => {
+  overrides.restore()
   vi.useRealTimers()
   vi.restoreAllMocks()
 })
@@ -99,7 +103,15 @@ describe('StatusBar: landmark and source', () => {
     expect(within(bar()).getByText('DEMO DATA')).toBeInTheDocument()
   })
 
-  it('says LIVE with the API address for a real backend', () => {
+  it('does not say LIVE over an HTTP adapter while features are not connected', () => {
+    setup({ renderOptions: { api: { source: 'http' } } })
+    expect(bar()).toHaveTextContent('Partly demo data')
+    expect(bar()).not.toHaveTextContent('LIVE')
+    expect(within(bar()).getByText('DEMO DATA')).toBeInTheDocument()
+  })
+
+  it('says LIVE with the API address when every feature is connected and real', () => {
+    overrides.connectAll()
     setup({ renderOptions: { api: { source: 'http' } } })
     expect(bar()).toHaveTextContent(/LIVE · https?:\/\/.+\/api\/v1/)
     expect(bar()).not.toHaveTextContent('MOCK')

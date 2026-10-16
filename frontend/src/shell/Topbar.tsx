@@ -1,5 +1,5 @@
 import { Menu as MenuIcon } from 'lucide-react'
-import { useApi } from '@/api/context'
+import { useShowsDemoData } from '@/hooks/useProvenance'
 import { useShell } from '@/app/shell'
 import { MockChip } from '@/ui/provenance/Chips'
 import { IconButton } from '@/ui/controls'
@@ -29,7 +29,7 @@ interface TopbarProps {
  * it, what time is it. Its bottom hairline is the refresh progress line.
  */
 export function Topbar({ title, compact, drawer }: TopbarProps) {
-  const { source } = useApi()
+  const demo = useShowsDemoData()
   const { setMobileNavOpen } = useShell()
   const scope = useScopeState()
   const screen = title.toLowerCase()
@@ -61,7 +61,7 @@ export function Topbar({ title, compact, drawer }: TopbarProps) {
       )}
       <FreshnessChip />
       <UtcClock />
-      {source === 'mock' ? <MockChip className="shrink-0" /> : null}
+      {demo ? <MockChip className="shrink-0" /> : null}
       <PaletteTrigger compact={compact} />
       <DisplayMenu />
       <UserMenu />

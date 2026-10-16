@@ -60,6 +60,25 @@ describe('ServersListPage', () => {
     expect(within(t).getByText('HIGH CPU')).toBeInTheDocument()
   })
 
+  it('shows a server that stopped reporting as offline, still critical to the edge and the filter', async () => {
+    const user = userEvent.setup()
+    page()
+    const t = await table()
+    const row = within(t).getByRole('link', { name: 'pir-fs-01' }).closest('tr') as HTMLElement
+    const tag = within(row).getByText('OFFLINE').closest('[data-status]')
+    expect(tag).toHaveAttribute('data-status', 'offline')
+    expect(tag?.querySelector('svg')).toHaveAttribute('data-status', 'offline')
+    expect(tag).toHaveClass('bg-offline-tint')
+    // The severity edge reads the health, which is critical.
+    expect(row.querySelector('span.w-0\\.5')).toHaveClass('bg-critical')
+    // A server in another state keeps its own indicator.
+    const other = within(t).getByRole('link', { name: 'ath-db-01' }).closest('tr') as HTMLElement
+    expect(other.querySelector('[data-status]:not(svg)')).toHaveAttribute('data-status', 'warning')
+
+    await user.click(screen.getByRole('button', { name: /CRIT\s*1/ }))
+    expect(hostnames(await table())).toEqual(['pir-fs-01'])
+  })
+
   it('shows no load for a host that is not reporting, and why', async () => {
     page()
     const t = await table()
@@ -195,6 +214,20 @@ describe('ServersListPage', () => {
 })
 
 describe('ServersListPage on a phone', () => {
+  it('shows the offline server as offline on its card, with the critical edge', async () => {
+    stubViewport(false)
+    page()
+    const list = await screen.findByRole('list', { name: 'Servers' })
+    const card = within(list)
+      .getByRole('link', { name: /pir-fs-01/ })
+      .closest('li') as HTMLElement
+    expect(within(card).getByText('OFFLINE').closest('[data-status]')).toHaveAttribute(
+      'data-status',
+      'offline',
+    )
+    expect(card.querySelector('span.w-0\\.5')).toHaveClass('bg-critical')
+  })
+
   it('becomes a list of cards, with a sort menu instead of column headers', async () => {
     stubViewport(false)
     const user = userEvent.setup()

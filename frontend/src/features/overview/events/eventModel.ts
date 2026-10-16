@@ -29,6 +29,41 @@ export interface TailLine {
 
 const timeOf = (event: SentinelEvent) => Date.parse(event.at)
 
+/** Every field of an event in a fixed order, so two records of one id can be compared without bias. */
+const fingerprint = (event: SentinelEvent): string =>
+  JSON.stringify([
+    event.at,
+    event.level,
+    event.subject.kind,
+    event.subject.id,
+    event.subject.name,
+    event.message,
+    event.parentId ?? null,
+  ])
+
+/**
+ * One record per event id, in the order each id first appears. An id names one event: a
+ * repeated id (a poll that overlaps the last one, a replayed answer) never counts twice.
+ * When two records of an id disagree the earlier timestamp wins, since that is when the event
+ * first happened, then the lower field-by-field comparison; the same records give the same
+ * answer in any order. Events that merely look alike (same time, same message) have distinct
+ * ids and are all kept.
+ */
+export function canonicalEvents(events: readonly SentinelEvent[]): SentinelEvent[] {
+  const chosen = new Map<string, SentinelEvent>()
+  for (const event of events) {
+    const held = chosen.get(event.id)
+    if (held === undefined || precedes(event, held)) chosen.set(event.id, event)
+  }
+  return [...chosen.values()]
+}
+
+function precedes(candidate: SentinelEvent, held: SentinelEvent): boolean {
+  const earlier = timeOf(candidate) - timeOf(held)
+  if (earlier !== 0 && !Number.isNaN(earlier)) return earlier < 0
+  return fingerprint(candidate) < fingerprint(held)
+}
+
 /** The event this one nests under, unless the chain of parents loops back (corrupt data: show it unnested). */
 function parentOf(event: SentinelEvent, byId: ReadonlyMap<string, SentinelEvent>) {
   const seen = new Set([event.id])
@@ -45,13 +80,12 @@ function parentOf(event: SentinelEvent, byId: ReadonlyMap<string, SentinelEvent>
 }
 
 /**
- * Lines of the tail, newest first, with causally related events nested under
- * their parent (a recovery sits under its failure). A group is placed by its
- * newest line, so a fresh recovery lifts its whole incident to the top; inside
- * a group the lines read in the order they happened. An event whose parent is
- * not in the list (older than the range) stands on its own.
+ * The events grouped by the event they nest under: the ones that stand on their
+ * own, and for each event its children. An event whose parent is not in the list
+ * (older than the range) stands on its own.
  */
-export function buildTail(events: readonly SentinelEvent[]): TailLine[] {
+export function groupByParent(events: readonly SentinelEvent[]) {
+  events = canonicalEvents(events)
   const byId = new Map(events.map((event) => [event.id, event]))
   const children = new Map<string, SentinelEvent[]>()
   const roots: SentinelEvent[] = []
@@ -60,6 +94,17 @@ export function buildTail(events: readonly SentinelEvent[]): TailLine[] {
     if (parent) children.set(parent.id, [...(children.get(parent.id) ?? []), event])
     else roots.push(event)
   }
+  return { roots, children }
+}
+
+/**
+ * Lines of the tail, newest first, with causally related events nested under
+ * their parent (a recovery sits under its failure). A group is placed by its
+ * newest line, so a fresh recovery lifts its whole incident to the top; inside
+ * a group the lines read in the order they happened.
+ */
+export function buildTail(events: readonly SentinelEvent[]): TailLine[] {
+  const { roots, children } = groupByParent(events)
 
   const newest = new Map<string, number>()
   const newestOf = (event: SentinelEvent): number => {
@@ -96,5 +141,5 @@ export function buildTail(events: readonly SentinelEvent[]): TailLine[] {
 /** How many of `latest` are not among the lines on screen. */
 export function countUnseen(latest: readonly SentinelEvent[], shown: readonly SentinelEvent[]) {
   const seen = new Set(shown.map((event) => event.id))
-  return latest.filter((event) => !seen.has(event.id)).length
+  return canonicalEvents(latest).filter((event) => !seen.has(event.id)).length
 }

@@ -34,12 +34,15 @@
   --color-primary-hover: #86e3f0; /* Derived */
   --color-primary-press: #4ec4d5; /* Derived */
   --color-primary-line: #32646d; /* Derived (Primary 40% over panel, computed) */
+  --color-offline: #989dd0; /* Derived (cool, low chroma): an agent that stopped reporting; never a chart series */
   --color-healthy-tint: #162d2a; /* Derived (12% over panel, computed) */
   --color-warning-tint: #2b2a21; /* Derived (12%) */
   --color-critical-tint: #2b2026; /* Derived (12%) */
+  --color-offline-tint: #202631; /* Derived (12%) */
   --color-healthy-line: #24644e; /* Derived (40%) */
   --color-warning-line: #6c5930; /* Derived (40%) */
   --color-critical-line: #6a383e; /* Derived (40%) */
+  --color-offline-line: #464c63; /* Derived (40%) */
   --color-series-2: #0486f4; /* Derived chart categorical slot 2 (azure): packet-loss columns, second series, 'out' direct */
   --color-series-3: #c348a7; /* Derived chart categorical slot 3 (magenta): third entity or series */
   --color-series-4: #8778fc; /* Derived chart categorical slot 4 (indigo): fourth entity; line/column forms only with dire */

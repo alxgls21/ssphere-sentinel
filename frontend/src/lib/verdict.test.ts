@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { OverviewSummary, StatusCounts } from '@/api/types'
-import { computeVerdict } from './verdict'
+import { computeVerdict, sumCounts } from './verdict'
 
 const counts = (over: Partial<StatusCounts> = {}): StatusCounts => ({
   healthy: 0,
@@ -73,5 +73,54 @@ describe('computeVerdict', () => {
   it('keeps showing the verdict while merely stale or paused', () => {
     expect(computeVerdict(summary({ healthy: 5, critical: 1 }), 'stale').state).toBe('critical')
     expect(computeVerdict(summary({ healthy: 5 }), 'paused').state).toBe('nominal')
+  })
+})
+
+describe('an offline server does not change what decides', () => {
+  const withOffline = summary(
+    { healthy: 13, warning: 2, critical: 1, offline: 1 },
+    { healthy: 62, warning: 1, critical: 2, idle: 3 },
+    { healthy: 37, warning: 2, critical: 1 },
+  )
+  const without = summary(
+    { healthy: 13, warning: 2, critical: 1 },
+    { healthy: 62, warning: 1, critical: 2, idle: 3 },
+    { healthy: 37, warning: 2, critical: 1 },
+  )
+
+  it('is still CRITICAL with the same figures', () => {
+    const flagged = computeVerdict(withOffline, 'live')
+    const plain = computeVerdict(without, 'live')
+    expect(flagged.state).toBe('critical')
+    expect(flagged.word).toBe('CRITICAL')
+    expect(flagged.status).toBe('critical')
+    expect(flagged.needAttention).toBe(plain.needAttention)
+    expect(flagged.needAttention).toBe(9)
+    expect(flagged.monitored).toBe(plain.monitored)
+    expect(flagged.monitored).toBe(121)
+    expect(flagged.idle).toBe(plain.idle)
+    expect(flagged.counts).toMatchObject({ critical: 4, warning: 5, healthy: 112, idle: 3 })
+  })
+
+  it('is CRITICAL even when the offline server is the only critical entity', () => {
+    const only = computeVerdict(summary({ healthy: 5, critical: 1, offline: 1 }), 'live')
+    expect(only.state).toBe('critical')
+    expect(only.needAttention).toBe(1)
+  })
+
+  it('carries the offline members to the breakdown, inside the critical count', () => {
+    expect(computeVerdict(withOffline, 'live').counts.offline).toBe(1)
+    expect(computeVerdict(without, 'live').counts.offline).toBeUndefined()
+  })
+
+  it('adds offline members across domains, and notes none when there are none', () => {
+    expect(
+      sumCounts(
+        counts({ critical: 2, offline: 1 }),
+        counts({ critical: 1 }),
+        counts({ critical: 1, offline: 1 }),
+      ),
+    ).toMatchObject({ critical: 4, offline: 2 })
+    expect('offline' in sumCounts(counts({ critical: 1 }), counts({ warning: 1 }))).toBe(false)
   })
 })

@@ -16,6 +16,8 @@ import type { Estate, Fleet } from './fixtures'
 import {
   containerHealthOf,
   makeLookup,
+  offlineFlag,
+  serverCounts,
   serverHealthOf,
   targetHealthOf,
   type Lookup,
@@ -40,7 +42,7 @@ export function summarize({ fleet, probes }: Estate, now: number): OverviewSumma
     servers: {
       total: fleet.servers.length,
       online: fleet.servers.filter((server) => server.status === 'online').length,
-      counts: countStatuses(fleet.servers.map(serverHealthOf)),
+      counts: serverCounts(fleet.servers),
     },
     containers: {
       total: fleet.containers.length,
@@ -105,6 +107,7 @@ function siteEntities(fleet: Fleet, lookup: Lookup, siteId: string): SiteEntity[
         kind: 'server',
         name: server.name,
         status: serverHealthOf(server),
+        ...offlineFlag(server),
       })
     }
   }
@@ -162,7 +165,7 @@ export function healthBreakdown({ fleet }: Estate, now: number): HealthBreakdown
       {
         domain: 'servers',
         label: 'SERVERS',
-        counts: countStatuses(fleet.servers.map(serverHealthOf)),
+        counts: serverCounts(fleet.servers),
       },
       {
         domain: 'containers',
@@ -175,7 +178,7 @@ export function healthBreakdown({ fleet }: Estate, now: number): HealthBreakdown
         counts: countStatuses(fleet.targets.map(targetHealthOf)),
       },
       {
-        // SNMP is PLANNED: nothing is collected, so every device is "no data".
+        // The console does not read SNMP yet, so every device is "no data".
         domain: 'snmp',
         label: 'SNMP DEVS',
         counts: { ...emptyCounts(), unknown: fleet.devices.length },
@@ -202,6 +205,7 @@ export function entityIndex({ fleet }: Estate, now: number): EntityIndex {
     name: server.name,
     detail: server.ipAddress ? `${server.hostname} ${server.ipAddress}` : server.hostname,
     status: serverHealthOf(server),
+    ...offlineFlag(server),
     ...named(lookup.placeOfSite(server.siteId)),
   }))
   const containers: EntityIndexItem[] = fleet.containers.map((container) => ({

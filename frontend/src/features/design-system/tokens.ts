@@ -72,6 +72,7 @@ export const TOKEN_GROUPS: readonly TokenGroup[] = [
       { name: 'healthy', role: 'OK glyph and word', use: 'text' },
       { name: 'warning', role: 'WARN glyph and word', use: 'text' },
       { name: 'critical', role: 'CRIT glyph and word', use: 'text' },
+      { name: 'offline', role: 'OFFL glyph and word (agent not reporting)', use: 'text' },
     ],
   },
   {
@@ -81,6 +82,7 @@ export const TOKEN_GROUPS: readonly TokenGroup[] = [
       { name: 'healthy-tint', role: 'NOMINAL block, OK tag', use: 'surface' },
       { name: 'warning-tint', role: 'DEGRADED block, WARN tag', use: 'surface' },
       { name: 'critical-tint', role: 'CRITICAL block, CRIT tag', use: 'surface' },
+      { name: 'offline-tint', role: 'OFFLINE tag and notice', use: 'surface' },
     ],
   },
   {
@@ -90,6 +92,7 @@ export const TOKEN_GROUPS: readonly TokenGroup[] = [
       { name: 'healthy-line', role: 'Verdict frame when NOMINAL', use: 'decorative' },
       { name: 'warning-line', role: 'Verdict frame when DEGRADED', use: 'decorative' },
       { name: 'critical-line', role: 'Verdict frame when CRITICAL', use: 'decorative' },
+      { name: 'offline-line', role: 'OFFLINE notice frame', use: 'decorative' },
     ],
   },
   {

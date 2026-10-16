@@ -1,6 +1,6 @@
-import type { HealthStatus, StatusCounts } from '@/api/types'
+import type { StatusCounts } from '@/api/types'
 import { formatInteger } from './format'
-import { compareSeverity } from './status'
+import { DISPLAY_ORDER, displayCounts, type DisplayStatus } from './status'
 
 /**
  * Text twins of the visual marks (SegmentedBar, CellMeter), built from block
@@ -12,9 +12,13 @@ import { compareSeverity } from './status'
 /** Same 20 x 5% grid as CellMeter. */
 export const BLOCK_CELLS = 20
 
-/** One distinct character per status: denser means worse, healthy is the quiet low bar. */
-const BAR_CHAR: Record<HealthStatus, string> = {
+/**
+ * One distinct character per status: denser means worse, healthy is the quiet low bar.
+ * Offline is the diagonal pair, the slash of its glyph, and follows critical.
+ */
+const BAR_CHAR: Record<DisplayStatus, string> = {
   critical: '█',
+  offline: '▞',
   warning: '▓',
   unknown: '▒',
   idle: '░',
@@ -27,32 +31,37 @@ const METER_EMPTY = '░'
 const BAR_NONE = '·'
 
 /** Spoken names, shared with ui/status (a test keeps the two in step). */
-const SPOKEN: Record<HealthStatus, string> = {
+const SPOKEN: Record<DisplayStatus, string> = {
   critical: 'critical',
+  offline: 'offline',
   warning: 'warning',
   unknown: 'unknown',
   idle: 'idle',
   healthy: 'ok',
 }
 
-export function spokenStatus(status: HealthStatus): string {
+export function spokenStatus(status: DisplayStatus): string {
   return SPOKEN[status]
 }
 
 export interface StatusCount {
-  status: HealthStatus
+  status: DisplayStatus
   count: number
 }
 
-/** Statuses with at least one member, worst first: the order every bar and count list uses. */
+/**
+ * Statuses with at least one member, worst first: the order every bar and count
+ * list uses. Offline members are listed apart from the critical they are part of.
+ */
 export function nonZeroCounts(counts: StatusCounts): StatusCount[] {
-  return (Object.keys(counts) as HealthStatus[])
-    .filter((status) => counts[status] > 0)
-    .sort(compareSeverity)
-    .map((status) => ({ status, count: counts[status] }))
+  const shown = displayCounts(counts)
+  return DISPLAY_ORDER.filter((status) => shown[status] > 0).map((status) => ({
+    status,
+    count: shown[status],
+  }))
 }
 
-/** "1 critical, 2 warning, 13 ok", worst first; "none" when there is nothing to count. */
+/** "1 critical, 1 offline, 2 warning, 13 ok", worst first; "none" when there is nothing to count. */
 export function describeCounts(counts: StatusCounts): string {
   const parts = nonZeroCounts(counts).map(
     ({ status, count }) => `${formatInteger(count)} ${SPOKEN[status]}`,
@@ -61,7 +70,7 @@ export function describeCounts(counts: StatusCounts): string {
 }
 
 interface Share {
-  status: HealthStatus
+  status: DisplayStatus
   /** Exact share of the cells before rounding. */
   ideal: number
   cells: number

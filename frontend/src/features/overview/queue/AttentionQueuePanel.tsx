@@ -18,7 +18,7 @@ import { useViewTo } from '@/app/viewSearch'
 import { NEXT_PROBLEM_EVENT, type NextProblemDetail } from '@/config/events'
 import type { FeatureId } from '@/config/features'
 import { useLiveResource } from '@/hooks/useLiveResource'
-import { formatTime } from '@/lib/format'
+import { formatClock } from '@/lib/format'
 import { computeVerdict } from '@/lib/verdict'
 import { Button, Chip } from '@/ui/controls'
 import { Panel } from '@/ui/Panel'
@@ -62,7 +62,7 @@ function keyboardFocused(element: HTMLElement): boolean {
  * containers and targets, worst first, as given by the API. Keyboard first
  * (j/k, Enter, y, f, r) and calm under live updates: while the operator is in
  * the table the order is locked and new snapshots wait behind a pill (see
- * useOrderLock). Mock data until the backend has a read API.
+ * useOrderLock). Demo data until the screen is connected to the console API.
  */
 export function AttentionQueuePanel({ className }: { className?: string }) {
   const api = useApi()
@@ -104,7 +104,7 @@ export function AttentionQueuePanel({ className }: { className?: string }) {
   const newKeys = useMemo(() => newCriticalKeys(snapshot, previous), [snapshot, previous])
   // Ages are read against the clock of the data, so a frozen table stays internally consistent.
   const nowMs = snapshot ? Date.parse(snapshot.generatedAt) : 0
-  const clock = (ms: number) => `${formatTime(ms, tz)}${tz === 'utc' ? 'Z' : ''}`
+  const clock = (ms: number) => formatClock(ms, tz)
 
   const actions: QueueActions = {
     open: (item) => {

@@ -1,10 +1,21 @@
 import type { HealthStatus, StatusCounts } from '@/api/types'
 import { NAV_ITEMS, type NavItem } from '@/config/nav'
+import { nonZeroCounts, type StatusCount } from '@/lib/blocks'
 import { formatInteger } from '@/lib/format'
+import { healthOf } from '@/lib/status'
 import { describeProblems } from './verdictText'
 
 /** The statuses a tile lists beside its value: what needs a look. */
 export const PROBLEM_STATUSES: readonly HealthStatus[] = ['critical', 'warning', 'unknown']
+
+/**
+ * The marks a count line draws: statuses in `show` that have members, worst
+ * first. Offline servers are part of critical, so `critical` brings them, as a
+ * mark of their own.
+ */
+export function listedCounts(counts: StatusCounts, show: readonly HealthStatus[]): StatusCount[] {
+  return nonZeroCounts(counts).filter(({ status }) => show.includes(healthOf(status)))
+}
 
 /** A tile's route, read from the one navigation registry so a renamed path follows. */
 export function navPath(id: NavItem['id']): string {

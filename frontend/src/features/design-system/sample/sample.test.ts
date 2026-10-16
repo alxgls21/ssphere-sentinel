@@ -6,7 +6,9 @@ import {
   SAMPLE_ALERTS,
   SAMPLE_SERIES,
   SAMPLE_SUMMARIES,
+  counts,
   stripEntities,
+  summaryOf,
 } from './data'
 import { GALLERY_API, liveControls, summaryResource } from './scenario'
 
@@ -33,6 +35,17 @@ describe('sample summaries', () => {
     expect(containers.running).toBe(65)
     expect(targets.total).toBe(40)
     expect(targets.successTrend).toHaveLength(12)
+  })
+
+  it('count an offline server once: it is already inside critical', () => {
+    const { servers } = summaryOf({
+      servers: counts({ healthy: 5, critical: 1, offline: 1 }),
+      containers: counts({ healthy: 3 }),
+      targets: counts({ healthy: 2 }),
+    })
+    expect(servers.total).toBe(6)
+    expect(servers.online).toBe(5)
+    expect(servers.counts.offline).toBe(1)
   })
 })
 

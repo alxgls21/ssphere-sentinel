@@ -1,4 +1,7 @@
+import { render } from '@testing-library/react'
+import { createElement } from 'react'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { StatusGlyph } from '@/ui/status'
 import { faviconHref, setFavicon } from './favicon'
 
 // Stand-ins for the design tokens: the real values live only in tokens.css.
@@ -39,6 +42,31 @@ describe('faviconHref', () => {
       '<circle cx="5" cy="5" r="4" fill="healthy-token"/>',
     )
   })
+
+  it.each(['healthy', 'warning', 'critical', 'unknown', 'idle'] as const)(
+    'draws %s as StatusGlyph draws it at 6px',
+    (status) => {
+      const icon = new DOMParser().parseFromString(
+        decode(faviconHref(status, false)),
+        'image/svg+xml',
+      )
+      const { container } = render(createElement(StatusGlyph, { status, size: 6 }))
+      // Whatever paints the shape (a token color here, currentColor there) is the ink.
+      const ink = /^(?:currentColor|[a-z]+-token)$/
+      const drawn = (shape: Element | null | undefined) => ({
+        tag: shape?.tagName,
+        attributes: Object.fromEntries(
+          [...(shape?.attributes ?? [])].map(({ name, value }) => [
+            name,
+            ink.test(value) ? 'ink' : value,
+          ]),
+        ),
+      })
+      const inIcon = drawn(icon.querySelector('g')?.firstElementChild)
+      expect(inIcon.tag).toBeDefined()
+      expect(inIcon).toEqual(drawn(container.querySelector('svg')?.firstElementChild))
+    },
+  )
 
   it('draws the unknown ring hollow', () => {
     const unknown = decode(faviconHref('unknown', false))

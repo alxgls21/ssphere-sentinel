@@ -237,8 +237,10 @@ class ComposeTests(unittest.TestCase):
         (include,) = self.compose["include"]
         self.assertEqual(include["path"], "deploy/postgres/postgres-${SENTINEL_POSTGRES:-16}.yml")
         # Compose 2.20 does not pass the project's .env to an included file
-        # unless it is named; naming it works in every release.
-        self.assertEqual((include["project_directory"], include["env_file"]), (".", ".env"))
+        # unless it is named; naming it works in every release. The second file
+        # holds the bootstrap password with the separate logins (below).
+        self.assertEqual(include["project_directory"], ".")
+        self.assertEqual(include["env_file"][0], ".env")
         self.assertEqual(
             sorted(path.name for path in POSTGRES_DIR.iterdir()),
             [f"postgres-{major}.yml" for major in sorted(LAYOUTS)],
@@ -388,6 +390,111 @@ class ComposeTests(unittest.TestCase):
         for reference in references:
             self.assertRegex(reference, r"^[A-Z_0-9]+:-", reference)
         self.assertNotIn("SENTINEL_DB_ROLES", dotenv_values(LEGACY_ENV))
+
+    def test_the_bootstrap_password_file_reaches_only_the_database_file(self):
+        (include,) = self.compose["include"]
+        self.assertEqual(
+            include["env_file"], [".env", "${SENTINEL_BOOTSTRAP_ENV_FILE:-deploy/compose/no-bootstrap-secrets.env}"]
+        )
+        # Named in the include only: it resolves the database file and is no service's env_file.
+        text = "\n".join(line for line in (ROOT / "compose.yml").read_text().splitlines()
+                         if not line.lstrip().startswith("#"))
+        self.assertEqual(text.count("SENTINEL_BOOTSTRAP_ENV_FILE"), 1)
+        for service in (*self.compose["services"].values(), *self.tunnel["services"].values()):
+            self.assertNotIn("SENTINEL_BOOTSTRAP_ENV_FILE", str(service))
+        default = ROOT / interpolate(include["env_file"][1], {})
+        self.assertTrue(default.is_file())
+        self.assertEqual(dotenv_values(default), {})  # no settings, no secrets
+        for environment in ({}, dotenv_values(LEGACY_ENV), dotenv_values(ROOT / ".env.example"),
+                            {"SENTINEL_BOOTSTRAP_ENV_FILE": ".env.bootstrap"}):
+            resolved = [interpolate(path, environment) for path in include["env_file"]]
+            self.assertEqual(len(resolved), len(set(resolved)), resolved)
+
+    def test_no_application_service_names_a_password_or_passes_one_through(self):
+        # A variable listed without a value is taken from the shell that runs Compose;
+        # nothing may arrive that way, nor through a mount, a secret or a config.
+        for name, service in {**self.compose["services"], **self.tunnel["services"]}.items():
+            with self.subTest(service=name):
+                environment = service.get("environment", {})
+                self.assertIsInstance(environment, dict)
+                self.assertNotIn(None, environment.values())
+                self.assertNotIn("POSTGRES_PASSWORD", environment)
+                for key in ("volumes", "secrets", "configs", "env_file"):
+                    if key == "env_file" and name in ("web", "migrate", "cloudflared"):
+                        continue
+                    self.assertNotIn(key, service)
+        services = self.compose["services"]
+        self.assertEqual(services["web"]["environment"]["SENTINEL_DB_MIGRATE_PASSWORD"], "")
+        self.assertEqual(services["migrate"]["environment"]["SENTINEL_DB_PASSWORD"], "")
+
+    def test_each_service_gets_its_own_password_only(self):
+        # A model of how Compose resolves the services (env files in order, then
+        # environment; the database file with the include's env files). CI checks
+        # the real thing with `docker compose config` (.github/scripts/compose-config-check.sh).
+        from sentinel import database
+
+        legacy = dotenv_values(LEGACY_ENV)
+        separate = {name: value for name, value in legacy.items() if name != "POSTGRES_PASSWORD"}
+        separate.update(SENTINEL_DB_ROLES="separate", SENTINEL_DB_PASSWORD="runtime-secret",
+                        SENTINEL_BOOTSTRAP_ENV_FILE=".env.bootstrap", SENTINEL_MIGRATE_ENV_FILE=".env.migrate")
+        files = {
+            ".env.bootstrap": {"POSTGRES_PASSWORD": "bootstrap-secret"},
+            ".env.migrate": {"SENTINEL_DB_MIGRATE_PASSWORD": "migration-secret"},
+        }
+        passwords = ("POSTGRES_PASSWORD", "SENTINEL_DB_PASSWORD", "SENTINEL_DB_MIGRATE_PASSWORD")
+
+        def held(environment):
+            return {name for name in passwords if environment.get(name)}
+
+        web, migrate, db = self.resolve(separate, files)
+        self.assertEqual(held(web), {"SENTINEL_DB_PASSWORD"})
+        self.assertEqual(held(migrate), {"SENTINEL_DB_MIGRATE_PASSWORD"})
+        self.assertEqual(db["POSTGRES_PASSWORD"], "bootstrap-secret")
+        self.assertEqual(database.foreign_passwords(web), [])
+        self.assertEqual(database.foreign_passwords(migrate), [])
+        # Passwords put in .env by mistake: blanked, or refused by the processes.
+        mistaken = {**separate, "SENTINEL_DB_MIGRATE_PASSWORD": "migration-secret"}
+        web, migrate, _ = self.resolve(mistaken, files)
+        self.assertEqual(held(web), {"SENTINEL_DB_PASSWORD"})
+        mistaken = {**separate, "POSTGRES_PASSWORD": "bootstrap-secret"}
+        web, migrate, db = self.resolve(mistaken, files)
+        self.assertEqual(database.foreign_passwords(web), ["POSTGRES_PASSWORD"])
+        self.assertEqual(database.foreign_passwords(migrate), ["POSTGRES_PASSWORD"])
+        # An existing installation resolves as it always did.
+        web, migrate, db = self.resolve(legacy, {})
+        self.assertEqual(held(web), {"POSTGRES_PASSWORD"})
+        self.assertEqual(db["POSTGRES_PASSWORD"], legacy["POSTGRES_PASSWORD"])
+        self.assertEqual(database.foreign_passwords(web), [])
+        # The migrate service of a half switch refuses instead of having nothing to do.
+        web, migrate, _ = self.resolve({**legacy, "SENTINEL_MIGRATE_ENV_FILE": ".env.migrate"}, files)
+        self.assertEqual(database.foreign_passwords(migrate), ["SENTINEL_DB_MIGRATE_PASSWORD"])
+
+    def resolve(self, dotenv: dict[str, str], files: dict[str, dict[str, str]]):
+        """The environments of web, migrate and db for an .env and the other env files."""
+
+        def env_file(path: str) -> dict[str, str]:
+            resolved = interpolate(path, dotenv)
+            if resolved == ".env":
+                return dotenv
+            return files[resolved] if resolved in files else dotenv_values(ROOT / resolved)
+
+        environments = []
+        for name in ("web", "migrate"):
+            service = self.compose["services"][name]
+            environment = {}
+            for path in service["env_file"]:
+                environment.update(env_file(path))
+            environment.update({key: str(value) for key, value in service["environment"].items()})
+            environments.append(environment)
+        (include,) = self.compose["include"]
+        values = {}
+        for path in include["env_file"]:
+            values.update(env_file(path))
+        db = self.yaml.safe_load(self.selected_file(dotenv).read_text())["services"]["db"]["environment"]
+        resolved = {key: re.sub(r"\$\{([A-Z_]+):[-?]([^}]*)\}",
+                                lambda match: values.get(match[1]) or match[2], str(value))
+                    for key, value in db.items()}
+        return (*environments, resolved)
 
     def test_tunnel_token_is_kept_away_from_the_web_container(self):
         cloudflared = self.tunnel["services"]["cloudflared"]

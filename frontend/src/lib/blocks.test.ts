@@ -162,3 +162,61 @@ describe('blockMeter', () => {
     expect(blockMeter(50, 10)).toBe('█████░░░░░')
   })
 })
+
+describe('offline in the text twins', () => {
+  it('lists offline apart from the critical it is part of, directly after it', () => {
+    const result = nonZeroCounts(
+      counts({ healthy: 9, idle: 1, unknown: 2, warning: 3, critical: 4, offline: 1 }),
+    )
+    expect(result).toEqual([
+      { status: 'critical', count: 3 },
+      { status: 'offline', count: 1 },
+      { status: 'warning', count: 3 },
+      { status: 'unknown', count: 2 },
+      { status: 'idle', count: 1 },
+      { status: 'healthy', count: 9 },
+    ])
+  })
+
+  it('drops the critical entry when every critical member is offline', () => {
+    expect(nonZeroCounts(counts({ critical: 2, offline: 2, healthy: 1 }))).toEqual([
+      { status: 'offline', count: 2 },
+      { status: 'healthy', count: 1 },
+    ])
+  })
+
+  it('speaks "1 critical, 1 offline" and keeps the totals', () => {
+    const spoken = describeCounts(counts({ healthy: 13, warning: 2, critical: 2, offline: 1 }))
+    expect(spoken).toBe('1 critical, 1 offline, 2 warning, 13 ok')
+    expect(describeCounts(counts({ critical: 1, offline: 1 }))).toBe('1 offline')
+  })
+
+  it('names the status the way ui/status does', () => {
+    expect(spokenStatus('offline')).toBe('offline')
+  })
+
+  it('draws offline with a character of its own, between critical and warning', () => {
+    const bar = blockBar(
+      counts({ healthy: 10, idle: 2, unknown: 2, warning: 2, critical: 4, offline: 2 }),
+    )
+    expect(bar).toHaveLength(20)
+    expect(bar.replace(/(.)\1*/g, '$1')).toBe('█▞▓▒░▁')
+    const characters = ['█', '▞', '▓', '▒', '░', '▁']
+    expect(new Set(characters).size).toBe(characters.length)
+  })
+
+  it('keeps one cell for a lone offline server in a large fleet', () => {
+    const bar = blockBar(counts({ critical: 1, offline: 1, healthy: 123 }))
+    expect(bar).toBe('▞' + '▁'.repeat(19))
+  })
+
+  it('stays exactly the requested length however the cells are shared', () => {
+    for (let healthy = 0; healthy <= 30; healthy += 3) {
+      for (const offline of [0, 1, 2]) {
+        const total = healthy + 2 + offline
+        const bar = blockBar(counts({ healthy, critical: 2 + offline, offline, warning: 1 }), 20)
+        expect(bar, `${healthy}/${offline} of ${total}`).toHaveLength(20)
+      }
+    }
+  })
+})

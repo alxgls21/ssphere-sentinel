@@ -5,8 +5,14 @@ import type {
   NetworkTarget,
   Server,
   Site,
+  StatusCounts,
 } from '@/api/types'
-import { containerHealth, serverHealthWithResources, targetHealth } from '@/lib/status'
+import {
+  containerHealth,
+  countEntities,
+  serverHealthWithResources,
+  targetHealth,
+} from '@/lib/status'
 import type { Fleet } from './fixtures'
 
 /**
@@ -15,6 +21,20 @@ import type { Fleet } from './fixtures'
  */
 export const serverHealthOf = (server: Server): HealthStatus =>
   serverHealthWithResources(server.status, server.telemetry)
+
+/**
+ * The flag a server carries when its agent stopped reporting: the one state the
+ * console describes apart from the critical it is counted as. Servers in any other
+ * state carry none.
+ */
+export const offlineFlag = (server: Server): { offline?: true } =>
+  server.status === 'offline' ? { offline: true } : {}
+
+/** Counts by health, with the servers that stopped reporting noted (they stay inside critical). */
+export const serverCounts = (servers: readonly Server[]): StatusCounts =>
+  countEntities(
+    servers.map((server) => ({ status: serverHealthOf(server), ...offlineFlag(server) })),
+  )
 
 export const containerHealthOf = (container: DockerContainer): HealthStatus =>
   containerHealth(container.state, container.health)

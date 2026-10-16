@@ -65,3 +65,25 @@ describe('navBadge and freshness', () => {
     expect(navBadge('alerts', summary, 'nodata')).toBeNull()
   })
 })
+
+describe('navBadge with an offline server', () => {
+  it('counts it as critical, exactly as without the flag', () => {
+    const flagged = makeSummary({ servers: { critical: 2, warning: 1, offline: 1 } })
+    const plain = makeSummary({ servers: { critical: 2, warning: 1 } })
+    expect(navBadge('servers', flagged)).toEqual({
+      status: 'critical',
+      count: 2,
+      label: '2 critical',
+    })
+    expect(navBadge('servers', flagged)).toEqual(navBadge('servers', plain))
+  })
+
+  it('shows a lone offline server as one critical, not as a state of its own', () => {
+    const summary = makeSummary({ servers: { critical: 1, offline: 1 } })
+    expect(navBadge('servers', summary)).toEqual({
+      status: 'critical',
+      count: 1,
+      label: '1 critical',
+    })
+  })
+})

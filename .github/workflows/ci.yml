@@ -108,6 +108,83 @@ jobs:
           DJANGO_SECURE_HSTS_PRELOAD: "true"
         run: python manage.py check --deploy --fail-level WARNING
 
+  # The separate database logins (sentinel/db_roles.py, sentinel/database.py,
+  # sentinel/postgresql) against a real server of each supported PostgreSQL
+  # major version: apps/core/tests/*_postgres.py, every test of which needs the
+  # cluster (apps/core/tests/test_postgres_harness.py) and is skipped by the
+  # Server job, on a disposable cluster of their own (the logins refuse a
+  # cluster that holds anything else), started from that version's programs,
+  # which the tests check. Strict: a skipped test, a module that runs nothing or
+  # a test database of Django's (none of them uses one) fails the cell. Twice:
+  # with the bootstrap password in PGPASSWORD, and in the connection string.
+  postgres:
+    name: Separate database logins (PostgreSQL ${{ matrix.postgres }}, Django ${{ matrix.django }})
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.repository
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        postgres: ["16", "18"]
+        django: ["5.2", "6.1"]
+    env:
+      POSTGRES_BINDIR: /usr/lib/postgresql/${{ matrix.postgres }}/bin
+      SENTINEL_TEST_POSTGRES_MAJOR: ${{ matrix.postgres }}
+      SENTINEL_TEST_PORT: "543${{ matrix.postgres }}"
+      # Django's settings name a database, which no test here uses: nothing listens there.
+      POSTGRES_DB: sentinel
+      POSTGRES_USER: sentinel
+      POSTGRES_PASSWORD: ""
+      POSTGRES_HOST: 127.0.0.1
+      POSTGRES_PORT: "9"
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.14"
+          cache: pip
+          cache-dependency-path: pyproject.toml
+      - name: Generate throwaway secrets
+        run: |
+          for name in DJANGO_SECRET_KEY AGENT_TOKEN_PEPPER; do
+            value=$(python -c 'import secrets; print(secrets.token_urlsafe(48))')
+            echo "::add-mask::$value"
+            echo "$name=$value" >> "$GITHUB_ENV"
+          done
+      - name: Install the server
+        run: python -m pip install -e . "Django==${{ matrix.django }}.*"
+      - name: Install PostgreSQL ${{ matrix.postgres }} from the PostgreSQL apt repository
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends postgresql-common
+          # A package installed here makes no cluster of its own. The image's PostgreSQL 16 (from
+          # the same repository) keeps the one it made, disabled, which nothing here uses.
+          echo 'create_main_cluster = false' | sudo tee -a /etc/postgresql-common/createcluster.conf
+          sudo /usr/share/postgresql-common/pgdg/apt.postgresql.org.sh -y
+          sudo apt-get install --yes --no-install-recommends "postgresql-${{ matrix.postgres }}"
+          "$POSTGRES_BINDIR/postgres" --version
+      - name: Start a disposable cluster
+        id: cluster
+        run: .github/scripts/postgres-tests.sh start
+      # Both runs, whatever the other's outcome, once the cluster runs.
+      - name: Tests, with the bootstrap password in PGPASSWORD
+        if: ${{ !cancelled() && steps.cluster.outcome == 'success' }}
+        run: .github/scripts/postgres-tests.sh run password-free
+      - name: Tests, with the bootstrap password in the connection string
+        if: ${{ !cancelled() && steps.cluster.outcome == 'success' }}
+        run: .github/scripts/postgres-tests.sh run password-in-dsn
+      - name: Server log
+        if: failure() || cancelled()
+        run: cat "$RUNNER_TEMP/sentinel-postgres/server.log" || true
+      - name: Stop the cluster
+        if: always()
+        run: .github/scripts/postgres-tests.sh stop
+
   agent:
     name: Agent (${{ matrix.os }}, Python ${{ matrix.python }})
     if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.repository
@@ -295,9 +372,10 @@ jobs:
   # Docker Compose releases operators run: 2.20 (the first with include, which
   # the database selection needs), 2.23 (the last before Compose reads env files
   # with compose-go v2) and the current one. With each, the configuration of an
-  # existing, a new and a separate-roles installation resolves; an installation
-  # of the previous release is updated with its unchanged .env, restarted and
-  # rolled back; and separate database roles run on a new installation.
+  # existing, a new and a separate-roles installation resolves, and an
+  # installation of the previous release is updated with its unchanged .env,
+  # restarted and rolled back. (The separate database logins run on the same
+  # releases in the job below.)
   compose-compatibility:
     name: Docker Compose ${{ matrix.compose }}
     if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.repository
@@ -322,16 +400,56 @@ jobs:
         run: |
           cp .github/scripts/compose-upgrade-e2e.sh "$RUNNER_TEMP/"
           "$RUNNER_TEMP/compose-upgrade-e2e.sh"
-      - name: Throwaway environment files
-        run: .github/scripts/ci-env.sh
-      - name: Separate database roles on a new installation
-        run: .github/scripts/separate-roles-e2e.sh
+
+  # The separate database logins on real containers, with each Docker Compose
+  # release above and each PostgreSQL major version a Compose installation can
+  # run (16, which an existing installation stays on, and 18). Two ways in: an
+  # existing installation moved to the separate logins, and a new installation
+  # that starts with them, then what an operator meets: a provisioning killed
+  # inside its transaction, a lost acknowledgement, a migration killed halfway,
+  # a failed deployment, rotated passwords, drift in the privileges, and the
+  # credentials of every container (docs/server-deployment.md). Every scenario
+  # is announced and must pass: the judge fails a run that announced more than
+  # it passed, and one that is not of the Compose and PostgreSQL versions of its
+  # cell. The project (and so its volumes) belongs to the job and is removed
+  # whatever happens.
+  separate-roles:
+    name: Separate database logins (Docker Compose ${{ matrix.compose }}, PostgreSQL ${{ matrix.postgres }})
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.repository
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        compose: ["2.20.0", "2.23.3", "5.6.0"]
+        postgres: ["16", "18"]
+    env:
+      COMPOSE_PROJECT_NAME: sentinel-roles-e2e
+      SENTINEL_E2E_POSTGRES: ${{ matrix.postgres }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install Docker Compose ${{ matrix.compose }}
+        run: .github/scripts/install-compose.sh "${{ matrix.compose }}"
+      - name: Throwaway environment files for PostgreSQL ${{ matrix.postgres }}
+        run: .github/scripts/ci-env.sh "${{ matrix.postgres }}"
+      - name: The scenarios
+        id: scenarios
+        run: |
+          set -o pipefail
+          .github/scripts/separate-roles-e2e.sh 2>&1 | tee "$RUNNER_TEMP/separate-roles-e2e.log"
+      - name: Judge the run
+        if: ${{ !cancelled() && steps.scenarios.outcome != 'skipped' }}
+        run: >
+          python3 .github/scripts/compose_e2e.py report --log "$RUNNER_TEMP/separate-roles-e2e.log"
+          --postgres "${{ matrix.postgres }}" --compose "${{ matrix.compose }}"
       - name: Container logs
-        if: failure()
-        run: docker compose logs --no-color
-      - name: Stop the stack
+        if: failure() || cancelled()
+        run: docker compose logs --no-color --tail 300
+      - name: Remove the project, its containers and its volumes
         if: always()
-        run: docker compose down --volumes --remove-orphans
+        run: .github/scripts/compose-cleanup.sh
 
   # The documented move from PostgreSQL 16 to 18, rehearsed end to end: an
   # installation without the new settings stays on 16, PostgreSQL 18 refuses to

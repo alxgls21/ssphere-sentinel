@@ -1,6 +1,7 @@
 import type { AttentionItem, AttentionResult, ProbeProtocol } from '@/api/types'
 import { NAV_ITEMS, type NavItem } from '@/config/nav'
-import { formatAge } from '@/lib/format'
+import { formatAge, formatQuantity } from '@/lib/format'
+import { displayStatus } from '@/lib/status'
 import { STATUS_NAME, STATUS_WORD } from '@/ui/status'
 
 /**
@@ -65,13 +66,15 @@ export function spokenAge(iso: string | null, nowMs: number): string | null {
   const then = Date.parse(iso)
   if (Number.isNaN(then)) return null
   const seconds = Math.max(0, Math.round((nowMs - then) / 1000))
-  const unit = (value: number, name: string) => `${value} ${name}${value === 1 ? '' : 's'}`
   if (seconds < 5) return 'just now'
-  if (seconds < 60) return unit(seconds, 'second')
-  if (seconds < 3600) return unit(Math.floor(seconds / 60), 'minute')
-  if (seconds < 86_400) return unit(Math.floor(seconds / 3600), 'hour')
-  return unit(Math.floor(seconds / 86_400), 'day')
+  if (seconds < 60) return formatQuantity(seconds, 'second')
+  if (seconds < 3600) return formatQuantity(Math.floor(seconds / 60), 'minute')
+  if (seconds < 86_400) return formatQuantity(Math.floor(seconds / 3600), 'hour')
+  return formatQuantity(Math.floor(seconds / 86_400), 'day')
 }
+
+/** What the row shows for its severity: critical, or offline for a server whose agent stopped reporting. */
+export const displayed = (item: AttentionItem) => displayStatus(item.severity, item.offline)
 
 /**
  * The accessible name of a row, so one stop reads the whole line:
@@ -80,7 +83,7 @@ export function spokenAge(iso: string | null, nowMs: number): string | null {
 export function rowLabel(item: QueueItem, position: number, total: number, nowMs: number): string {
   return [
     `Row ${position} of ${total}`,
-    STATUS_NAME[item.severity],
+    STATUS_NAME[displayed(item)],
     `${kindLabel(item)} ${item.name}`,
     ...item.detail.split(DETAIL_SEPARATOR),
     [item.customerName, item.siteName].filter(Boolean).join(' '),
@@ -97,7 +100,7 @@ const oneLine = (text: string) => text.replace(/\s+/g, ' ').trim()
 export function rowCopyText(item: QueueItem, nowMs: number): string {
   const age = item.ageIso ? formatAge(item.ageIso, nowMs) : null
   return [
-    `${STATUS_WORD[item.severity]} ${kindLabel(item)} ${item.name}`,
+    `${STATUS_WORD[displayed(item)]} ${kindLabel(item)} ${item.name}`,
     item.detail,
     siteLabel(item),
     age,

@@ -28,8 +28,8 @@ export function ProvenanceSection() {
         <div className="flex flex-col items-start gap-2">
           <SourceTag source="mock" refreshMs={15_000} />
           <SourceTag source="mock" />
-          <SourceTag source="http" refreshMs={15_000} />
-          <SourceTag source="http" />
+          <SourceTag source="live" refreshMs={15_000} />
+          <SourceTag source="live" />
         </div>
       </Specimen>
     </div>

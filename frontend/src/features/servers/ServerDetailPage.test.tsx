@@ -1,9 +1,10 @@
 import { screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { Route, Routes } from 'react-router'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { Link, Route, Routes } from 'react-router'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createMockApi } from '@/api/mock/client'
 import { fakeCharts, resetFakeCharts } from '@/charts/testing/fakeEcharts'
+import { registryOverrides } from '@/config/testing'
 import { createTestApi, renderApp } from '@/test/render'
 import ServerDetailPage from './ServerDetailPage'
 
@@ -24,7 +25,10 @@ const page = (id: string, api = mock(), search = '', state?: unknown) =>
     { api, route: `/servers/${id}${search}` },
   ) && state
 
+const overrides = registryOverrides()
+
 beforeEach(() => resetFakeCharts())
+afterEach(() => overrides.restore())
 
 describe('ServerDetailPage', () => {
   it('names the server, its status and where it lives', async () => {
@@ -34,6 +38,16 @@ describe('ServerDetailPage', () => {
     expect(screen.getByText('10.20.2.10')).toBeVisible()
     expect(screen.getByText('Debian 13')).toBeVisible()
     expect(screen.getByText('Meridian Logistics')).toBeInTheDocument()
+  })
+
+  it('keeps the indicator of a server that is reporting', async () => {
+    page('srv-ath-db-01')
+    const heading = await screen.findByRole('heading', { level: 1, name: 'ath-db-01' })
+    expect(heading.parentElement?.querySelector('span[data-status]')).toHaveAttribute(
+      'data-status',
+      'warning',
+    )
+    expect(screen.queryByRole('status')).toBeNull()
   })
 
   it('links back to the list, keeping the view', async () => {
@@ -75,10 +89,34 @@ describe('ServerDetailPage', () => {
       expect.objectContaining({ serverId: 'srv-ath-db-01', range: '6h' }),
     )
     await waitFor(() => expect(fakeCharts[0]?.setOption).toHaveBeenCalled())
-    expect(screen.getByText(/History is sample data/)).toBeVisible()
+    // The console API serves this history; the screen is not connected to it yet, and says exactly that.
+    expect(
+      screen.getByText(/the console API serves this history, but this screen is not connected/),
+    ).toBeVisible()
+    expect(screen.queryByText(/backend keeps only the latest/)).toBeNull()
   })
 
   describe('a server that stopped reporting', () => {
+    it('is tagged offline in its header, apart from critical, and says OFFLINE', async () => {
+      page('srv-pir-fs-01')
+      const heading = await screen.findByRole('heading', { level: 1, name: 'pir-fs-01' })
+      const tag = within(heading.parentElement as HTMLElement)
+        .getByText('OFFLINE')
+        .closest('[data-status]')
+      expect(tag).toHaveAttribute('data-status', 'offline')
+      expect(tag?.querySelector('svg')).toHaveAttribute('data-status', 'offline')
+      expect(tag).toHaveClass('bg-offline-tint', 'text-offline')
+    })
+
+    it('frames its notice as offline, not critical', async () => {
+      page('srv-pir-fs-01')
+      const notice = await screen.findByRole('status')
+      expect(notice).toHaveClass('border-offline-line', 'bg-offline-tint')
+      expect(notice.className).not.toContain('critical')
+      expect(notice.querySelector('[data-status]')).toHaveAttribute('data-status', 'offline')
+      expect(notice.querySelector('svg')).toHaveAttribute('data-status', 'offline')
+    })
+
     it('says so first, shows the last reading, and cannot vouch for its containers', async () => {
       page('srv-pir-fs-01')
       const notice = await screen.findByRole('status')
@@ -139,5 +177,198 @@ describe('ServerDetailPage', () => {
       'aria-busy',
       'true',
     )
+  })
+})
+
+describe('ServerDetailPage resource sparklines', () => {
+  const sparks = (root: HTMLElement) => within(root).queryAllByRole('img', { name: /history of/ })
+
+  /** The mock api with its series request counted; `getServerSeries` keeps answering for real. */
+  function counted() {
+    const real = mock()
+    const getServerSeries = vi.fn((options) => real.getServerSeries(options))
+    return { real, getServerSeries, api: createTestApi({ ...real, getServerSeries }) }
+  }
+
+  it('draws CPU, RAM and disk history in the Summary, from the series the history panel shows, requested once', async () => {
+    const { real, getServerSeries, api } = counted()
+    page('srv-ath-db-01', api)
+    const summary = await screen.findByRole('region', { name: 'Summary' })
+    await screen.findByRole('figure')
+    const found = await within(summary).findAllByRole('img', { name: /history of ath-db-01/ })
+    expect(found.map((spark) => spark.getAttribute('aria-label')?.split(':')[0])).toEqual([
+      'CPU history of ath-db-01, last hour',
+      'RAM history of ath-db-01, last hour',
+      'Disk history of ath-db-01, last hour',
+    ])
+    expect(getServerSeries).toHaveBeenCalledTimes(1)
+    // The newest value is the one the chart ends on.
+    const series = await real.getServerSeries({ serverId: 'srv-ath-db-01', range: '1h' })
+    expect(found[0]).toHaveAccessibleName(new RegExp(`now ${series.cpu.at(-1)} percent`))
+    expect(found[0]).toHaveAccessibleName(/13:00 to 13:59 UTC/)
+  })
+
+  it('follows the range in the URL with the same single request', async () => {
+    const { getServerSeries, api } = counted()
+    page('srv-ath-db-01', api, '?range=6h')
+    const summary = await screen.findByRole('region', { name: 'Summary' })
+    expect(
+      await within(summary).findAllByRole('img', { name: /history of ath-db-01, last 6 hours/ }),
+    ).toHaveLength(3)
+    expect(getServerSeries).toHaveBeenCalledTimes(1)
+    expect(getServerSeries).toHaveBeenCalledWith(expect.objectContaining({ range: '6h' }))
+  })
+
+  it('shows the meters at once and leaves each sparkline place empty while the series loads', async () => {
+    page(
+      'srv-ath-db-01',
+      createTestApi({ ...mock(), getServerSeries: vi.fn(() => new Promise<never>(() => {})) }),
+    )
+    const summary = await screen.findByRole('region', { name: 'Summary' })
+    expect(await within(summary).findByRole('meter', { name: 'CPU of ath-db-01' })).toBeVisible()
+    expect(within(summary).getByRole('meter', { name: 'Disk of ath-db-01' })).toBeVisible()
+    expect(sparks(summary)).toHaveLength(0)
+    expect(within(summary).queryByText('no history')).toBeNull()
+    expect(summary.querySelectorAll('[aria-hidden="true"].h-6.w-16')).toHaveLength(3)
+  })
+
+  it('keeps the Summary whole when only the series fails, and the history panel says so', async () => {
+    const real = mock()
+    page(
+      'srv-ath-db-01',
+      createTestApi({
+        ...real,
+        getServerSeries: vi.fn(() => Promise.reject(new Error('Service unavailable'))),
+      }),
+    )
+    const summary = await screen.findByRole('region', { name: 'Summary' })
+    expect(await within(summary).findByRole('meter', { name: 'Disk of ath-db-01' })).toBeVisible()
+    expect(await screen.findByText('Could not load resource history')).toBeInTheDocument()
+    expect(screen.queryByText('Could not load summary')).toBeNull()
+    expect(sparks(summary)).toHaveLength(0)
+    expect(summary.querySelectorAll('[aria-hidden="true"].h-6.w-16')).toHaveLength(3)
+  })
+
+  it('stops calling the newest sample "now" once the series can no longer be refreshed', async () => {
+    const real = mock()
+    let calls = 0
+    const getServerSeries = vi.fn(async (options: Parameters<typeof real.getServerSeries>[0]) => {
+      calls += 1
+      if (calls > 1) throw new Error('Service unavailable')
+      return real.getServerSeries(options)
+    })
+    renderApp(
+      <Routes>
+        <Route path="/servers/:id" element={<ServerDetailPage />} />
+      </Routes>,
+      {
+        api: createTestApi({ ...real, getServerSeries }),
+        route: '/servers/srv-ath-db-01',
+        pollMs: 30,
+      },
+    )
+    const summary = await screen.findByRole('region', { name: 'Summary' })
+    const found = await within(summary).findAllByRole('img', { name: /history of ath-db-01/ })
+    expect(found[0]).toHaveAccessibleName(/, now \d+(\.\d)? percent/)
+
+    await waitFor(() => expect(screen.getByText('Refresh failed')).toBeInTheDocument())
+    await waitFor(() =>
+      expect(sparks(summary)[0]).toHaveAccessibleName(/, last \d+(\.\d)? percent/),
+    )
+    for (const spark of sparks(summary)) {
+      expect(spark).not.toHaveAccessibleName(/now/)
+      expect(spark.querySelector('circle.fill-primary')).toBeNull()
+    }
+  })
+
+  it('draws a host that stopped reporting up to its last sample, then an explicit no-samples tail', async () => {
+    const { getServerSeries, api } = counted()
+    page('srv-pir-fs-01', api)
+    const summary = await screen.findByRole('region', { name: 'Summary' })
+    const found = await within(summary).findAllByRole('img', { name: /history of pir-fs-01/ })
+    expect(found).toHaveLength(3)
+    for (const spark of found) {
+      expect(spark).toHaveAccessibleName(/no samples since 13:46 UTC$/)
+      expect(spark.querySelector('path[stroke-dasharray]')).not.toBeNull()
+      expect(spark.querySelector('.fill-primary')).toBeNull()
+    }
+    expect(summary).toHaveTextContent('LAST READING')
+    expect(getServerSeries).toHaveBeenCalledTimes(1)
+  })
+
+  it('has none for a server that never reported, and still asks for the series once', async () => {
+    const { getServerSeries, api } = counted()
+    page('srv-core-ci-01', api)
+    const summary = await screen.findByRole('region', { name: 'Summary' })
+    expect(await screen.findByText('No history')).toBeVisible()
+    expect(within(summary).queryAllByRole('meter')).toHaveLength(0)
+    expect(sparks(summary)).toHaveLength(0)
+    expect(summary.querySelectorAll('[aria-hidden="true"].h-6.w-16')).toHaveLength(0)
+    expect(getServerSeries).toHaveBeenCalledTimes(1)
+  })
+
+  it("never shows one server's history under another server's name", async () => {
+    const real = mock()
+    const never = new Promise<never>(() => {})
+    const getServerSeries = vi.fn((options) =>
+      options.serverId === 'srv-ath-db-01' ? real.getServerSeries(options) : never,
+    )
+    renderApp(
+      <Routes>
+        <Route
+          path="/servers/:id"
+          element={
+            <>
+              <ServerDetailPage />
+              <Link to="/servers/srv-ath-app-01">other server</Link>
+            </>
+          }
+        />
+      </Routes>,
+      { api: createTestApi({ ...real, getServerSeries }), route: '/servers/srv-ath-db-01' },
+    )
+    const summary = await screen.findByRole('region', { name: 'Summary' })
+    expect(
+      await within(summary).findAllByRole('img', { name: /history of ath-db-01/ }),
+    ).toHaveLength(3)
+    await userEvent.click(screen.getByRole('link', { name: 'other server' }))
+    expect(await screen.findByRole('heading', { level: 1, name: 'ath-app-01' })).toBeVisible()
+    const next = screen.getByRole('region', { name: 'Summary' })
+    expect(await within(next).findByRole('meter', { name: 'CPU of ath-app-01' })).toBeVisible()
+    expect(sparks(next)).toHaveLength(0)
+    expect(screen.queryByRole('figure')).toBeNull()
+  })
+
+  describe('provenance', () => {
+    it('sit in panels tagged mock while the screen shows demo data', async () => {
+      page('srv-ath-db-01')
+      const summary = await screen.findByRole('region', { name: 'Summary' })
+      const history = await screen.findByRole('region', { name: 'Resource history' })
+      const found = await within(summary).findAllByRole('img', { name: /history of/ })
+      expect(found).toHaveLength(3)
+      for (const spark of found) expect(spark.closest('section')).toBe(summary)
+      expect(within(summary).getByText('mock')).toBeInTheDocument()
+      expect(within(history).getByText(/^mock/)).toBeInTheDocument()
+      expect(within(history).getByText(/^Demo data:/)).toBeInTheDocument()
+      expect(summary).not.toHaveTextContent(/live/i)
+    })
+
+    it('sit in panels tagged live once the servers are connected and served over http', async () => {
+      overrides.set('servers', { connected: true })
+      page('srv-ath-db-01', createTestApi({ ...mock(), source: 'http' }))
+      const summary = await screen.findByRole('region', { name: 'Summary' })
+      const history = await screen.findByRole('region', { name: 'Resource history' })
+      const found = await within(summary).findAllByRole('img', { name: /history of/ })
+      expect(found).toHaveLength(3)
+      for (const spark of found) expect(spark.closest('section')).toBe(summary)
+      expect(within(summary).getByText('live')).toBeInTheDocument()
+      expect(within(summary).queryByText('mock')).toBeNull()
+      expect(within(history).getByText(/^live/)).toBeInTheDocument()
+      expect(within(history).queryByText(/Demo data/)).toBeNull()
+      // The containers are another feature, still demo data.
+      expect(
+        within(screen.getByRole('region', { name: 'Containers' })).getByText(/^mock/),
+      ).toBeInTheDocument()
+    })
   })
 })

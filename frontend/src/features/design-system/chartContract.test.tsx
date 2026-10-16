@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { ServerSeries } from '@/api/types'
 import type { ChartOption } from '@/charts/echarts'
 import { fakeCharts, resetFakeCharts } from '@/charts/testing/fakeEcharts'
+import { isReferenceSeries } from '@/charts/testing/referenceSeries'
 import { CHART_COLOR_TOKENS } from '@/charts/theme'
 import LatencyChart from '@/features/overview/latency/LatencyChart'
 import { makeSeries } from '@/features/overview/latency/testSeries'
@@ -30,6 +31,8 @@ interface ChartCase {
   count: number
   /** The toggleable series, by id, in legend order. */
   series: readonly string[]
+  /** The static references (thresholds) drawn on the plot, by series id: no legend entry, never hidden. */
+  references: readonly string[]
   cursorLabel: string
 }
 
@@ -48,6 +51,7 @@ const CHARTS: readonly ChartCase[] = [
     element: () => <LatencyChart series={makeSeries()} range="1h" />,
     count: makeSeries().t.length,
     series: ['p95', 'p50', 'loss', 'failed'],
+    references: ['reference:latency', 'reference:loss'],
     cursorLabel: 'Latency and loss cursor',
   },
   {
@@ -55,6 +59,7 @@ const CHARTS: readonly ChartCase[] = [
     element: () => <BandwidthChart />,
     count: SAMPLE_BANDWIDTH.t.length,
     series: ['in', 'out'],
+    references: [],
     cursorLabel: 'Bandwidth cursor',
   },
   {
@@ -62,6 +67,7 @@ const CHARTS: readonly ChartCase[] = [
     element: () => <ServerHistoryChart name="ath-db-01" series={HISTORY} range="1h" />,
     count: HISTORY.t.length,
     series: ['cpu', 'memory', 'disk'],
+    references: [],
     cursorLabel: 'Resource history cursor',
   },
 ]
@@ -94,8 +100,14 @@ async function drawn() {
 const optionOf = (chart: Awaited<ReturnType<typeof drawn>>) =>
   chart.setOption.mock.calls.at(-1)?.[0] as ChartOption
 
-const seriesOf = (option: ChartOption) =>
+const allSeriesOf = (option: ChartOption) =>
   [option.series ?? []].flat() as { id: string; lineStyle?: { color?: string } }[]
+/** The data series: what the legend toggles. */
+const seriesOf = (option: ChartOption) => allSeriesOf(option).filter((s) => !isReferenceSeries(s))
+const referencesOf = (option: ChartOption) =>
+  allSeriesOf(option)
+    .filter((s) => isReferenceSeries(s))
+    .map((s) => s.id)
 const axesOf = <T,>(axes: unknown): T[] => [axes ?? []].flat() as T[]
 
 describe.each(CHARTS)('chart contract: $name', (chart) => {
@@ -182,6 +194,28 @@ describe.each(CHARTS)('chart contract: $name', (chart) => {
     await user.click(button(second))
     await user.keyboard('{/Shift}')
     expect(seriesOf(optionOf(instance)).map((s) => s.id)).toEqual(chart.series)
+  })
+
+  it('draws its static references as series of their own: on the plot whatever the legend hides, out of the legend', async () => {
+    const user = userEvent.setup()
+    panel(chart.element())
+    const instance = await drawn()
+    expect(referencesOf(optionOf(instance))).toEqual(chart.references)
+    expect(
+      within(screen.getByRole('list', { name: 'Series' })).getAllByRole('button'),
+    ).toHaveLength(chart.series.length)
+
+    // Isolating one series hides every other, and the references stay.
+    const [first] = chart.series as [string]
+    await user.keyboard('{Shift>}')
+    await user.click(
+      within(screen.getByRole('list', { name: 'Series' })).getAllByRole('button')[
+        chart.series.indexOf(first)
+      ]!,
+    )
+    await user.keyboard('{/Shift}')
+    expect(seriesOf(optionOf(instance)).map((s) => s.id)).toEqual([first])
+    expect(referencesOf(optionOf(instance))).toEqual(chart.references)
   })
 
   it('has a table twin with one row per sample, newest first, behind the button and the v key', async () => {

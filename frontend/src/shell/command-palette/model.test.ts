@@ -65,6 +65,20 @@ describe('entityItem', () => {
     expect(item.prose).toBeFalsy()
   })
 
+  it('carries the offline flag of a server that stopped reporting, and no other', () => {
+    const offline = entity({
+      id: '1',
+      kind: 'server',
+      name: 'pir-fs-01',
+      status: 'critical',
+      offline: true,
+    })
+    expect(offline).toMatchObject({ status: 'critical', offline: true })
+    const plain = entity({ id: '2', kind: 'server', name: 'edge-gw-02', status: 'critical' })
+    expect(plain.offline).toBeUndefined()
+    expect('offline' in plain).toBe(false)
+  })
+
   it('treats sites and customers as prose and does not repeat their own name', () => {
     const site = entity({
       id: 's',
@@ -116,11 +130,11 @@ describe('screenItems', () => {
     expect(items.find((item) => item.title === 'Servers')?.hint).toEqual(['g', 's'])
   })
 
-  it('tags the screens whose feature the backend lacks, and only those', () => {
+  it('tags the screens whose feature the backend does not implement (not SNMP, which it supports), and only those', () => {
     const planned = screenItems(vi.fn(), true)
       .filter((item) => item.badge === 'plan')
       .map((item) => item.title)
-    expect(planned).toEqual(['SNMP', 'Topology', 'Alerts'])
+    expect(planned).toEqual(['Topology', 'Alerts'])
   })
 
   it('drops the hints when single-key shortcuts are off', () => {
@@ -147,13 +161,38 @@ describe('problemItems', () => {
     ])
   })
 
+  it('ranks and keeps an offline server as critical', () => {
+    const offline = entity({
+      id: '9',
+      kind: 'server',
+      name: 'pir-fs-01',
+      status: 'critical',
+      offline: true,
+    })
+    expect(problemItems([unknown, warning, offline]).map((item) => item.title)).toEqual([
+      'pir-fs-01',
+      'warn-container',
+      'unknown-target',
+    ])
+    // Critical entities, offline or not, tie: the order they came in decides.
+    expect(problemItems([critical, offline]).map((item) => item.title)).toEqual([
+      'crit-server',
+      'pir-fs-01',
+    ])
+    expect(problemItems([offline, critical]).map((item) => item.title)).toEqual([
+      'pir-fs-01',
+      'crit-server',
+    ])
+    expect(problemItems([offline])[0]).toMatchObject({ status: 'critical', offline: true })
+  })
+
   it('leaves out healthy and idle entities', () => {
     const healthy = entity({ id: '4', kind: 'server', name: 'fine', status: 'healthy' })
     const idle = entity({ id: '5', kind: 'container', name: 'stopped', status: 'idle' })
     expect(problemItems([healthy, idle, critical])).toHaveLength(1)
   })
 
-  it('leaves out SNMP devices (planned), and sites and customers (roll-ups)', () => {
+  it('leaves out SNMP devices (the console reads no SNMP data yet), and sites and customers (roll-ups)', () => {
     const device = entity({ id: '6', kind: 'device', name: 'switch', status: 'critical' })
     const site = entity({ id: '7', kind: 'site', name: 'Site', status: 'critical' })
     const customer = entity({ id: '8', kind: 'customer', name: 'Customer', status: 'critical' })

@@ -1,11 +1,12 @@
-import type { HealthStatus } from '@/api/types'
-import { StatusGlyph, StatusTag, type GlyphShape, type GlyphSize } from '@/ui/status'
+import type { DisplayStatus } from '@/lib/status'
+import { StatusGlyph, StatusLegend, StatusTag, type GlyphShape, type GlyphSize } from '@/ui/status'
 import { Specimen } from '../Specimen'
 
 const SHAPES: readonly GlyphShape[] = [
   'healthy',
   'warning',
   'critical',
+  'offline',
   'unknown',
   'idle',
   'planned',
@@ -13,13 +14,21 @@ const SHAPES: readonly GlyphShape[] = [
 
 const SIZES: readonly GlyphSize[] = [6, 10, 12, 16, 24]
 
-const HEALTH: readonly HealthStatus[] = ['healthy', 'warning', 'critical', 'unknown', 'idle']
+const SHOWN: readonly DisplayStatus[] = [
+  'healthy',
+  'warning',
+  'critical',
+  'offline',
+  'unknown',
+  'idle',
+]
 
 /** The class word (OK, WARN, ...) is the default; a domain word replaces it where one is more specific. */
-const DOMAIN_WORDS: Record<HealthStatus, readonly string[]> = {
+const DOMAIN_WORDS: Record<DisplayStatus, readonly string[]> = {
   healthy: ['ONLINE', 'RUNNING', 'HEALTHY', 'UP'],
   warning: ['DEGRADED', 'RESTARTING'],
-  critical: ['OFFLINE', 'UNHEALTHY', 'DEAD', 'DOWN'],
+  critical: ['UNHEALTHY', 'DEAD', 'DOWN'],
+  offline: ['OFFLINE'],
   unknown: [],
   idle: [],
 }
@@ -30,7 +39,7 @@ function Glyphs() {
   return (
     <Specimen
       label="Glyphs"
-      note="Shape is the first channel: circle, triangle, diamond, bar, ring. The dotted ring marks provenance (planned), never a health state. The 6px dot is the quiet OK of dense strips."
+      note="Shape is the first channel: circle, triangle, diamond, hollow square, ring, bar. From 10px each carries a cue inside (check, exclamation, cross, slash). Offline is critical shown apart: a server whose agent stopped reporting. The dotted ring marks provenance (planned), never a health state. The 6px dot is the quiet OK of dense strips."
     >
       <table className="w-full">
         <caption className="sr-only">Every status glyph at every size</caption>
@@ -76,7 +85,7 @@ function Tags() {
       note="Shape, word and color together, never color alone. Plain is glyph and word for dense lists. Tag puts the word on the status tint, at least 6 characters wide so a column of tags is one scan line."
     >
       <ul className="flex flex-col">
-        {HEALTH.map((status) => {
+        {SHOWN.map((status) => {
           // undefined is the class word; the rest are domain words.
           const words = [undefined, ...DOMAIN_WORDS[status]]
           return (
@@ -108,11 +117,23 @@ function Tags() {
   )
 }
 
+function Legend() {
+  return (
+    <Specimen
+      label="Legend"
+      note="Every state beside its word, in the order of the alphabet. The Overview closes its health panel with it, listing OK, WARN and CRIT always and the other states only when a mark in the panel uses them."
+    >
+      <StatusLegend />
+    </Specimen>
+  )
+}
+
 export function StatusSection() {
   return (
     <div className="grid gap-3 xl:grid-cols-2">
       <Glyphs />
       <Tags />
+      <Legend />
     </div>
   )
 }

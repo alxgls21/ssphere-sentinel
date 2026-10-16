@@ -1,6 +1,6 @@
 import type { HealthStatus } from '@/api/types'
 
-/** The status alphabet on its 10x10 grid: the same paths StatusGlyph draws. */
+/** The plain silhouettes of the status alphabet on its 10x10 grid: what StatusGlyph draws at 6px. */
 const SHAPE: Record<HealthStatus, (ink: string) => string> = {
   healthy: (ink) => `<circle cx="5" cy="5" r="4" fill="${ink}"/>`,
   warning: (ink) => `<path d="M5 1 L9.2 8.6 H0.8 Z" fill="${ink}"/>`,

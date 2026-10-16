@@ -3,9 +3,10 @@
  *
  * These mirror the concepts of the Django backend (Server, DockerContainer,
  * NetworkTarget, Device, Customer, Site, ...) but they are the UI's own
- * contract: the backend exposes no read API yet. When it does, an HTTP
- * implementation of `SentinelApi` (see ./client.ts) maps the real payloads
- * onto these types and nothing under src/features has to change.
+ * contract. The console API serves some of it already (session, scope, servers,
+ * containers, server history) and not the rest; an HTTP implementation of
+ * `SentinelApi` (see ./client.ts) maps the real payloads onto these types and
+ * nothing under src/features has to change.
  *
  * Conventions: timestamps are ISO-8601 UTC strings (or epoch ms inside time
  * series); durations are seconds; percentages are 0-100; latencies are
@@ -27,7 +28,14 @@ export type Iso = string
  */
 export type HealthStatus = 'healthy' | 'warning' | 'critical' | 'unknown' | 'idle'
 
-export type StatusCounts = Record<HealthStatus, number>
+export type StatusCounts = Record<HealthStatus, number> & {
+  /**
+   * Of `critical`, the servers whose agent stopped reporting. Already counted in
+   * `critical`: totals, the verdict and the badges read `critical`, and only a
+   * composition that breaks the counts down shows this one apart. Absent when none.
+   */
+  offline?: number
+}
 
 export type RangeKey = '15m' | '1h' | '6h' | '24h'
 
@@ -79,7 +87,7 @@ export interface Server {
   siteId: string | null
   lastSeenAt: Iso | null
   agentVersion: string
-  /** Latest telemetry only (the backend keeps one row per server); null until first report. */
+  /** The latest telemetry; null until the first report. History is `ServerSeries`. */
   telemetry: ServerTelemetry | null
 }
 
@@ -222,6 +230,8 @@ export interface AttentionItem {
   severity: AttentionSeverity
   /** Domain word for the status tag: OFFLINE, UNHEALTHY, RESTARTING, DOWN, ... */
   stateLabel: string
+  /** A server whose agent stopped reporting: critical in `severity`, described apart wherever it is shown. */
+  offline?: boolean
   /** One line built only from ingested fields (state, health, last seen, failure reason, latency, loss, cpu/disk). */
   detail: string
   hostName?: string
@@ -294,7 +304,7 @@ export interface DomainBreakdown {
   domain: 'servers' | 'containers' | 'targets' | 'snmp'
   label: string
   counts: StatusCounts
-  /** True when the backend collects nothing for this domain (SNMP). */
+  /** True when the console shows no real data for this domain (SNMP: the console does not read it yet). */
   planned?: boolean
 }
 
@@ -303,6 +313,8 @@ export interface SiteEntity {
   kind: EntityKind
   name: string
   status: HealthStatus
+  /** A server whose agent stopped reporting: critical in `status`, described apart wherever it is shown. */
+  offline?: boolean
 }
 
 export interface SiteBreakdown {
@@ -338,6 +350,8 @@ export interface EntityIndexItem {
   /** Hostname, address, image, ...: matched by search and shown as the subtitle. */
   detail: string
   status: HealthStatus
+  /** A server whose agent stopped reporting: critical in `status`, described apart wherever it is shown. */
+  offline?: boolean
   customerName?: string
   siteName?: string
 }
@@ -383,8 +397,8 @@ export interface ServerSeriesOptions extends Pick<RequestOptions, 'signal'> {
 
 /**
  * CPU, memory and disk history of one server, one entry per bucket (parallel
- * arrays, null = no sample). MOCK-ONLY: the backend keeps one telemetry row per
- * server, so there is no history to read until it stores samples.
+ * arrays, null = no sample). The console API serves it
+ * (`servers/<id>/series/`); the demo data builds it until the screen is connected.
  */
 export interface ServerSeries {
   generatedAt: Iso

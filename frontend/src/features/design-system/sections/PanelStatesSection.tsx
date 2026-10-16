@@ -1,4 +1,4 @@
-import type { HealthStatus } from '@/api/types'
+import type { DisplayStatus } from '@/lib/status'
 import { POLL_MS } from '@/lib/thresholds'
 import { Panel, type PanelProps } from '@/ui/Panel'
 import { EmptyState } from '@/ui/states'
@@ -7,8 +7,8 @@ import { SAMPLE_TIME } from '../sample/data'
 import { noop } from '../sample/noop'
 import { Specimen } from '../Specimen'
 
-const ROWS: readonly { status: HealthStatus; word: string; name: string }[] = [
-  { status: 'critical', word: 'OFFLINE', name: 'edge-gw-02' },
+const ROWS: readonly { status: DisplayStatus; word: string; name: string }[] = [
+  { status: 'offline', word: 'OFFLINE', name: 'edge-gw-02' },
   { status: 'warning', word: 'DEGRADED', name: 'acme-vpn:443' },
   { status: 'healthy', word: 'ONLINE', name: 'api-02' },
 ]

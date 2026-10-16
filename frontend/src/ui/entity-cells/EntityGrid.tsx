@@ -1,10 +1,17 @@
 import { useMemo, useRef, useState, type KeyboardEvent } from 'react'
 import type { SiteEntity } from '@/api/types'
-import { useProvenance } from '@/hooks/useProvenance'
+import { useApi } from '@/api/context'
+import {
+  FEATURE_OF_ENTITY,
+  PROVENANCE_SPOKEN,
+  provenanceOf,
+  type DataSource,
+} from '@/config/features'
 import { cn } from '@/lib/cn'
-import { STATUS_WORD } from '@/ui/status'
+import type { DisplayStatus } from '@/lib/status'
+import { STATUS_NAME, STATUS_WORD } from '@/ui/status'
 import { EntityGlyph } from './EntityGlyph'
-import { entityKey } from './entities'
+import { displayOf, entityKey } from './entities'
 import { KIND_LABEL, buildGridLayout, moveTo } from './grid'
 
 interface EntityGridProps {
@@ -18,13 +25,17 @@ interface EntityGridProps {
   className?: string
 }
 
-const cellLabel = (entity: SiteEntity, source: 'mock' | 'http') =>
-  [
-    entity.name,
-    entity.kind,
-    STATUS_WORD[entity.status],
-    ...(source === 'mock' ? ['mock data'] : []),
-  ].join(', ')
+/** The compact word names a state in a cell's label; OFFL has no reading aloud, so offline is said in full. */
+const spokenState = (status: DisplayStatus) =>
+  status === 'offline' ? STATUS_NAME.offline : STATUS_WORD[status]
+
+/** The cell's spoken name, ending in what its figures are unless they are live (judged by its own feature). */
+const cellLabel = (entity: SiteEntity, source: DataSource) => {
+  const provenance = provenanceOf([FEATURE_OF_ENTITY[entity.kind]], source)
+  return [entity.name, entity.kind, spokenState(displayOf(entity)), PROVENANCE_SPOKEN[provenance]]
+    .filter(Boolean)
+    .join(', ')
+}
 
 /**
  * The interactive cousin of the strip: 20px cells on a 24px pitch, grouped by
@@ -41,8 +52,7 @@ export function EntityGrid({
   onSelect,
   className,
 }: EntityGridProps) {
-  // Only the data source matters here: which features back the grid does not.
-  const { source } = useProvenance([])
+  const { source } = useApi()
   const root = useRef<HTMLTableElement>(null)
   const layout = useMemo(() => buildGridLayout(entities, columns), [entities, columns])
   const [active, setActive] = useState<string | null>(null)
@@ -129,7 +139,7 @@ export function EntityGrid({
                               : 'hover:bg-hover',
                           )}
                         >
-                          <EntityGlyph status={entity.status} />
+                          <EntityGlyph status={displayOf(entity)} />
                         </button>
                       </td>
                     )

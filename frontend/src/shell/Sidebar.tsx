@@ -4,7 +4,7 @@ import { Link, useLocation } from 'react-router'
 import { useApi } from '@/api/context'
 import { useShell } from '@/app/shell'
 import { useSummary } from '@/app/summary'
-import { isUnimplemented } from '@/config/features'
+import { isPlanned } from '@/config/features'
 import { NAV_ITEMS, navItemForPath, type NavItem } from '@/config/nav'
 import { cn } from '@/lib/cn'
 import { IconButton, Kbd, ModKbd, Tooltip } from '@/ui/controls'
@@ -90,7 +90,7 @@ export function Sidebar({ variant, onNavigate }: SidebarProps) {
         {NAV_ITEMS.map((item, index) => {
           const active = item.id === current?.id
           const badge = navBadge(item.id, summary, freshness)
-          const planned = item.feature !== null && isUnimplemented(item.feature)
+          const planned = item.feature !== null && isPlanned(item.feature)
           return (
             <li key={item.id}>
               <NavRow

@@ -262,12 +262,13 @@ TEMPLATES = [
 WSGI_APPLICATION = "sentinel.wsgi.application"
 
 # The login (user, password, assumed role) depends on SENTINEL_DB_ROLES and
-# SENTINEL_DB_ACCESS; see sentinel/database.py.
+# SENTINEL_DB_ACCESS; see sentinel/database.py. The engine is Django's, but
+# refuses a superuser login in a database provisioned for separate logins.
 database_name = env("POSTGRES_DB")
 database_login = sentinel_database.login(os.environ)
 DATABASES = {
     "default": {
-        "ENGINE": "django.db.backends.postgresql",
+        "ENGINE": "sentinel.postgresql",
         "NAME": database_name,
         "USER": database_login.user,
         "PASSWORD": database_login.password,

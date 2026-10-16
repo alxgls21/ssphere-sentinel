@@ -1,12 +1,13 @@
 import { useId } from 'react'
 import { Link } from 'react-router'
+import { useApi } from '@/api/context'
 import type { SiteBreakdown } from '@/api/types'
 import { useViewTo } from '@/app/viewSearch'
-import { FEATURES } from '@/config/features'
+import { FEATURES, shortfallOf } from '@/config/features'
 import { worstStatus } from '@/lib/status'
 import { EntityCells, describeEntities } from '@/ui/entity-cells'
 import { PlaceName } from '@/ui/PlaceName'
-import { PlannedChip } from '@/ui/provenance/Chips'
+import { FeatureChip } from '@/ui/provenance/Chips'
 import { StatusGlyph } from '@/ui/status'
 import { NAME_RESERVE_PX, siteLabel, siteTarget } from './healthModel'
 import { useStripCapacity } from './useStripCapacity'
@@ -44,27 +45,34 @@ function SiteRow({ site }: { site: SiteBreakdown }) {
 }
 
 /**
- * BY SITE: the worst sites first. Servers, containers and targets have no site
- * link in the backend, so this whole section is sample data and says so; the
- * panel frame stays solid because the domain rows above it are real.
+ * BY SITE: the worst sites first. While the console does not read the site
+ * assignment of servers, containers and targets from the backend, this whole
+ * section is sample data and says so; the panel frame stays solid because the
+ * domain rows above it are real.
  */
 export function SiteSection({ sites }: { sites: readonly SiteBreakdown[] }) {
+  const { source } = useApi()
   const headingId = useId()
   const noteId = useId()
+  const shortfall = shortfallOf('site-links', source)
   return (
     <div className="mt-1 border-t border-border">
       <div className="flex h-5 items-center gap-2">
         <h3 id={headingId} className="type-label text-fg-muted">
-          By site<span aria-hidden="true"> †</span>
+          By site{shortfall ? <span aria-hidden="true"> †</span> : null}
         </h3>
-        <PlannedChip title={FEATURES['site-links'].note} />
-        <span className="type-data truncate text-fg-faint">sample data</span>
-        <span id={noteId} className="sr-only">
-          {FEATURES['site-links'].note}
-        </span>
+        {shortfall ? (
+          <>
+            <FeatureChip availability={shortfall} title={FEATURES['site-links'].note} />
+            <span className="type-data truncate text-fg-faint">sample data</span>
+            <span id={noteId} className="sr-only">
+              {FEATURES['site-links'].note}
+            </span>
+          </>
+        ) : null}
       </div>
       {sites.length > 0 ? (
-        <ul aria-labelledby={headingId} aria-describedby={noteId}>
+        <ul aria-labelledby={headingId} aria-describedby={shortfall ? noteId : undefined}>
           {sites.map((site) => (
             <SiteRow key={site.siteId} site={site} />
           ))}

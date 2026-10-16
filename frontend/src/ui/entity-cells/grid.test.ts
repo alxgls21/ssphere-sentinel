@@ -123,3 +123,26 @@ describe('moveTo', () => {
     expect(moveTo(layout, at(99, 0), 'ArrowRight')).toBeNull()
   })
 })
+
+describe('buildGridLayout with an offline server', () => {
+  const offline: SiteEntity = { ...entity('s-off', 'server', 'critical'), offline: true }
+
+  it('puts an offline server after the critical ones and before the warnings', () => {
+    const layout = buildGridLayout(
+      [
+        entity('s1', 'server'),
+        entity('s2', 'server', 'warning'),
+        offline,
+        entity('s3', 'server', 'critical'),
+      ],
+      4,
+    )
+    expect(ids(layout.rows)).toEqual([['s3', 's-off', 's2', 's1']])
+  })
+
+  it('keeps the entities of equal state in the order they came in', () => {
+    const second: SiteEntity = { ...offline, id: 's-off-2' }
+    const layout = buildGridLayout([second, offline, entity('c', 'server', 'critical')], 4)
+    expect(ids(layout.rows)).toEqual([['c', 's-off-2', 's-off']])
+  })
+})

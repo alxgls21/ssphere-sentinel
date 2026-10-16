@@ -40,8 +40,8 @@ function LoadFooter({ excluded }: { excluded: readonly string[] }) {
 
 /**
  * [3] Fleet load: the busiest servers by CPU, RAM or disk, as a NOW snapshot
- * (the backend keeps only the latest telemetry row per server, so there is no
- * trend to draw). Mock data until the backend has a read API.
+ * (a trend per server is drawn on its own page). Demo data until the screen is
+ * connected to the console API.
  */
 export function FleetLoadPanel({ className }: { className?: string }) {
   const api = useApi()

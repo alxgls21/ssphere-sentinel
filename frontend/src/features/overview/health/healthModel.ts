@@ -1,6 +1,6 @@
 import type { DomainBreakdown, SiteBreakdown, StatusCounts } from '@/api/types'
-import { nonZeroCounts } from '@/lib/blocks'
-import { countStatuses } from '@/lib/status'
+import { nonZeroCounts, type StatusCount } from '@/lib/blocks'
+import { countStatuses, displayStatus, type DisplayStatus } from '@/lib/status'
 
 /** Sites listed: the worst few. The rest are one link away in Customers & Sites. */
 export const SITE_ROWS = 3
@@ -71,4 +71,67 @@ export function rankedSites(sites: readonly SiteBreakdown[]): SiteBreakdown[] {
         siteLabel(a.site).localeCompare(siteLabel(b.site)),
     )
     .map(({ site }) => site)
+}
+
+/**
+ * A state's share of a domain total in whole percent. A state with members
+ * never reads 0% and one that is not the whole never reads 100%, so a lone
+ * failure in a large domain stays visible and a near-complete one stays short
+ * of "all".
+ */
+export function shareText(count: number, total: number): string {
+  if (total <= 0 || count <= 0) return '0%'
+  if (count >= total) return '100%'
+  const percent = Math.round((count / total) * 100)
+  if (percent < 1) return '<1%'
+  if (percent > 99) return '>99%'
+  return `${percent}%`
+}
+
+export interface DomainShare extends StatusCount {
+  /** Whole percent of the domain total, as text ("<1%", "81%"). */
+  share: string
+}
+
+/** Every state a domain row's bar draws, worst first, with its count and its share of the total. */
+export function domainShares(counts: StatusCounts): { total: number; rows: DomainShare[] } {
+  const present = nonZeroCounts(counts)
+  const total = present.reduce((sum, { count }) => sum + count, 0)
+  return {
+    total,
+    rows: present.map((entry) => ({ ...entry, share: shareText(entry.count, total) })),
+  }
+}
+
+/** The legend reads in this order: the shape alphabet, offline directly after the critical it is part of. */
+const LEGEND_ORDER: readonly DisplayStatus[] = [
+  'healthy',
+  'warning',
+  'critical',
+  'offline',
+  'unknown',
+  'idle',
+]
+
+/** Always explained: what every operator scans for, and the mark of a quiet fleet. */
+const ALWAYS_LEGENDED: readonly DisplayStatus[] = ['healthy', 'warning', 'critical']
+
+/**
+ * The states the legend explains: OK, WARN and CRIT, then every other state a
+ * mark in the panel is drawn in. The planned SNMP row draws no state marks and
+ * sites past the listed ones are not drawn, so neither adds to it.
+ */
+export function legendStates(
+  domains: readonly DomainBreakdown[],
+  sites: readonly SiteBreakdown[],
+): DisplayStatus[] {
+  const drawn = new Set<DisplayStatus>(ALWAYS_LEGENDED)
+  for (const domain of domains) {
+    if (domain.planned) continue
+    for (const { status } of nonZeroCounts(domain.counts)) drawn.add(status)
+  }
+  for (const site of sites) {
+    for (const entity of site.entities) drawn.add(displayStatus(entity.status, entity.offline))
+  }
+  return LEGEND_ORDER.filter((status) => drawn.has(status))
 }

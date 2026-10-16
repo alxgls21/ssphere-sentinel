@@ -1,5 +1,6 @@
 import { useSyncExternalStore } from 'react'
 import { useApi } from '@/api/context'
+import { useShowsDemoData } from '@/hooks/useProvenance'
 import { useHotkeyState, type HotkeyMode } from '@/app/hotkeys/mode'
 import { useLive, useLiveSnapshot } from '@/app/live'
 import { cn } from '@/lib/cn'
@@ -64,6 +65,7 @@ function spokenMode(mode: HotkeyMode, pending: string | null): string {
  */
 export function StatusBar() {
   const { source } = useApi()
+  const demo = useShowsDemoData()
   const scenario = useMockScenario()
   const apiMode = useApiMode()
   const { mode, pending } = useHotkeyState()
@@ -78,7 +80,9 @@ export function StatusBar() {
       ? 'Sample fleet, not your infrastructure · customers and sites from the console API'
       : source === 'mock'
         ? `MOCK · mock://fixtures v1 · MockApi (no backend read APIs) · scenario ${scenario}`
-        : `LIVE · ${window.location.origin}/api/v1`
+        : demo
+          ? 'Partly demo data: features not yet connected to the console API show sample figures'
+          : `LIVE · ${window.location.origin}/api/v1`
 
   return (
     <footer className="type-chart flex h-6 shrink-0 items-center gap-3 border-t border-border bg-panel pr-3 text-fg-faint">
@@ -92,7 +96,7 @@ export function StatusBar() {
         {mode === 'pending' ? `${pending}…` : MODE_WORD[mode]}
       </span>
       <output className="sr-only">{spokenMode(mode, pending)}</output>
-      {source === 'mock' ? (
+      {demo ? (
         // Always present, whatever height the screen has: the strip above the content yields on short screens.
         <strong className="type-kbd bg-hatch shrink-0 self-stretch border-x border-border-strong px-2 leading-6 text-fg">
           DEMO DATA

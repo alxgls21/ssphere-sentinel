@@ -1,9 +1,13 @@
 import { screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { EntityKind, HealthStatus, SiteEntity } from '@/api/types'
+import { registryOverrides } from '@/config/testing'
 import { createTestApi, renderApp } from '@/test/render'
 import { EntityCells } from './EntityCells'
+
+const overrides = registryOverrides()
+afterEach(overrides.restore)
 
 const entity = (id: string, status: HealthStatus, kind: EntityKind = 'server'): SiteEntity => ({
   id,
@@ -169,11 +173,20 @@ describe('EntityCells grid', () => {
     expect(cell('sw-core, device, UNKN, mock data')).toBeInTheDocument()
   })
 
-  it('does not claim mock data once the source is live', () => {
+  it('keeps claiming mock data over an HTTP adapter while the kind is not connected', () => {
+    renderApp(<EntityCells variant="grid" entities={entities} label="Live" />, {
+      api: createTestApi({ source: 'http' }),
+    })
+    expect(cell('edge-gw-02, server, CRIT, mock data')).toBeInTheDocument()
+  })
+
+  it('does not claim mock data for a kind that is connected and real', () => {
+    overrides.set('servers', { connected: true })
     renderApp(<EntityCells variant="grid" entities={entities} label="Live" />, {
       api: createTestApi({ source: 'http' }),
     })
     expect(cell('edge-gw-02, server, CRIT')).toBeInTheDocument()
+    expect(cell('acme-vpn:443, target, CRIT, mock data')).toBeInTheDocument()
   })
 
   it('lists servers worst first, then containers, targets and devices', () => {
@@ -328,5 +341,118 @@ describe('EntityCells grid', () => {
   it('renders nothing for no entities', () => {
     const { container } = renderGrid({ entities: [] })
     expect(container).toBeEmptyDOMElement()
+  })
+})
+
+describe('EntityCells with an offline server', () => {
+  /** A server whose agent stopped reporting: critical in `status`, flagged in `offline`. */
+  const offlineServer = (id: string): SiteEntity => ({ ...entity(id, 'critical'), offline: true })
+
+  const site = [
+    entity('ok-1', 'healthy'),
+    offlineServer('pir-fs-01'),
+    entity('api-02', 'warning'),
+    entity('edge-gw-02', 'critical'),
+    entity('pir-vpn', 'critical', 'target'),
+  ]
+
+  describe('strip', () => {
+    it('draws the offline server with its own glyph, directly after the critical ones', () => {
+      const { container } = renderApp(<EntityCells variant="strip" entities={site} />)
+      expect(glyphs(container).map((glyph) => glyph.getAttribute('data-status'))).toEqual([
+        'critical',
+        'critical',
+        'offline',
+        'warning',
+        'healthy',
+      ])
+    })
+
+    it('draws offline as a full 10px shape: only healthy is the quiet dot', () => {
+      const { container } = renderApp(<EntityCells variant="strip" entities={site} />)
+      const offline = container.querySelector('svg[data-status="offline"]')
+      expect(offline).toHaveClass('size-2.5')
+      expect(offline?.innerHTML).not.toBe(
+        container.querySelector('svg[data-status="critical"]')?.innerHTML,
+      )
+    })
+
+    it('stays decorative and does not reorder what it is given', () => {
+      const input = [...site]
+      const { container } = renderApp(<EntityCells variant="strip" entities={input} />)
+      expect(container.firstElementChild).toHaveAttribute('aria-hidden', 'true')
+      expect(input).toEqual(site)
+    })
+
+    it('collapses to a bar and counts that name offline apart, with critical still holding it', () => {
+      const entities = [
+        ...healthy(19),
+        offlineServer('pir-fs-01'),
+        entity('c', 'critical', 'target'),
+      ]
+      const { container } = renderApp(<EntityCells variant="strip" entities={entities} />)
+      expect(container.querySelector('[role="img"]')).toHaveAttribute(
+        'aria-label',
+        'Entities: 1 critical, 1 offline, 19 ok',
+      )
+      expect(
+        glyphs(container).map((glyph) => [
+          glyph.getAttribute('data-status'),
+          glyph.parentElement?.parentElement?.textContent,
+        ]),
+      ).toEqual([
+        ['critical', '1'],
+        ['offline', '1'],
+        ['healthy', '19'],
+      ])
+    })
+
+    it('draws the collapsed offline segment as two thin bars after the critical segment', () => {
+      const entities = [
+        ...healthy(19),
+        offlineServer('pir-fs-01'),
+        entity('c', 'critical', 'target'),
+      ]
+      const { container } = renderApp(<EntityCells variant="strip" entities={entities} />)
+      const parts = [...container.querySelectorAll('[role="img"] > [data-status]')]
+      expect(parts.map((part) => part.getAttribute('data-status'))).toEqual([
+        'critical',
+        'offline',
+        'healthy',
+      ])
+      expect(parts[1]?.children).toHaveLength(2)
+    })
+  })
+
+  describe('grid', () => {
+    const renderGrid = () =>
+      renderApp(<EntityCells variant="grid" entities={site} label="Piraeus" columns={4} />)
+
+    it('names the offline cell in full, and keeps the compact CRIT for the critical ones', () => {
+      renderGrid()
+      expect(
+        screen.getByRole('button', { name: 'pir-fs-01, server, offline, mock data' }),
+      ).toBeInTheDocument()
+      expect(
+        screen.getByRole('button', { name: 'edge-gw-02, server, CRIT, mock data' }),
+      ).toBeInTheDocument()
+      expect(
+        screen.getByRole('button', { name: 'pir-vpn, target, CRIT, mock data' }),
+      ).toBeInTheDocument()
+    })
+
+    it('draws the offline glyph in the cell and lists it after the critical servers', () => {
+      renderGrid()
+      const cells = screen.getAllByRole('button')
+      expect(cells.map((cell) => cell.dataset.key)).toEqual([
+        'server:edge-gw-02',
+        'server:pir-fs-01',
+        'server:api-02',
+        'server:ok-1',
+        'target:pir-vpn',
+      ])
+      expect(cells[1]?.querySelector('svg')).toHaveAttribute('data-status', 'offline')
+      expect(cells[0]?.querySelector('svg')).toHaveAttribute('data-status', 'critical')
+    })
   })
 })

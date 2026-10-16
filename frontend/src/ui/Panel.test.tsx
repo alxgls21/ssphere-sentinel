@@ -22,6 +22,35 @@ describe('Panel', () => {
     expect(screen.queryByText('Planned')).not.toBeInTheDocument()
   })
 
+  it('says NOT CONNECTED, with the reason as its footer, for SNMP: stored but not served to the console', () => {
+    renderApp(
+      <Panel title="SNMP devices" features="snmp">
+        x
+      </Panel>,
+    )
+    const region = screen.getByRole('region', { name: 'SNMP devices' })
+    expect(region).toHaveAttribute('data-planned', 'true')
+    expect(screen.getByText('Not connected')).toBeInTheDocument()
+    expect(screen.queryByText('Planned')).not.toBeInTheDocument()
+    expect(screen.queryByText('Needs setup')).not.toBeInTheDocument()
+    // Not "not implemented", and not "needs setup": the backend stores it, the console API does not serve it.
+    expect(region).toHaveTextContent('configuring SNMP does not make data appear in this console')
+    expect(region).not.toHaveTextContent('Not implemented in the backend yet')
+  })
+
+  it('shows no placeholder marker for a feature the backend supports but the screen does not read yet', () => {
+    renderApp(
+      <Panel title="Containers" features="docker">
+        x
+      </Panel>,
+    )
+    const region = screen.getByRole('region', { name: 'Containers' })
+    expect(region).not.toHaveAttribute('data-planned')
+    expect(screen.queryByText('Planned')).not.toBeInTheDocument()
+    expect(screen.queryByText('Not connected')).not.toBeInTheDocument()
+    expect(screen.getByText('mock', { exact: false })).toBeInTheDocument()
+  })
+
   it('marks a panel PLANNED only when every backing feature is unimplemented', () => {
     const { rerender } = renderApp(
       <Panel title="Active alerts" features="alerts" plannedNote="Alert engine not implemented.">

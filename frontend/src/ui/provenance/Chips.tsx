@@ -1,3 +1,9 @@
+import {
+  AVAILABILITY_WORD,
+  AVAILABILITY_WORD_SHORT,
+  type Availability,
+  type Provenance,
+} from '@/config/features'
 import { cn } from '@/lib/cn'
 import { StatusGlyph } from '@/ui/status'
 
@@ -41,34 +47,60 @@ export function PlannedChip({
   className,
   title = 'Not implemented in the backend yet. Sample data.',
 }: ChipProps) {
+  return <FeatureChip availability="planned" className={className} title={title} />
+}
+
+/**
+ * Where a feature stands when its figures are not real: PLANNED (the backend
+ * does not implement it), NOT CONNECTED (the backend may have it, but the console
+ * does not read it yet), NEEDS SETUP (connected, but its setup is confirmed
+ * missing), UNKNOWN. Same dashed outline and ring for all: the figures beside it
+ * are samples or absent.
+ */
+export function FeatureChip({
+  availability,
+  className,
+  title,
+  compact = false,
+}: ChipProps & {
+  availability: Exclude<Availability, 'live'>
+  /** The short word ("Demo", "Setup"), for a header with little room (a tile). The title carries the rest. */
+  compact?: boolean
+}) {
   return (
     <span
       title={title}
       className={cn(
-        'type-tag inline-flex h-5 items-center gap-1 rounded-sm border border-dashed border-border-strong px-1.5 text-fg-muted',
+        'type-tag inline-flex h-5 items-center gap-1 rounded-sm border border-dashed border-border-strong px-1.5 whitespace-nowrap text-fg-muted',
         className,
       )}
     >
       <StatusGlyph status="planned" size={10} />
-      Planned
+      {(compact ? AVAILABILITY_WORD_SHORT : AVAILABILITY_WORD)[availability]}
     </span>
   )
 }
 
-/** Quiet "mock · 15s" tag for panel headers: data source plus refresh interval. */
+const SOURCE_WORD: Record<Provenance, string> = {
+  live: 'live',
+  mock: 'mock',
+  unknown: 'unverified',
+}
+
+/** Quiet "mock · 15s" tag for panel headers: what the figures are (live, mock, unverified) plus the refresh interval. */
 export function SourceTag({
   source,
   refreshMs,
   className,
 }: {
-  source: 'mock' | 'http'
+  source: Provenance
   refreshMs?: number
   className?: string
 }) {
   const interval = refreshMs ? ` · ${Math.round(refreshMs / 1000)}s` : ''
   return (
     <span className={cn('type-tag whitespace-nowrap text-fg-faint', className)}>
-      {source === 'mock' ? 'mock' : 'live'}
+      {SOURCE_WORD[source]}
       {interval}
     </span>
   )

@@ -1,6 +1,7 @@
 import { act, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { OverviewSummary } from '@/api/types'
+import { registryOverrides } from '@/config/testing'
 import { makeSummary, renderShell } from './testing'
 import { useDocumentStatus } from './useDocumentStatus'
 
@@ -28,7 +29,10 @@ beforeEach(() => {
   document.documentElement.style.setProperty('--color-fg-muted', 'muted-token')
 })
 
+const overrides = registryOverrides()
+
 afterEach(() => {
+  overrides.restore()
   vi.useRealTimers()
   document.documentElement.removeAttribute('style')
   document.head.querySelectorAll('link[rel~="icon"]').forEach((link) => link.remove())
@@ -68,7 +72,13 @@ describe('useDocumentStatus: title and favicon', () => {
     await waitFor(() => expect(document.title).toBe('[MOCK] ◆ 4 CRIT - Servers - Sentinel'))
   })
 
-  it('drops the MOCK prefix and the hatched corner for a real API', async () => {
+  it('keeps the MOCK prefix over an HTTP adapter while features are not connected', async () => {
+    renderShell(<Host />, { summary: CRITICAL, api: { source: 'http' } })
+    await waitFor(() => expect(document.title).toBe('[MOCK] ◆ 4 CRIT - Overview - Sentinel'))
+  })
+
+  it('drops the MOCK prefix and the hatched corner only when every feature is connected and real', async () => {
+    overrides.connectAll()
     renderShell(<Host />, { summary: CRITICAL, api: { source: 'http' } })
     await waitFor(() => expect(document.title).toBe('◆ 4 CRIT - Overview - Sentinel'))
     expect(favicon()).not.toContain('muted-token')

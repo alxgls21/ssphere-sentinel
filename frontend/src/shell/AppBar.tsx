@@ -1,5 +1,5 @@
 import { Menu as MenuIcon, Search } from 'lucide-react'
-import { useApi } from '@/api/context'
+import { useShowsDemoData } from '@/hooks/useProvenance'
 import { useShell } from '@/app/shell'
 import { IconButton } from '@/ui/controls'
 import { FiltersMenu } from './topbar/FiltersMenu'
@@ -16,7 +16,7 @@ import { MockChip } from '@/ui/provenance/Chips'
  * chip is what keeps a screenshot honest.
  */
 export function AppBar() {
-  const { source } = useApi()
+  const demo = useShowsDemoData()
   const { setMobileNavOpen, openPalette } = useShell()
   const scope = useScopeState()
   return (
@@ -30,7 +30,7 @@ export function AppBar() {
       />
       <Wordmark />
       <div className="ml-auto flex items-center gap-2">
-        {source === 'mock' ? <MockChip compact /> : null}
+        {demo ? <MockChip compact /> : null}
         <FiltersMenu state={scope} iconOnly />
         <IconButton
           aria-label="Search or run a command"

@@ -2,6 +2,7 @@
 import { readFileSync, readdirSync, statSync } from 'node:fs'
 import { join, relative } from 'node:path'
 import { describe, expect, it } from 'vitest'
+import { colorMatrixValues } from '@/features/design-system/vision'
 
 const SRC = join(import.meta.dirname, '..')
 const css = readFileSync(join(import.meta.dirname, 'tokens.css'), 'utf8')
@@ -30,6 +31,22 @@ function contrast(a: string, b: string): number {
 }
 const ratio = (fg: string, bg: string) => contrast(hex(fg), hex(bg))
 
+const toLinear = (c: number) => (c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4)
+
+/** OKLab of a linear-light sRGB triple (Ottosson), the space color distances are measured in. */
+function oklabOfLinear([r, g, b]: [number, number, number]): [number, number, number] {
+  const l = Math.cbrt(0.4122214708 * r + 0.5363325363 * g + 0.0514459929 * b)
+  const m = Math.cbrt(0.2119034982 * r + 0.6806995451 * g + 0.1073969566 * b)
+  const s = Math.cbrt(0.0883024619 * r + 0.2817188376 * g + 0.6299787005 * b)
+  return [
+    0.2104542553 * l + 0.793617785 * m - 0.0040720468 * s,
+    1.9779984951 * l - 2.428592205 * m + 0.4505937099 * s,
+    0.0259040371 * l + 0.7827717662 * m - 0.808675766 * s,
+  ]
+}
+const oklab = (rgb: [number, number, number]) =>
+  oklabOfLinear(rgb.map((value) => toLinear(value / 255)) as [number, number, number])
+
 describe('palette', () => {
   it('keeps the mandated brand values exactly', () => {
     expect(hex('bg')).toBe('#080B0E')
@@ -52,7 +69,7 @@ describe('palette', () => {
     },
   )
 
-  it.each(['primary', 'healthy', 'warning', 'critical'])(
+  it.each(['primary', 'healthy', 'warning', 'critical', 'offline'])(
     '%s text reaches AA on every surface',
     (token) => {
       for (const surface of surfaces)
@@ -60,12 +77,15 @@ describe('palette', () => {
     },
   )
 
-  it.each(['healthy', 'warning', 'critical'])('%s text reaches AA on its own tint', (token) => {
-    expect(ratio(token, `${token}-tint`)).toBeGreaterThanOrEqual(4.5)
-    // ...and secondary text stays legible on that tint too.
-    expect(ratio('fg', `${token}-tint`)).toBeGreaterThanOrEqual(4.5)
-    expect(ratio('fg-faint', `${token}-tint`)).toBeGreaterThanOrEqual(4.5)
-  })
+  it.each(['healthy', 'warning', 'critical', 'offline'])(
+    '%s text reaches AA on its own tint',
+    (token) => {
+      expect(ratio(token, `${token}-tint`)).toBeGreaterThanOrEqual(4.5)
+      // ...and secondary text stays legible on that tint too.
+      expect(ratio('fg', `${token}-tint`)).toBeGreaterThanOrEqual(4.5)
+      expect(ratio('fg-faint', `${token}-tint`)).toBeGreaterThanOrEqual(4.5)
+    },
+  )
 
   it('keeps non-text marks at 3:1 against the panel (WCAG 1.4.11)', () => {
     const marks = [
@@ -73,6 +93,7 @@ describe('palette', () => {
       'healthy',
       'warning',
       'critical',
+      'offline',
       'border-control',
       'series-2',
       'series-3',
@@ -127,8 +148,98 @@ describe('palette', () => {
 
   it('never lets a status hue impersonate a chart series', () => {
     const series = ['primary', 'series-2', 'series-3', 'series-4', 'series-other'].map(hex)
-    for (const status of ['healthy', 'warning', 'critical'])
+    for (const status of ['healthy', 'warning', 'critical', 'offline'])
       expect(series).not.toContain(hex(status))
+  })
+})
+
+describe('offline', () => {
+  const channels = (name: string) =>
+    [1, 3, 5].map((i) => parseInt(hex(name).slice(i, i + 2), 16)) as [number, number, number]
+
+  it('derives its tint and line as 12% and 40% of the hue over the panel, like every status', () => {
+    const over = (name: string, share: number) =>
+      '#' +
+      channels(name)
+        .map((value, i) =>
+          Math.round(share * value + (1 - share) * channels('panel')[i]!)
+            .toString(16)
+            .padStart(2, '0'),
+        )
+        .join('')
+        .toUpperCase()
+    for (const status of ['healthy', 'warning', 'critical', 'offline']) {
+      expect(hex(`${status}-tint`), `${status}-tint`).toBe(over(status, 0.12))
+      expect(hex(`${status}-line`), `${status}-line`).toBe(over(status, 0.4))
+    }
+  })
+
+  it('is a restrained hue: less chroma than any status or primary, yet more than a neutral grey', () => {
+    const chroma = (name: string) => {
+      const [, a, b] = oklab(channels(name))
+      return Math.hypot(a, b)
+    }
+    for (const status of ['healthy', 'warning', 'critical', 'primary'])
+      expect(chroma('offline'), `offline vs ${status}`).toBeLessThan(chroma(status) * 0.75)
+    for (const grey of ['fg-muted', 'fg-faint'])
+      expect(chroma('offline')).toBeGreaterThan(chroma(grey) * 2)
+  })
+
+  // Marks are told apart by shape and word first; the color still has to be a different color for
+  // everyone, so it is held to the separation the other status hues already keep from one another.
+  describe('stays distinguishable from the other marks under simulated color vision', () => {
+    /** The gallery's own simulation matrices (the 3x3 inside each feColorMatrix), so the two cannot drift apart. */
+    const matrixOf = (kind: 'protanopia' | 'deuteranopia' | 'tritanopia'): readonly number[] => {
+      const values = colorMatrixValues(kind).split(' ').map(Number)
+      return [0, 1, 2].flatMap((row) => values.slice(row * 5, row * 5 + 3))
+    }
+    const vision = {
+      normal: null,
+      protanopia: matrixOf('protanopia'),
+      deuteranopia: matrixOf('deuteranopia'),
+      tritanopia: matrixOf('tritanopia'),
+    }
+    const separation = (a: string, b: string, kind: keyof typeof vision): number => {
+      const matrix = vision[kind]
+      const seen = (name: string) => {
+        const linear = channels(name).map((value) => toLinear(value / 255)) as [
+          number,
+          number,
+          number,
+        ]
+        if (!matrix) return linear
+        const clamp = (value: number) => Math.min(1, Math.max(0, value))
+        return [0, 1, 2].map((row) =>
+          clamp(
+            matrix[row * 3]! * linear[0] +
+              matrix[row * 3 + 1]! * linear[1] +
+              matrix[row * 3 + 2]! * linear[2],
+          ),
+        ) as [number, number, number]
+      }
+      const [l1, a1, b1] = oklabOfLinear(seen(a))
+      const [l2, a2, b2] = oklabOfLinear(seen(b))
+      return 100 * Math.hypot(l1 - l2, a1 - a2, b1 - b2)
+    }
+    const kinds = Object.keys(vision) as (keyof typeof vision)[]
+
+    it.each(['critical', 'warning', 'healthy', 'primary'])('from %s', (other) => {
+      for (const kind of kinds)
+        expect(separation('offline', other, kind), `${other}, ${kind}`).toBeGreaterThanOrEqual(10)
+    })
+
+    // A low-chroma hue sits nearest the neutral greys, so they get a floor of their own. Normal
+    // vision, protanopia and deuteranopia hold 6 (offline measures 6.9 to 7.7; the palette's weakest
+    // status-to-grey pairs sit near 7). Without short-wavelength cones a blue-violet collapses
+    // toward grey: it measures 4.6 there, so that floor is 4. A steel blue would clear 6 under all
+    // four, but only by sitting closer to fg-faint in normal vision (about 6.5), so the shape and
+    // the word carry the state.
+    it.each(['fg-muted', 'fg-faint'])('from the neutral grey %s', (grey) => {
+      for (const kind of kinds) {
+        const floor = kind === 'tritanopia' ? 4 : 6
+        expect(separation('offline', grey, kind), `${grey}, ${kind}`).toBeGreaterThanOrEqual(floor)
+      }
+    })
   })
 })
 
@@ -166,7 +277,7 @@ describe('token discipline', () => {
   it('uses status color utilities only inside ui/status, ui/meters and charts', () => {
     const allowed = ['ui/status/', 'ui/meters/', 'charts/', 'styles/']
     const status =
-      /\b(?:text|bg|border|fill|stroke|ring|outline|from|to|via|decoration)-(?:healthy|warning|critical)(?:-(?:tint|line))?\b/
+      /\b(?:text|bg|border|fill|stroke|ring|outline|from|to|via|decoration)-(?:healthy|warning|critical|offline)(?:-(?:tint|line))?\b/
     const offenders = files
       .filter(({ path, text }) => !allowed.some((dir) => path.startsWith(dir)) && status.test(text))
       .map(({ path }) => path)

@@ -23,11 +23,21 @@
 # applies the migrations as it starts. With SENTINEL_DB_ROLES=separate it applies
 # them with its own login, whose secrets live in the file SENTINEL_MIGRATE_ENV_FILE
 # names; web never reads that file (sentinel/database.py).
+#
+# With the separate logins no application container holds the bootstrap
+# superuser's password: .env no longer has it, and the file
+# SENTINEL_BOOTSTRAP_ENV_FILE names does, which Compose reads for the database
+# service only, to resolve POSTGRES_PASSWORD. Each service blanks the password
+# it must not get, should it be in .env by mistake, and every Sentinel process
+# refuses to start with a password not its own (docs/server-deployment.md).
 
 include:
   - path: deploy/postgres/postgres-${SENTINEL_POSTGRES:-16}.yml
     project_directory: .
-    env_file: .env
+    # The values the database file is resolved with: never an env_file of a service.
+    env_file:
+      - .env
+      - ${SENTINEL_BOOTSTRAP_ENV_FILE:-deploy/compose/no-bootstrap-secrets.env}
 
 x-logging: &default-logging
   driver: json-file
@@ -49,6 +59,8 @@ services:
       POSTGRES_HOST: db
       POSTGRES_PORT: 5432
       SENTINEL_DB_ACCESS: migrate
+      # The runtime login's password belongs to web only.
+      SENTINEL_DB_PASSWORD: ""
     depends_on:
       db:
         condition: service_healthy

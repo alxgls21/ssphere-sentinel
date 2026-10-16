@@ -8,6 +8,7 @@ import {
   matchesSearch,
   nextSort,
   parseQuery,
+  serverDisplay,
   sortServers,
   stateWord,
   writeQuery,
@@ -206,5 +207,44 @@ describe('what a row says', () => {
     expect(stateWord(item('a', { health: 'warning', cpu: 83 }))).toBe('HIGH CPU')
     expect(stateWord(item('a', { health: 'critical', cpu: 83, mem: 97 }))).toBe('HIGH MEM')
     expect(stateWord(item('a', { health: 'warning', disk: 91 }))).toBe('DISK')
+  })
+})
+
+describe('an offline server', () => {
+  // Named to sort ahead of the other critical server, so a tie-break against it would show.
+  const offline = item('a-off', { status: 'offline', health: 'critical' })
+
+  it('is shown as offline, and every other server as its health', () => {
+    expect(serverDisplay(offline)).toBe('offline')
+    expect(serverDisplay(item('a', { health: 'critical', cpu: 99 }))).toBe('critical')
+    expect(serverDisplay(item('a', { health: 'warning', status: 'warning' }))).toBe('warning')
+    expect(serverDisplay(item('a', { health: 'unknown', status: 'unknown' }))).toBe('unknown')
+    expect(serverDisplay(item('a'))).toBe('healthy')
+  })
+
+  it('is critical for the status filter, the count and the sort', () => {
+    const rows = [
+      item('b-warn', { health: 'warning', status: 'warning' }),
+      item('b-cpu', { health: 'critical', disk: 99 }),
+      offline,
+      item('c-ok'),
+    ]
+    expect(
+      filterServers(rows, { q: '', status: 'critical' }).map((row) => row.server.name),
+    ).toEqual(['b-cpu', 'a-off'])
+    expect(filterServers(rows, { q: '', status: 'warning' }).map((row) => row.server.name)).toEqual(
+      ['b-warn'],
+    )
+    expect(countByHealth(rows)).toEqual({
+      healthy: 1,
+      warning: 1,
+      critical: 2,
+      unknown: 0,
+      idle: 0,
+    })
+    // Worst first by health: the offline server sorts with the critical ones, by name among them.
+    expect(
+      sortServers(rows, { sort: 'status', dir: 'desc' }).map((row) => row.server.name),
+    ).toEqual(['a-off', 'b-cpu', 'b-warn', 'c-ok'])
   })
 })

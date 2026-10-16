@@ -2,12 +2,13 @@ import { useState, type ReactNode } from 'react'
 import { Link } from 'react-router'
 import type { FeatureId } from '@/config/features'
 import { useDelayedFlag } from '@/hooks/useDelayedFlag'
+import { PROVENANCE_SPOKEN } from '@/config/features'
 import { useProvenance } from '@/hooks/useProvenance'
 import type { ResourceStatus } from '@/hooks/useResource'
 import { cn } from '@/lib/cn'
 import { formatInteger } from '@/lib/format'
 import { Button } from '@/ui/controls'
-import { PlannedChip, SourceTag } from '@/ui/provenance/Chips'
+import { FeatureChip, PlannedChip, SourceTag } from '@/ui/provenance/Chips'
 import { Skeleton } from '@/ui/states'
 import { StatusTag } from '@/ui/status'
 import { useViewTo } from '@/app/viewSearch'
@@ -90,7 +91,7 @@ export function StatTile({
   className,
 }: StatTileProps) {
   const viewTo = useViewTo()
-  const { source, planned } = useProvenance(features)
+  const { provenance, planned, availability, note } = useProvenance(features)
   const loading = status === 'loading'
   const showSkeleton = useDelayedFlag(loading)
   const flashes = useFlashes(content?.value ?? null)
@@ -106,13 +107,23 @@ export function StatTile({
       <span className="type-label truncate text-fg-muted">{label}</span>
       {planned ? (
         <>
-          <span className="sr-only">Planned, not implemented</span>
+          <span className="sr-only">
+            {availability === 'planned'
+              ? 'Planned, not implemented'
+              : availability === 'needs-configuration'
+                ? 'Connected, but its setup is missing'
+                : 'Not connected to the console yet'}
+          </span>
           <span aria-hidden="true">
-            <PlannedChip />
+            {availability === 'planned' ? (
+              <PlannedChip />
+            ) : (
+              <FeatureChip availability={availability ?? 'unknown'} title={note} compact />
+            )}
           </span>
         </>
       ) : (
-        <SourceTag source={source} />
+        <SourceTag source={provenance} />
       )}
     </div>
   )
@@ -194,7 +205,7 @@ export function StatTile({
 
   const spoken = [
     `${label}: ${content ? content.summary : 'loading'}`,
-    source === 'mock' ? 'mock data' : null,
+    PROVENANCE_SPOKEN[provenance],
     stale ? 'stale' : null,
   ]
     .filter(Boolean)

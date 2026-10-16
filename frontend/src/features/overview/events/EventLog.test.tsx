@@ -1,6 +1,6 @@
 import { act, fireEvent, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { formatTime } from '@/lib/format'
 import { renderApp } from '@/test/render'
 import { EventLog } from './EventLog'
@@ -24,6 +24,32 @@ describe('EventLog', () => {
     renderApp(<EventLog view="1h" events={TAIL} />)
     expect(log()).toHaveAttribute('aria-live', 'off')
     expect(within(log()).getByRole('list')).toBeInTheDocument()
+  })
+
+  it('lists an event that arrives twice once, with no duplicate key', () => {
+    const errors = vi.spyOn(console, 'error').mockImplementation(() => {})
+    renderApp(<EventLog view="1h" events={[...TAIL, ...TAIL]} />)
+    expect(lines()).toHaveLength(TAIL.length)
+    expect(subjects()).toEqual(NEWEST_FIRST)
+    expect(errors).not.toHaveBeenCalled()
+    errors.mockRestore()
+  })
+
+  it('says it is the text equivalent of the timeline', () => {
+    renderApp(<EventLog view="1h" events={TAIL} />)
+    expect(log()).toHaveAccessibleName('Recent events')
+    expect(log()).toHaveAccessibleDescription(
+      /^The text equivalent of the Timeline view: every event/,
+    )
+  })
+
+  it('claims every event of the range only while the events are not cut short', () => {
+    const { rerender } = renderApp(<EventLog view="1h" events={TAIL} />)
+    expect(log()).toHaveAccessibleDescription(/: every event of the range, newest first/)
+    rerender(<EventLog view="1h" events={TAIL} truncated />)
+    expect(log()).toHaveAccessibleDescription(
+      /: the newest events of the range, newest first, with a recovery under the failure it closes\.$/,
+    )
   })
 
   it('lists events newest first, a group placed by its newest line', () => {
@@ -165,6 +191,28 @@ describe('EventLog', () => {
       expect(screen.getByRole('button', { name: 'before' })).toHaveFocus()
       await user.tab()
       expect(lines()[3]).toHaveFocus()
+    })
+  })
+
+  describe('with fewer lines than before', () => {
+    it('keeps one tab stop when the lines shrink under the remembered one', async () => {
+      const user = userEvent.setup()
+      const ui = (events: typeof TAIL) => (
+        <>
+          <EventLog view="1h" events={events} />
+          <button type="button">after</button>
+        </>
+      )
+      const { rerender } = renderApp(ui(TAIL))
+      await user.tab()
+      await user.keyboard('{End}')
+      // The lines are held while one has focus, so they shrink once focus has left.
+      rerender(ui(TAIL.slice(0, 2)))
+      await user.tab()
+      expect(screen.getByRole('button', { name: 'after' })).toHaveFocus()
+      const rows = lines()
+      expect(rows).toHaveLength(2)
+      expect(rows.filter((row) => row.getAttribute('tabindex') === '0')).toEqual([rows[1]])
     })
   })
 

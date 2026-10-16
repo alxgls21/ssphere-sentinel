@@ -13,6 +13,7 @@ import { PaletteSection } from './sections/PaletteSection'
 import { PanelStatesSection } from './sections/PanelStatesSection'
 import { ProvenanceSection } from './sections/ProvenanceSection'
 import { StatusSection } from './sections/StatusSection'
+import { TimelineSection } from './sections/TimelineSection'
 import { TypographySection } from './sections/TypographySection'
 import { visionFilter, type Simulation } from './vision'
 
@@ -86,6 +87,13 @@ const SECTIONS: readonly SectionDef[] = [
     Body: ChartsSection,
   },
   {
+    id: 'timeline',
+    title: 'Timeline',
+    intro:
+      'The incidents among the events of a range, one lane each on a shared time axis: what failed, what recovered, and what is still open.',
+    Body: TimelineSection,
+  },
+  {
     id: 'motion',
     title: 'Motion',
     intro: 'Motion only explains change. Replay each animation the console uses.',
@@ -110,9 +118,9 @@ export default function DesignSystemPage() {
           <h1 className="type-title">Design system</h1>
           <p className="type-body max-w-prose text-fg-muted">
             Every shared component in every state. This route exists only in development, and every
-            value on it is sample data: the backend has no read API yet. The color-vision control
-            applies Machado 2009 filters (severity 1.0) or a luminance grayscale to everything below
-            it; menus and tooltips open outside that area and are not simulated.
+            value on it is sample data. The color-vision control applies Machado 2009 filters
+            (severity 1.0) or a luminance grayscale to everything below it; menus and tooltips open
+            outside that area and are not simulated.
           </p>
           <nav aria-label="Sections">
             <ol className="type-data flex flex-wrap gap-x-4">

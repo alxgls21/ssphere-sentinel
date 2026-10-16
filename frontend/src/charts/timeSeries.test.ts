@@ -1,8 +1,10 @@
 import { describe, expect, it, vi } from 'vitest'
 import type { ChartInstance } from './echarts'
+import { CHART_COLOR_TOKENS, type ChartColors } from './theme'
 import {
   growingGridHeight,
   niceAxis,
+  referenceLine,
   sharedCrosshair,
   timeAxis,
   timeCursorX,
@@ -141,5 +143,62 @@ describe('timeCursorX', () => {
   it('answers null while the chart cannot convert the time', () => {
     expect(timeCursorX(chart([]), T0)).toBeNull()
     expect(timeCursorX(chart(Number.NaN), T0)).toBeNull()
+  })
+})
+
+describe('referenceLine', () => {
+  const colors = Object.fromEntries(
+    Object.keys(CHART_COLOR_TOKENS).map((name) => [name, `token:${name}`]),
+  ) as ChartColors
+  const line = (scale = 1) =>
+    referenceLine({
+      id: 'latency',
+      gridIndex: 1,
+      value: 150,
+      label: 'warn 150 ms (UI default)',
+      position: 'insideEndBottom',
+      tokens: { colors, fontFamily: 'mono', scale },
+    })
+
+  it('is a series of its own with no data, on the grid it belongs to', () => {
+    expect(line()).toMatchObject({
+      id: 'reference:latency',
+      type: 'line',
+      xAxisIndex: 1,
+      yAxisIndex: 1,
+      data: [],
+      silent: true,
+    })
+  })
+
+  it('draws one solid 1px warning line at the value, dashed being reserved for planned', () => {
+    expect(line().markLine).toMatchObject({
+      symbol: 'none',
+      lineStyle: { color: 'token:warning', width: 1, type: 'solid', opacity: 0.6 },
+      data: [{ yAxis: 150 }],
+    })
+  })
+
+  it('labels the line in 11px fg-faint at full contrast, where it was told to', () => {
+    expect(line().markLine).toMatchObject({
+      label: {
+        show: true,
+        position: 'insideEndBottom',
+        formatter: 'warn 150 ms (UI default)',
+        color: 'token:fgFaint',
+        opacity: 1,
+        fontSize: 11,
+      },
+    })
+  })
+
+  it('edges the label in the panel color so a line behind it never cuts the text', () => {
+    expect(line().markLine).toMatchObject({
+      label: { textBorderColor: 'token:panel', textBorderWidth: 3 },
+    })
+  })
+
+  it('scales its type and edge with the root font size', () => {
+    expect(line(1.5).markLine).toMatchObject({ label: { fontSize: 16.5, textBorderWidth: 4.5 } })
   })
 })

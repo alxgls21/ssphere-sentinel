@@ -96,6 +96,16 @@ export function formatTime(ms: number, tz: Timezone, seconds = true): string {
   return seconds ? `${pad(h)}:${pad(m)}:${pad(s)}` : `${pad(h)}:${pad(m)}`
 }
 
+/** formatTime with the Z that marks UTC, as the console writes every clock time. */
+export function formatClock(ms: number, tz: Timezone, seconds = true): string {
+  return `${formatTime(ms, tz, seconds)}${tz === 'utc' ? 'Z' : ''}`
+}
+
+/** "1 minute", "28 minutes": a count with its noun, plural unless the count is 1. */
+export function formatQuantity(value: number, noun: string): string {
+  return `${value} ${noun}${value === 1 ? '' : 's'}`
+}
+
 export function timezoneLabel(tz: Timezone): string {
   return tz === 'utc' ? 'UTC' : 'local'
 }

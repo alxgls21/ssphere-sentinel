@@ -63,16 +63,22 @@ describe('Sidebar: items', () => {
     }
   })
 
-  it('marks SNMP, Topology and Alerts PLAN instead of showing any count', async () => {
+  it('marks only the screens the backend does not implement (Topology, Alerts) PLAN, instead of showing any count', async () => {
     await setup()
-    for (const name of ['SNMP', 'Topology', 'Alerts']) {
+    for (const name of ['Topology', 'Alerts']) {
       const link = screen.getByRole('link', {
         name: `${name}, planned, not implemented in backend`,
       })
       expect(link).toHaveTextContent('PLAN')
       expect(link.textContent).not.toMatch(/\d/)
     }
-    expect(screen.getAllByText('PLAN')).toHaveLength(3)
+    expect(screen.getAllByText('PLAN')).toHaveLength(2)
+  })
+
+  it('does not call SNMP planned: the backend supports it, the console just has no screen for it yet', async () => {
+    await setup()
+    expect(screen.getByRole('link', { name: 'SNMP' })).not.toHaveTextContent('PLAN')
+    expect(screen.queryByRole('link', { name: /SNMP, planned/ })).toBeNull()
   })
 
   it('shows no badge while the summary has not loaded', () => {
@@ -233,7 +239,7 @@ describe('Sidebar: expanded and rail', () => {
     await setup({}, 'rail')
     expect(screen.getByRole('link', { name: 'Servers, 1 critical' })).toBeInTheDocument()
     expect(
-      screen.getByRole('link', { name: 'SNMP, planned, not implemented in backend' }),
+      screen.getByRole('link', { name: 'Topology, planned, not implemented in backend' }),
     ).toBeInTheDocument()
     expect(screen.getByText('Servers')).toHaveClass('sr-only')
   })
@@ -242,8 +248,10 @@ describe('Sidebar: expanded and rail', () => {
     await setup({}, 'rail')
     const servers = screen.getByRole('link', { name: 'Servers, 1 critical' })
     expect(servers.querySelector('[data-status="critical"]')).not.toBeNull()
-    const snmp = screen.getByRole('link', { name: 'SNMP, planned, not implemented in backend' })
-    expect(snmp.querySelector('[data-status="planned"]')).not.toBeNull()
+    const topology = screen.getByRole('link', {
+      name: 'Topology, planned, not implemented in backend',
+    })
+    expect(topology.querySelector('[data-status="planned"]')).not.toBeNull()
     expect(screen.queryByText('PLAN')).not.toBeInTheDocument()
   })
 

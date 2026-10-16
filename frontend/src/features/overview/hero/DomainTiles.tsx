@@ -6,7 +6,13 @@ import { SegmentedBar, Sparkline } from '@/ui/meters'
 import { CountList } from './CountList'
 import { useSummaryState } from './fleetStatus'
 import { StatTile, type TileContent } from './StatTile'
-import { PROBLEM_STATUSES, describeDomain, navPath, type DomainFigures } from './tileText'
+import {
+  PROBLEM_STATUSES,
+  describeDomain,
+  listedCounts,
+  navPath,
+  type DomainFigures,
+} from './tileText'
 
 interface TileProps {
   /** Grid placement from the strip. */
@@ -25,12 +31,13 @@ interface DomainTileConfig {
 }
 
 /**
- * A listed count line: problems only ("2 WARN 1 CRIT"), or the OK count when
- * there are none. Three statuses would not fit a 171px tile with their words,
- * so then the shape and number stay and the link's name carries the words.
+ * A listed count line: problems only ("1 CRIT 2 WARN"), or the OK count when
+ * there are none. Offline servers count as a problem of their own, so a line
+ * can hold one more mark. Three marks would not fit a 171px tile with their
+ * words, so then the shape and number stay and the link's name carries the words.
  */
 function DomainCounts({ counts }: { counts: StatusCounts }) {
-  const problems = PROBLEM_STATUSES.filter((status) => counts[status] > 0)
+  const problems = listedCounts(counts, PROBLEM_STATUSES)
   return (
     <CountList
       counts={counts}

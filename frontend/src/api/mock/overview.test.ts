@@ -20,7 +20,9 @@ const apiFor = (scenario: MockScenario = 'normal'): SentinelApi =>
 
 const site = (siteId: string): Scope => ({ customerId: null, siteId })
 const customer = (customerId: string): Scope => ({ customerId, siteId: null })
-const sum = (counts: StatusCounts) => Object.values(counts).reduce((a, b) => a + b, 0)
+/** The total of the health statuses: offline is already inside critical, so it is not added again. */
+const sum = ({ offline: _offline, ...health }: StatusCounts) =>
+  Object.values(health).reduce((a, b) => a + b, 0)
 const count = (items: { severity: string }[], severity: string) =>
   items.filter((item) => item.severity === severity).length
 
@@ -145,6 +147,7 @@ describe('consistency across panels', () => {
       critical: 1,
       unknown: 1,
       idle: 0,
+      offline: 1,
     })
     expect(summary.containers.running).toBeLessThan(summary.containers.total)
     expect(summary.targets.up).toBeLessThan(summary.targets.total)
@@ -538,5 +541,90 @@ describe('entity index details', () => {
       status: 'critical',
     })
     expect(find('cus-internal')?.status).toBe('unknown')
+  })
+})
+
+describe('offline flags', () => {
+  const NORMAL = apiFor()
+
+  it('marks only the servers whose agent stopped reporting', async () => {
+    const [{ items: servers }, { items: attention }, { items: index }, { sites }] =
+      await Promise.all([
+        NORMAL.listServers(),
+        NORMAL.listAttention({ includeIdle: true }),
+        NORMAL.getEntityIndex(),
+        NORMAL.getHealthBreakdown(),
+      ])
+    const stopped = servers
+      .filter((item) => item.server.status === 'offline')
+      .map((item) => item.server.id)
+    expect(stopped).toEqual(['srv-pir-fs-01'])
+
+    const flagged = <T extends { id: string; offline?: boolean }>(rows: T[]) =>
+      rows.filter((row) => row.offline).map((row) => row.id)
+    expect(flagged(attention)).toEqual(stopped)
+    expect(flagged(index)).toEqual(stopped)
+    expect(flagged(sites.flatMap((entry) => entry.entities))).toEqual(stopped)
+    // Nothing that is not a server is ever flagged: not a container, target, device, site or customer.
+    expect(attention.filter((item) => item.offline).every((item) => item.kind === 'server')).toBe(
+      true,
+    )
+    expect(index.filter((item) => item.offline).every((item) => item.kind === 'server')).toBe(true)
+  })
+
+  it('leaves a flagged server critical everywhere that decides', async () => {
+    const { items: attention } = await NORMAL.listAttention({ includeIdle: true })
+    expect(attention.find((item) => item.id === 'srv-pir-fs-01')).toMatchObject({
+      severity: 'critical',
+      offline: true,
+    })
+    const { items: index } = await NORMAL.getEntityIndex()
+    expect(index.find((item) => item.id === 'srv-pir-fs-01')).toMatchObject({
+      status: 'critical',
+      offline: true,
+    })
+    const { items: list } = await NORMAL.listServers()
+    expect(list.find((item) => item.server.id === 'srv-pir-fs-01')?.health).toBe('critical')
+  })
+
+  it('notes the offline members in the server counts only, inside critical', async () => {
+    const summary = await NORMAL.getOverviewSummary()
+    expect(summary.servers.counts.offline).toBe(1)
+    expect(summary.servers.counts.critical).toBeGreaterThanOrEqual(1)
+    expect(summary.containers.counts).not.toHaveProperty('offline')
+    expect(summary.targets.counts).not.toHaveProperty('offline')
+
+    const { domains } = await NORMAL.getHealthBreakdown()
+    const byDomain = Object.fromEntries(domains.map((entry) => [entry.domain, entry.counts]))
+    expect(byDomain.servers?.offline).toBe(1)
+    expect(byDomain.containers).not.toHaveProperty('offline')
+    expect(byDomain.targets).not.toHaveProperty('offline')
+    expect(byDomain.snmp).not.toHaveProperty('offline')
+  })
+
+  it('sets nothing where no server is offline', async () => {
+    const healthy = apiFor('healthy')
+    const { servers } = await healthy.getOverviewSummary()
+    expect(servers.counts).not.toHaveProperty('offline')
+    const { items } = await healthy.listAttention({ includeIdle: true })
+    expect(items.every((item) => !('offline' in item))).toBe(true)
+    const { sites } = await healthy.getHealthBreakdown()
+    expect(sites.flatMap((entry) => entry.entities).every((entity) => !('offline' in entity))).toBe(
+      true,
+    )
+  })
+
+  it('follows the scope: another site has no offline server to note', async () => {
+    const scope = site('site-fra-dc')
+    const summary = await NORMAL.getOverviewSummary({ scope })
+    expect(summary.servers.counts).not.toHaveProperty('offline')
+    const { items } = await NORMAL.listAttention({ scope, includeIdle: true })
+    expect(items.some((item) => item.offline)).toBe(false)
+  })
+
+  it('keeps the totals: offline never changes the health counts', async () => {
+    const summary = await NORMAL.getOverviewSummary()
+    expect(sum(summary.servers.counts)).toBe(summary.servers.total)
+    expect(summary.servers.counts.offline ?? 0).toBeLessThanOrEqual(summary.servers.counts.critical)
   })
 })
