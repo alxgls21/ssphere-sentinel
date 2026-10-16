@@ -525,11 +525,19 @@ class ActivationTests(SimpleTestCase):
         self.assertEqual(json.loads((work / recovery.STATE).read_text())["state"], "verified")
 
     def test_a_start_that_did_not_complete_is_only_started_again(self):
-        # The application may be running and have written: nothing about the destination is asked, nothing is rejected.
+        # The application may be running and have written: nothing about the destination is asked, nothing is rejected;
+        # the database is admitted (it may be refused again, if it was not) before the stack is started.
         work = self.work("activating")
-        started = []
-        recovery.activate(FakeEndpoint(), FakeEndpoint(), work, lambda: started.append("up"), log=lambda message: None)
-        self.assertEqual((started, json.loads((work / recovery.STATE).read_text())["state"]), (["up"], "activated"))
+        statements, started = [], []
+
+        class Owner(FakeEndpoint):
+            def psql(self, script):
+                statements.append(script)
+                return ""
+
+        recovery.activate(FakeEndpoint(), Owner(), work, lambda: started.append(len(statements)), log=lambda message: None)
+        self.assertEqual((started, json.loads((work / recovery.STATE).read_text())["state"]), ([1], "activated"))
+        self.assertIn("'sentinel-recovery: admitted'", statements[0])
 
     def test_a_work_directory_that_is_not_one_is_rejected(self):
         with self.assertRaises(recovery.Rejected):
