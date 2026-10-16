@@ -369,12 +369,14 @@ jobs:
         if: always()
         run: docker compose down --volumes
 
-  # Docker Compose releases operators run: 2.20 (the first with include, which
-  # the database selection needs), 2.23 (the last before Compose reads env files
-  # with compose-go v2) and the current one. With each, the configuration of an
-  # existing, a new and a separate-roles installation resolves, and an
-  # installation of the previous release is updated with its unchanged .env,
-  # restarted and rolled back. (The separate database logins run on the same
+  # Docker Compose releases operators run: 2.24.6, the oldest supported (the
+  # README and docs/server-deployment.md say 2.24; it is what Ubuntu 24.04
+  # packages), and the current one. Earlier releases are not
+  # supported: 2.20 does not read the env files of an include, which the
+  # separate logins' bootstrap password goes through. With each, the
+  # configuration of an existing, a new and a separate-roles installation
+  # resolves, and an installation of the previous release is updated with its
+  # unchanged .env, restarted and rolled back. (The separate database logins run on the same
   # releases in the job below.)
   compose-compatibility:
     name: Docker Compose ${{ matrix.compose }}
@@ -384,7 +386,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        compose: ["2.20.0", "2.23.3", "5.6.0"]
+        compose: ["2.24.6", "5.6.0"]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -421,7 +423,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        compose: ["2.20.0", "2.23.3", "5.6.0"]
+        compose: ["2.24.6", "5.6.0"]
         postgres: ["16", "18"]
     env:
       COMPOSE_PROJECT_NAME: sentinel-roles-e2e
