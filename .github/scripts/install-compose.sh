@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Installs Docker Compose <version> (for example 2.20.0) as the docker CLI plugin
+# Installs Docker Compose <version> (for example 2.24.6) as the docker CLI plugin
 # of the current user, checked against the checksum its release publishes, and
 # lets the daemon accept the older API version of releases before Compose 2.24.
 set -euo pipefail

@@ -90,7 +90,7 @@ class ComposeCompatibilityJobTests(unittest.TestCase):
         self.runs = [step.get("run", "").strip() for step in self.job["steps"]]
 
     def test_every_compose_release_runs_the_checks_in_order(self):
-        self.assertEqual(self.job["strategy"]["matrix"]["compose"], ["2.20.0", "2.23.3", "5.6.0"])
+        self.assertEqual(self.job["strategy"]["matrix"]["compose"], ["2.24.6", "5.6.0"])
         order = [
             '.github/scripts/install-compose.sh "${{ matrix.compose }}"',
             ".github/scripts/compose-config-check.sh",
