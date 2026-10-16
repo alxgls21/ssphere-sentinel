@@ -511,11 +511,13 @@ class DumpTests(RecoveryTestCase):
 
     def test_a_dump_cut_short_is_rejected_by_whichever_check_finds_it_and_leaves_nothing(self):
         size = (self.bundle / recovery.DUMP).stat().st_size
-        self.forge(self.bundle, truncate=size - 300)  # its SHA-256 is made to agree: only its content can tell
-        error, work = self.assertRejected(self.target, self.bundle, ("dump.toc", "restore.data"))
+        # Its SHA-256 is made to agree: only its content can tell. Half of it: the last bytes of an archive may be
+        # nothing but the ends of tables without rows, and a dump that lacks only those is complete.
+        self.forge(self.bundle, truncate=size // 2)
+        error, work = self.assertRejected(self.target, self.bundle, ("dump.toc", "restore.data", "verify.data"))
         if error.check == "restore.data":
             self.assertEqual(self.rows(self.target), {})
-        else:
+        elif error.check == "dump.toc":
             self.assertEqual(self.destination_state(self.target), self.untouched)
         self.assertNotActivated(self.target, work)
         self.assertOldUntouched(self.before)
