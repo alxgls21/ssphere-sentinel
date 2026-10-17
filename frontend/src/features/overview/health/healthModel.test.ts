@@ -1,11 +1,12 @@
 import { describe, expect, it } from 'vitest'
-import type { DomainBreakdown, HealthStatus, SiteBreakdown } from '@/api/types'
+import type { DomainBreakdown, HealthStatus, InterfaceFigures, SiteBreakdown } from '@/api/types'
 import { emptyCounts } from '@/lib/status'
 import {
   MAX_STRIP_CAPACITY,
   capacityFor,
   domainShares,
   isHealthEmpty,
+  interfaceSummary,
   isUncounted,
   legendStates,
   rankedSites,
@@ -33,12 +34,10 @@ const site = (
 const domain = (
   id: DomainBreakdown['domain'],
   counts: Partial<Record<HealthStatus, number>>,
-  planned = false,
 ): DomainBreakdown => ({
   domain: id,
   label: id.toUpperCase(),
   counts: { ...emptyCounts(), ...counts },
-  planned,
 })
 
 describe('rankedSites', () => {
@@ -121,12 +120,12 @@ describe('site helpers', () => {
 })
 
 describe('isHealthEmpty', () => {
-  it('is true when no real domain counts anything', () => {
+  it('is true when no domain counts anything', () => {
     expect(isHealthEmpty([domain('servers', {}), domain('containers', {})])).toBe(true)
   })
 
-  it('ignores the planned SNMP row, which only holds inventory', () => {
-    expect(isHealthEmpty([domain('servers', {}), domain('snmp', { unknown: 12 }, true)])).toBe(true)
+  it('is false when only SNMP devices are counted', () => {
+    expect(isHealthEmpty([domain('servers', {}), domain('snmp', { unknown: 12 })])).toBe(false)
   })
 
   it('is false as soon as anything is counted, idle included', () => {
@@ -273,11 +272,53 @@ describe('legendStates', () => {
     expect(legendStates([], [placed(entity('unknown'))])).toContain('unknown')
   })
 
-  it('ignores the planned row: it draws no state marks', () => {
-    expect(legendStates([domain('snmp', { unknown: 12, idle: 2 }, true)], [])).toEqual([
+  it('explains the states the SNMP row draws, like any counted row', () => {
+    expect(legendStates([domain('snmp', { unknown: 12, idle: 2 })], [])).toEqual([
       'healthy',
       'warning',
       'critical',
+      'unknown',
+      'idle',
     ])
+  })
+})
+
+describe('interfaceSummary', () => {
+  const figures = (over: Partial<InterfaceFigures> = {}): InterfaceFigures => ({
+    total: 100,
+    counts: { ...emptyCounts(), healthy: 90, warning: 4, idle: 2, unknown: 4 },
+    devices: 12,
+    of: 12,
+    complete: true,
+    ...over,
+  })
+
+  it('names the whole scope when every device is among the rows, with no caveat', () => {
+    const summary = interfaceSummary(figures())
+    expect(summary.heading).toBe('100 interfaces on 12 devices')
+    expect(summary.caveat).toBeNull()
+  })
+
+  it('says it is partial, and not a total, when the rows are only some of the devices', () => {
+    const summary = interfaceSummary(figures({ devices: 200, of: 340, complete: false }))
+    expect(summary.heading).toBe('100 interfaces on the first 200 devices of 340')
+    expect(summary.caveat).toMatch(/Partial: .* not a total for the scope/)
+  })
+
+  it('counts one device in the singular', () => {
+    expect(interfaceSummary(figures({ devices: 1, of: 1 })).heading).toBe(
+      '100 interfaces on 1 device',
+    )
+  })
+
+  it('words each state by the interface’s own health, problems first, and skips an empty state', () => {
+    expect(interfaceSummary(figures()).rows).toEqual([
+      { status: 'warning', word: 'DOWN', count: 4 },
+      { status: 'unknown', word: 'UNKNOWN', count: 4 },
+      { status: 'idle', word: 'ADMIN DOWN', count: 2 },
+      { status: 'healthy', word: 'UP', count: 90 },
+    ])
+    const quiet = interfaceSummary(figures({ counts: { ...emptyCounts(), healthy: 100 } }))
+    expect(quiet.rows).toEqual([{ status: 'healthy', word: 'UP', count: 100 }])
   })
 })

@@ -3,6 +3,7 @@ import type { DeviceReason, InterfaceReason } from '@/api/types'
 import { iface, item, iso, noRates, NOW, rates } from '@/features/snmp/testing'
 import {
   DEVICE_TYPE_LABEL,
+  deviceDetail,
   deviceReasonSentence,
   deviceReasonWord,
   interfaceCountsSpoken,
@@ -247,5 +248,30 @@ describe('rates', () => {
 
   it('dates nothing by itself: the sample time is the API’s', () => {
     expect(iso(0)).toBe(new Date(NOW).toISOString())
+  })
+})
+
+describe('the queue line of a device', () => {
+  const at = (reason: DeviceReason, over: Parameters<typeof item>[0] = {}) =>
+    deviceDetail(item({ reason, ...over }), NOW)
+
+  it('names what the device is and the API’s reason, in a few words, for each reason', () => {
+    expect(at('disabled')).toBe('Switch 10.20.0.250 · monitoring switched off')
+    expect(at('no_agent', { agent: 'none' })).toBe('Switch 10.20.0.250 · no agent assigned')
+    expect(at('agent_offline')).toBe('Switch 10.20.0.250 · agent not reporting')
+    expect(at('no_poll')).toBe('Switch 10.20.0.250 · never polled')
+    expect(at('ok')).toBe('Switch 10.20.0.250 · reached')
+  })
+
+  it('words an unreachable device by its error, and never by a present response', () => {
+    expect(at('unreachable', { error: 'timeout' })).toBe(
+      'Switch 10.20.0.250 · no response: timeout',
+    )
+    expect(at('unreachable', { error: null })).toBe('Switch 10.20.0.250 · no response')
+    expect(at('unreachable', { responseMs: 40 })).not.toMatch(/ms/)
+  })
+
+  it('dates a stale device by its last poll, and says that it is not current', () => {
+    expect(at('stale')).toBe('Switch 10.20.0.250 · last polled 2h ago, not current')
   })
 })

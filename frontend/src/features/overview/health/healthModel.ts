@@ -1,4 +1,10 @@
-import type { DomainBreakdown, SiteBreakdown, StatusCounts } from '@/api/types'
+import type {
+  DomainBreakdown,
+  HealthStatus,
+  InterfaceFigures,
+  SiteBreakdown,
+  StatusCounts,
+} from '@/api/types'
 import { nonZeroCounts, type StatusCount } from '@/lib/blocks'
 import { countStatuses, displayStatus, type DisplayStatus } from '@/lib/status'
 
@@ -45,12 +51,56 @@ export const siteTarget = (siteId: string): { pathname: string; extra: { site: s
 /** True when nothing is counted: a bar of zero is an empty track, which reads as "none". */
 export const isUncounted = (counts: StatusCounts): boolean => nonZeroCounts(counts).length === 0
 
-/**
- * Nothing monitored at all. The planned SNMP row does not count: it holds
- * inventory only, so it must not make an unmonitored estate look populated.
- */
+/** Nothing monitored at all: no server, container, probe target or SNMP device is counted. */
 export function isHealthEmpty(domains: readonly DomainBreakdown[]): boolean {
-  return domains.filter((domain) => !domain.planned).every((domain) => isUncounted(domain.counts))
+  return domains.every((domain) => isUncounted(domain.counts))
+}
+
+/** An interface's own health in words: up, down (admin up, operationally down), admin down, unknown. */
+const INTERFACE_WORD: Partial<Record<HealthStatus, string>> = {
+  warning: 'DOWN',
+  idle: 'ADMIN DOWN',
+  unknown: 'UNKNOWN',
+  healthy: 'UP',
+  critical: 'CRITICAL',
+}
+
+/** Problems first, the quiet ones last: the order an operator reads interface states in. */
+const INTERFACE_ORDER: readonly HealthStatus[] = [
+  'critical',
+  'warning',
+  'unknown',
+  'idle',
+  'healthy',
+]
+
+export interface InterfaceSummary {
+  /** What the sum covers: every device of the scope, or only the first of them. */
+  heading: string
+  /** Set when the sum is not the scope's: it must not be read as a total. */
+  caveat: string | null
+  rows: { status: HealthStatus; word: string; count: number }[]
+}
+
+/**
+ * The interfaces behind the SNMP row, from the figures the rows carry. Whole when every device of
+ * the scope is among the rows; otherwise labelled as the part it is, and never a fleet total.
+ */
+export function interfaceSummary(figures: InterfaceFigures): InterfaceSummary {
+  const devices = (count: number) => `${count} ${count === 1 ? 'device' : 'devices'}`
+  return {
+    heading: figures.complete
+      ? `${figures.total} interfaces on ${devices(figures.of)}`
+      : `${figures.total} interfaces on the first ${devices(figures.devices)} of ${figures.of}`,
+    caveat: figures.complete
+      ? null
+      : 'Partial: the Overview reads the worst devices only, so this is not a total for the scope.',
+    rows: INTERFACE_ORDER.filter((status) => figures.counts[status] > 0).map((status) => ({
+      status,
+      word: INTERFACE_WORD[status] ?? status.toUpperCase(),
+      count: figures.counts[status],
+    })),
+  }
 }
 
 /**
@@ -118,8 +168,7 @@ const ALWAYS_LEGENDED: readonly DisplayStatus[] = ['healthy', 'warning', 'critic
 
 /**
  * The states the legend explains: OK, WARN and CRIT, then every other state a
- * mark in the panel is drawn in. The planned SNMP row draws no state marks and
- * sites past the listed ones are not drawn, so neither adds to it.
+ * mark in the panel is drawn in. Sites past the listed ones are not drawn, so they add nothing.
  */
 export function legendStates(
   domains: readonly DomainBreakdown[],
@@ -127,7 +176,6 @@ export function legendStates(
 ): DisplayStatus[] {
   const drawn = new Set<DisplayStatus>(ALWAYS_LEGENDED)
   for (const domain of domains) {
-    if (domain.planned) continue
     for (const { status } of nonZeroCounts(domain.counts)) drawn.add(status)
   }
   for (const site of sites) {

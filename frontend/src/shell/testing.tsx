@@ -52,20 +52,28 @@ interface SummaryInput {
   servers?: Partial<StatusCounts>
   containers?: Partial<StatusCounts>
   targets?: Partial<StatusCounts>
+  devices?: Partial<StatusCounts>
 }
 
 /** A summary built from just the counts a test cares about. */
-export function makeSummary({ servers, containers, targets }: SummaryInput = {}): OverviewSummary {
+export function makeSummary({
+  servers,
+  containers,
+  targets,
+  devices,
+}: SummaryInput = {}): OverviewSummary {
   const total = (c: StatusCounts) => c.healthy + c.warning + c.critical + c.unknown + c.idle
   const s = counts({ healthy: 10, ...servers })
   const c = counts({ healthy: 20, ...containers })
   // No probe target unless a test brings one: the reference fleets are servers and containers.
   const t = counts({ ...targets })
+  const d = counts({ ...devices })
   return {
     generatedAt: '2026-01-01T00:00:00.000Z',
     servers: { total: total(s), counts: s },
     containers: { total: total(c), counts: c },
     targets: { total: total(t), counts: t },
+    devices: { total: total(d), counts: d },
   }
 }
 

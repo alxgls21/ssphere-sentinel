@@ -1,27 +1,22 @@
 /* oxlint-disable jsx-a11y/no-noninteractive-tabindex --
    A domain row is read, not operated. It takes a tab stop anyway so a keyboard user can open the
    tooltip (each state's share of the total) that a pointer gets on hover. There is one per counted domain. */
-import { useApi } from '@/api/context'
 import type { DomainBreakdown } from '@/api/types'
 import { Tooltip } from '@/ui/controls'
 import { GlyphCounts } from '@/ui/entity-cells'
 import { SegmentedBar } from '@/ui/meters'
-import { FEATURES, shortfallOf } from '@/config/features'
-import { FeatureChip } from '@/ui/provenance/Chips'
 import { DomainTip } from './DomainTip'
 import { DOMAIN_NAME, isUncounted } from './healthModel'
 
-/** The one planned row: SNMP devices, which the console API does not serve. */
-const PLANNED_ROW = { feature: 'snmp-overview', text: 'no SNMP data' } as const
-
 function DomainRow({ domain }: { domain: DomainBreakdown }) {
-  const { source } = useApi()
-  const planned = PLANNED_ROW
-  // A planned row holds no figures and an uncounted one has nothing to break down: neither claims numbers.
-  const detail =
-    domain.planned || isUncounted(domain.counts) ? null : (
-      <DomainTip name={DOMAIN_NAME[domain.domain]} counts={domain.counts} />
-    )
+  // An uncounted domain has nothing to break down: it claims no numbers.
+  const detail = isUncounted(domain.counts) ? null : (
+    <DomainTip
+      name={DOMAIN_NAME[domain.domain]}
+      counts={domain.counts}
+      interfaces={domain.interfaces}
+    />
+  )
   return (
     <Tooltip content={detail}>
       <li
@@ -33,27 +28,17 @@ function DomainRow({ domain }: { domain: DomainBreakdown }) {
           counts={domain.counts}
           height={8}
           label={DOMAIN_NAME[domain.domain]}
-          planned={domain.planned}
-          plannedText={planned.text}
           segmentTitles={false}
           className="min-w-0 @max-sm:col-span-2 @max-sm:row-start-2"
         />
-        {domain.planned ? (
-          <FeatureChip
-            availability={shortfallOf(planned.feature, source) ?? 'unknown'}
-            title={FEATURES[planned.feature].note}
-            className="@max-sm:col-start-2 @max-sm:row-start-1"
-          />
-        ) : (
-          // The bar already names every count; this is the same numbers for the eye.
-          <span aria-hidden="true" className="@max-sm:col-start-2 @max-sm:row-start-1">
-            {isUncounted(domain.counts) ? (
-              <span className="type-data text-fg-faint">none</span>
-            ) : (
-              <GlyphCounts counts={domain.counts} />
-            )}
-          </span>
-        )}
+        {/* The bar already names every count; this is the same numbers for the eye. */}
+        <span aria-hidden="true" className="@max-sm:col-start-2 @max-sm:row-start-1">
+          {isUncounted(domain.counts) ? (
+            <span className="type-data text-fg-faint">none</span>
+          ) : (
+            <GlyphCounts counts={domain.counts} />
+          )}
+        </span>
       </li>
     </Tooltip>
   )

@@ -167,7 +167,7 @@ export function helpItems(choose: (prefix: string) => void): PaletteItem[] {
 
 /**
  * The triage launcher: the worst non-healthy entities of the domains the
- * backend really implements. Devices (SNMP is planned and asserts nothing),
+ * backend really implements. Devices (the console API serves no device index yet),
  * sites and customers (roll-ups of the same entities) and alerts never appear.
  */
 export function problemItems(entities: readonly PaletteItem[]): PaletteItem[] {

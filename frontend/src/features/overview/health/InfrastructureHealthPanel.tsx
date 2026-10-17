@@ -15,10 +15,10 @@ import { SITE_ROWS, isHealthEmpty, legendStates, rankedSites } from './healthMod
 import { useViewTo } from '@/app/viewSearch'
 
 /**
- * What this panel's figures come from: the overview counts of servers, containers and probe
- * targets, and the site each is placed on. The SNMP row carries no figures and its own mark.
+ * What this panel's figures come from: the overview counts of servers, containers, probe targets
+ * and SNMP devices, and the site each is placed on.
  */
-const FEATURES_USED: readonly FeatureId[] = ['overview', 'network', 'site-links']
+const FEATURES_USED: readonly FeatureId[] = ['overview', 'network', 'snmp', 'site-links']
 
 /**
  * The legend shares the 28px footer with the "more sites" link. Its rows are 12px
@@ -44,8 +44,9 @@ function HealthSkeleton() {
 
 /**
  * [4] Infrastructure health: composition of each monitored domain, then the
- * worst sites. The servers, containers and targets rows and BY SITE are the console API's
- * counts; the SNMP row is a marked row without figures, because the console API serves none.
+ * worst sites. Every row and BY SITE are the console API's counts. The SNMP row counts devices
+ * by their own health; its tooltip also gives their interfaces, labelled partial when the rows
+ * hold only some of the scope's devices.
  */
 export function InfrastructureHealthPanel({ className }: { className?: string }) {
   const viewTo = useViewTo()
@@ -82,7 +83,7 @@ export function InfrastructureHealthPanel({ className }: { className?: string })
       empty={
         <EmptyState
           title="Nothing monitored yet"
-          hint="No server or container in this scope has reported."
+          hint="No server, container, probe target or SNMP device in this scope has reported."
         />
       }
       skeleton={<HealthSkeleton />}

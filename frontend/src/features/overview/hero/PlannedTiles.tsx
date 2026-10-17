@@ -29,10 +29,6 @@ function UnavailableTile({
   )
 }
 
-export const DevicesTile = ({ className }: TileProps) => (
-  <UnavailableTile label="Devices" features="snmp-overview" route="snmp" className={className} />
-)
-
 export const AlertsTile = ({ className }: TileProps) => (
   <UnavailableTile label="Alerts" features="alerts" route="alerts" className={className} />
 )

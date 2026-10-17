@@ -12,12 +12,12 @@ of the Django backend**.
 > history, the busiest servers by load, the containers of every visible server, and the network
 > targets (ICMP and TCP probes) with their measurements and history, and the SNMP devices with
 > their polls, interfaces, rates and history. The
-> Overview is built from three of those lists, the worst first of each, and from the counts
+> Overview is built from four of those lists, the worst first of each, and from the counts
 > the API itself reports: the verdict, the tiles, the attention queue and the health by
-> domain and site are servers, containers and probe targets, nothing else. Those panels say
+> domain and site are servers, containers, probe targets and SNMP devices, nothing else. Those panels say
 > `live` only because that is read from the API; a failed request is an error, never a stand-in.
-> alerts, incidents and events have no console API, the Overview does not count SNMP devices yet,
-> and the API has no fleet-wide latency aggregate for the Overview's latency chart (the API serves each target, not an aggregate): their panels and tiles carry a dashed frame, a `NOT CONNECTED` or `PLANNED`
+> alerts, incidents and events have no console API, and neither does the Overview's
+> fleet-wide latency chart (the API serves each target, not an aggregate): their panels and tiles carry a dashed frame, a `NOT CONNECTED` or `PLANNED`
 > chip and one sentence saying why, and no number, chart or sample row. The built-in sample
 > fleet exists only in a development run with `VITE_SENTINEL_API=mock` (servers and
 > containers, marked `DEMO DATA`); a production bundle holds none of it.

@@ -73,15 +73,14 @@ describe('consistency across panels', () => {
         const domain = (name: string) => breakdown.domains.find((d) => d.domain === name)
         expect(domain('servers')?.counts).toEqual(summary.servers.counts)
         expect(domain('containers')?.counts).toEqual(summary.containers.counts)
-        expect(domain('servers')?.planned).toBeUndefined()
         // The sample fleet monitors no target: its targets row is counted, and empty.
         expect(domain('targets')).toMatchObject({
           label: 'NET TARGETS',
           counts: summary.targets.counts,
         })
-        expect(domain('targets')?.planned).toBeUndefined()
-        // No backend serves SNMP: it carries no figure, not even a zero that reads as "all fine".
-        expect(domain('snmp')).toMatchObject({ planned: true, label: 'SNMP DEVS' })
+        // ... and no SNMP device: the row counts none, and no interface figure is made up.
+        expect(domain('snmp')).toMatchObject({ label: 'SNMP DEVS', counts: summary.devices.counts })
+        expect(domain('snmp')).not.toHaveProperty('interfaces')
       })
 
       it('every site entity is a monitored entity, once, with the status the index reports', async () => {
@@ -145,7 +144,8 @@ describe('consistency across panels', () => {
       offline: 1,
     })
     expect(summary.targets).toEqual({ total: 0, counts: expect.objectContaining({ healthy: 0 }) })
-    expect(summary).not.toHaveProperty('devices')
+    // ... and no SNMP device: none is counted, none is made up.
+    expect(summary.devices).toEqual({ total: 0, counts: expect.objectContaining({ healthy: 0 }) })
   })
 })
 

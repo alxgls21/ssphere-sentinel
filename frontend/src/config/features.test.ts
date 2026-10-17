@@ -46,10 +46,10 @@ describe('availabilityOf', () => {
     })
 
     it('F. is never live for data the backend only stores, even if an entry claims it is connected', () => {
-      setFeature('snmp-overview', { connected: true })
-      expect(FEATURES['snmp-overview'].backend).toBe('stored')
-      expect(availabilityOf('snmp-overview', 'http')).toBe('not-connected')
-      expect(describeAvailability('snmp-overview', 'http')).toBe(
+      setFeature('network-overview', { connected: true })
+      expect(FEATURES['network-overview'].backend).toBe('stored')
+      expect(availabilityOf('network-overview', 'http')).toBe('not-connected')
+      expect(describeAvailability('network-overview', 'http')).toBe(
         'Stored by the backend; the console API does not serve it yet',
       )
     })
@@ -64,7 +64,7 @@ describe('availabilityOf', () => {
       expect(isPlaceholder(id, 'http')).toBe(false)
     })
 
-    it.each(['snmp-overview', 'network-overview'] as const)(
+    it.each(['network-overview'] as const)(
       '%s is not connected, and its panels show a placeholder instead of demo figures',
       (id) => {
         expect(availabilityOf(id, 'http')).toBe('not-connected')
@@ -77,7 +77,7 @@ describe('availabilityOf', () => {
       expect(describeAvailability('customers')).toBe(
         'Served by the console API; this screen is not connected to it yet',
       )
-      expect(describeAvailability('snmp-overview')).toBe(
+      expect(describeAvailability('network-overview')).toBe(
         'Stored by the backend; the console API does not serve it yet',
       )
     })
@@ -98,10 +98,10 @@ describe('availabilityOf', () => {
       expect(availabilityOf('snmp', 'http')).toBe('needs-configuration')
     })
 
-    it('leaves the Overview’s SNMP figures apart: not served there yet, so a statement, never a number', () => {
-      expect(availabilityOf('snmp-overview', 'http')).toBe('not-connected')
-      expect(isPlaceholder('snmp-overview', 'http')).toBe(true)
-      expect(FEATURES['snmp-overview'].note).toMatch(/does not count devices yet/)
+    it('is what the Overview’s device counts, health and queue read: live with it, no placeholder of its own', () => {
+      expect(Object.keys(FEATURES)).not.toContain('snmp-overview')
+      expect(FEATURES.overview.note).toMatch(/SNMP devices/)
+      expect(FEATURES.snmp.note).toMatch(/Overview/)
     })
   })
 
@@ -219,13 +219,7 @@ describe('the registry as shipped', () => {
       'site-links',
       'snmp',
     ])
-    for (const id of [
-      'network-overview',
-      'snmp-overview',
-      'alerts',
-      'events',
-      'topology',
-    ] as const) {
+    for (const id of ['network-overview', 'alerts', 'events', 'topology'] as const) {
       expect(DATA_FEATURES).not.toContain(id)
     }
   })

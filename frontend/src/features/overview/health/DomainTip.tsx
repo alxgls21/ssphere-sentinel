@@ -1,16 +1,26 @@
-import type { StatusCounts } from '@/api/types'
+import type { InterfaceFigures, StatusCounts } from '@/api/types'
 import { formatInteger } from '@/lib/format'
 import { StatusTag } from '@/ui/status'
-import { domainShares } from './healthModel'
+import { domainShares, interfaceSummary } from './healthModel'
 
 /**
  * The breakdown behind a domain row's bar, for the row's tooltip: every state
  * that has members with its count and its share of the domain total. The bar's
- * accessible name lists the same counts; this adds the shares and the total.
+ * accessible name lists the same counts; this adds the shares and the total. The SNMP row adds
+ * its interfaces, apart from the devices: a down interface is not an unhealthy device.
  */
-export function DomainTip({ name, counts }: { name: string; counts: StatusCounts }) {
+export function DomainTip({
+  name,
+  counts,
+  interfaces,
+}: {
+  name: string
+  counts: StatusCounts
+  interfaces?: InterfaceFigures
+}) {
   const { total, rows } = domainShares(counts)
   const hasOffline = rows.some(({ status }) => status === 'offline')
+  const ports = interfaces ? interfaceSummary(interfaces) : null
   return (
     <div className="flex flex-col gap-1">
       {/* The literal spaces keep the spoken description "Servers 16 total": they take no room in a flex or grid row. */}
@@ -30,6 +40,20 @@ export function DomainTip({ name, counts }: { name: string; counts: StatusCounts
           Offline counts as critical in the verdict, which makes {formatInteger(counts.critical)} of{' '}
           {formatInteger(total)} critical.
         </p>
+      ) : null}
+      {ports ? (
+        <div className="flex flex-col gap-1 border-t border-border pt-1">
+          <p>{ports.heading}</p>
+          <ul className="tnum grid grid-cols-[1fr_auto] gap-x-3">
+            {ports.rows.map(({ status, word, count }) => (
+              <li key={status} className="col-span-2 grid grid-cols-subgrid items-center">
+                <StatusTag status={status} word={word} />{' '}
+                <span className="text-right">{formatInteger(count)}</span>
+              </li>
+            ))}
+          </ul>
+          {ports.caveat ? <p className="type-body text-fg-muted">{ports.caveat}</p> : null}
+        </div>
       ) : null}
     </div>
   )

@@ -4,8 +4,8 @@ import userEvent from '@testing-library/user-event'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { registryOverrides } from '@/config/testing'
 import { createTestApi } from '@/test/render'
-import { ContainersTile, ServersTile, TargetsTile } from './DomainTiles'
-import { AlertsTile, DevicesTile } from './PlannedTiles'
+import { ContainersTile, DevicesTile, ServersTile, TargetsTile } from './DomainTiles'
+import { AlertsTile } from './PlannedTiles'
 import { counts, makeResource, makeSummary, renderHero } from './testing'
 
 const overrides = registryOverrides()
@@ -221,17 +221,81 @@ describe('TargetsTile', () => {
   })
 })
 
-describe('the tiles of what the console API does not serve', () => {
-  it('shows no figure, no link and no inventory for SNMP devices', () => {
-    const { container } = renderHero(<DevicesTile />)
-    expect(screen.queryByRole('link')).not.toBeInTheDocument()
-    expect(screen.getByText('Devices')).toBeInTheDocument()
-    expect(screen.getByText('Not served by the console API')).toBeInTheDocument()
-    expect(container.querySelector('.type-kpi')).toBeNull()
-    expect(container).not.toHaveTextContent(/\d/)
-    expect(screen.queryByText('mock')).not.toBeInTheDocument()
+const withDevices = (devices: { total: number; counts: ReturnType<typeof counts> }) => {
+  const summary = makeSummary()
+  summary.devices = devices
+  return makeResource({ data: summary })
+}
+
+describe('DevicesTile', () => {
+  it('counts the SNMP devices the console API counts: the ok ones of the total, problems worst first', () => {
+    renderHero(<DevicesTile />, {
+      summary: withDevices({
+        total: 120,
+        counts: counts({ healthy: 100, critical: 3, unknown: 9, idle: 8 }),
+      }),
+    })
+    const link = screen.getByRole('link', {
+      name: 'Devices: 100 of 120 ok, 3 critical, 9 unknown, 8 idle, mock data',
+    })
+    expect(link).toHaveAttribute('href', '/snmp')
+    expect(within(link).getByText('100')).toBeInTheDocument()
+    expect(within(link).getByText('/120 ok')).toBeInTheDocument()
+    expect(link).toHaveTextContent('3 CRIT9 UNKN')
+    expect(
+      within(link).getByRole('img', { name: 'Devices: 3 critical, 9 unknown, 8 idle, 100 ok' }),
+    ).toBeInTheDocument()
   })
 
+  it('takes its total from the API’s scope total, whatever the rows hold', () => {
+    renderHero(<DevicesTile />, {
+      summary: withDevices({ total: 4200, counts: counts({ healthy: 4000, critical: 200 }) }),
+    })
+    const link = screen.getByRole('link', { name: /^Devices: 4,?000 of 4,?200 ok/ })
+    expect(within(link).getByText(/^\/4,?200 ok$/)).toBeInTheDocument()
+  })
+
+  it('says none are monitored, and is not a placeholder, when the API counts none', () => {
+    const { container } = renderHero(<DevicesTile />, {
+      summary: withDevices({ total: 0, counts: counts() }),
+    })
+    const link = screen.getByRole('link', { name: 'Devices: 0 of 0 ok, mock data' })
+    expect(link).toHaveTextContent('none monitored')
+    expect(container.querySelector('[data-planned]')).toBeNull()
+  })
+
+  it('is live only when the SNMP feature and the overview counts are read from the API', () => {
+    const live = renderHero(<DevicesTile />, { api: createTestApi({ source: 'http' }) })
+    expect(screen.getByText('live')).toBeInTheDocument()
+    live.unmount()
+    overrides.set('snmp', { connected: false })
+    renderHero(<DevicesTile />, { api: createTestApi({ source: 'http' }) })
+    expect(screen.queryByText('live')).toBeNull()
+  })
+
+  it('is mock over the sample API, which monitors no device and shows none', () => {
+    renderHero(<DevicesTile />)
+    expect(screen.getByText('mock')).toBeInTheDocument()
+    expect(screen.queryByText('live')).toBeNull()
+  })
+
+  it('shows an error with Retry when the summary fails, like the other counted tiles', async () => {
+    const refetch = vi.fn()
+    renderHero(<DevicesTile />, {
+      summary: makeResource({
+        status: 'error',
+        data: undefined,
+        error: new Error('503'),
+        updatedAt: null,
+        refetch,
+      }),
+    })
+    await userEvent.click(screen.getByRole('button', { name: 'Retry loading Devices' }))
+    expect(refetch).toHaveBeenCalledOnce()
+  })
+})
+
+describe('the tiles of what the console API does not serve', () => {
   it('says alerts are not implemented in the backend, with no count and no sample', () => {
     const { container } = renderHero(<AlertsTile />)
     expect(screen.queryByRole('link')).not.toBeInTheDocument()
@@ -245,16 +309,16 @@ describe('the tiles of what the console API does not serve', () => {
   })
 
   it('stays the same whatever the summary says, and whatever the API source is', () => {
-    const live = renderHero(<DevicesTile />, { api: createTestApi({ source: 'http' }) })
-    expect(screen.getByText('Not served by the console API')).toBeInTheDocument()
+    const live = renderHero(<AlertsTile />, { api: createTestApi({ source: 'http' }) })
+    expect(screen.getByText('Not implemented in the backend')).toBeInTheDocument()
     expect(screen.queryByText('live')).not.toBeInTheDocument()
     live.unmount()
-    renderHero(<DevicesTile />, {
+    renderHero(<AlertsTile />, {
       summary: makeResource({ status: 'error', data: undefined, error: new Error('503') }),
     })
     // A failed summary is not a failed tile: nothing is read for it.
     expect(screen.queryByRole('alert')).not.toBeInTheDocument()
-    expect(screen.getByText('Not served by the console API')).toBeInTheDocument()
+    expect(screen.getByText('Not implemented in the backend')).toBeInTheDocument()
   })
 })
 
@@ -276,8 +340,8 @@ describe('tile states from the shared summary', () => {
     act(() => {
       vi.advanceTimersByTime(160)
     })
-    // Three tiles read the summary: three skeleton blocks each.
-    expect(container.querySelectorAll('.animate-skeleton')).toHaveLength(9)
+    // Four tiles read the summary: three skeleton blocks each.
+    expect(container.querySelectorAll('.animate-skeleton')).toHaveLength(12)
   })
 
   it('shows an inline error with Retry per summary-backed tile, and Retry reloads the shared summary', async () => {
@@ -301,7 +365,7 @@ describe('tile states from the shared summary', () => {
       },
     )
     expect(screen.queryByRole('link')).not.toBeInTheDocument()
-    expect(screen.getAllByRole('alert')).toHaveLength(3)
+    expect(screen.getAllByRole('alert')).toHaveLength(4)
     await userEvent.click(screen.getByRole('button', { name: 'Retry loading Containers' }))
     expect(refetch).toHaveBeenCalledOnce()
   })

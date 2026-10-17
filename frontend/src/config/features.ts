@@ -25,7 +25,6 @@ export type FeatureId =
   | 'network'
   | 'network-overview'
   | 'snmp'
-  | 'snmp-overview'
   | 'topology'
   | 'alerts'
   | 'events'
@@ -67,7 +66,7 @@ export const FEATURES: Record<FeatureId, FeatureInfo> = {
     label: 'Overview summary',
     backend: 'console-api',
     connected: true,
-    note: 'The console API counts servers and containers, and the overview tiles, verdict, attention queue and health breakdown read those counts. It counts nothing else.',
+    note: 'The console API counts servers, containers, probe targets and SNMP devices, and the overview tiles, verdict, attention queue and health breakdown read those counts. It counts nothing else.',
   },
   servers: {
     id: 'servers',
@@ -105,15 +104,7 @@ export const FEATURES: Record<FeatureId, FeatureInfo> = {
     connected: true,
     requires:
       'an agent installed with the SNMP extra, a device with its SNMP settings and a credentials file on the agent host',
-    note: 'The console API serves SNMP devices, their polls and interfaces, and the SNMP screens read them.',
-  },
-  'snmp-overview': {
-    id: 'snmp-overview',
-    label: 'SNMP on the Overview',
-    backend: 'stored',
-    connected: false,
-    placeholder: true,
-    note: 'The console API serves each SNMP device, but the Overview does not count devices yet, so it shows no SNMP figure.',
+    note: 'The console API serves SNMP devices, their polls and interfaces; the SNMP screens and the Overview read them.',
   },
   topology: {
     id: 'topology',

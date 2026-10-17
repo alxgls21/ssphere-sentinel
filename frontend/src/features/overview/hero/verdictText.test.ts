@@ -55,13 +55,15 @@ describe('describeVerdict', () => {
     )
   })
 
-  it('says what the count excludes: idle entities and the domains the console API does not serve', () => {
+  it('says what the count excludes: idle entities, alerts and events', () => {
     const text = describeVerdict(verdictOf(), { hasData: true, freshness: 'live' })
     expect(text.scope).toBe(`3 idle entities are not counted. ${NOT_COUNTED}`)
-    expect(NOT_COUNTED).toContain('SNMP devices, alerts and events are not counted')
+    expect(NOT_COUNTED).toContain('Alerts and events are not counted')
     expect(NOT_COUNTED).toContain('the console API does not serve them')
-    // Probe targets are counted, so the sentence no longer lists them among what is left out.
-    expect(NOT_COUNTED.split(':')[0]).not.toMatch(/probe targets/i)
+    // Probe targets and SNMP devices are counted, so the sentence does not list them as left out.
+    expect(NOT_COUNTED.split(':')[0]).not.toMatch(/probe targets|SNMP/i)
+    // A device is the API's decision, and an interface that is down does not make it unhealthy.
+    expect(NOT_COUNTED).toMatch(/interface that is down does not make its device so/)
   })
 
   it('uses the singular for one idle entity and omits the idle sentence for none', () => {

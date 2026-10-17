@@ -151,11 +151,11 @@ describe('StatTile value flash', () => {
 describe('StatTile (placeholder)', () => {
   const planned = (over: Partial<StatTileProps> = {}) =>
     tile({
-      label: 'Devices',
-      features: 'snmp-overview',
-      to: '/snmp',
+      label: 'Latency',
+      features: 'network-overview',
+      to: '/network',
       content: content({
-        summary: '12 in inventory, no SNMP data',
+        summary: '12 in inventory, no latency data',
         value: 12,
         unit: 'in inventory',
         bar: <PlannedBar />,
@@ -163,7 +163,7 @@ describe('StatTile (placeholder)', () => {
       ...over,
     })
 
-  it('is not a link and, for the Overview’s SNMP, reads as not connected to the console', () => {
+  it('is not a link and, for the Overview’s fleet latency, reads as not connected to the console', () => {
     const { container } = renderApp(planned())
     expect(screen.queryByRole('link')).not.toBeInTheDocument()
     expect(screen.getByText('Not connected to the console yet')).toBeInTheDocument()
@@ -183,7 +183,7 @@ describe('StatTile (placeholder)', () => {
     renderApp(planned())
     expect(screen.getByText('Demo')).toHaveAttribute(
       'title',
-      expect.stringContaining('the Overview does not count devices yet'),
+      expect.stringContaining('no fleet-wide latency aggregation'),
     )
     expect(screen.queryByText('mock')).not.toBeInTheDocument()
   })
@@ -207,7 +207,7 @@ describe('StatTile (placeholder)', () => {
     const onRetry = vi.fn()
     renderApp(planned({ status: 'error', content: undefined, onRetry }))
     expect(screen.getByRole('alert')).toBeInTheDocument()
-    await userEvent.click(screen.getByRole('button', { name: 'Retry loading Devices' }))
+    await userEvent.click(screen.getByRole('button', { name: 'Retry loading Latency' }))
     expect(onRetry).toHaveBeenCalledOnce()
   })
 })

@@ -8,7 +8,7 @@ import { NEXT_PROBLEM_EVENT } from '@/config/events'
 import { createTestApi } from '@/test/render'
 import { stubFocusVisible } from '@/ui/controls/testing'
 import { AttentionQueuePanel } from './AttentionQueuePanel'
-import { makeItem, queueApi, referenceItems, renderQueue, resultOf } from './testing'
+import { makeItem, minutesAgo, queueApi, referenceItems, renderQueue, resultOf } from './testing'
 import { FOCUS_IDLE_MS, SETTLE_MS } from './useOrderLock'
 import { SummaryContext } from '@/app/summary'
 
@@ -159,6 +159,65 @@ describe('the panel', () => {
       'href',
       '/network',
     )
+    expect(within(region).getByRole('link', { name: 'SNMP' })).toHaveAttribute('href', '/snmp')
+  })
+
+  it('lists an SNMP device among the rows: a dev row with the API’s reason, site and last-poll age', async () => {
+    const device = makeItem({
+      kind: 'device',
+      id: 'dev-1',
+      name: 'pir-core',
+      stateLabel: 'UNREACHABLE',
+      detail: 'Switch 10.20.0.250 · no response: timeout',
+      ageBasis: 'last-polled',
+      ageIso: minutesAgo(3),
+      siteName: 'Piraeus',
+    })
+    await renderLoaded([device, ...referenceItems().slice(0, 2)])
+    const row = screen.getByText('pir-core').closest('tr') as HTMLElement
+    expect(row).toHaveAttribute(
+      'aria-label',
+      'Row 1 of 3, critical, dev pir-core, Switch 10.20.0.250, no response: timeout, Acme Piraeus, 3 minutes',
+    )
+    const cells = within(row)
+      .getAllByRole('cell')
+      .map((cell) => cell.textContent)
+    expect(cells).toEqual([
+      'UNREACHABLE',
+      'dev pir-core',
+      'Switch 10.20.0.250 · no response: timeout',
+      'Acme / Piraeus',
+      '3m',
+    ])
+  })
+
+  it('opens a device on its own page with Enter, not on a list told to focus it', async () => {
+    const user = userEvent.setup()
+    const device = makeItem({
+      kind: 'device',
+      id: 'dev-1',
+      name: 'pir-core',
+      ageBasis: 'last-polled',
+    })
+    await renderLoaded([device])
+    focusRow(0)
+    await user.keyboard('{Enter}')
+    expect(screen.getByTestId('location')).toHaveTextContent(/^\/snmp\/dev-1$/)
+  })
+
+  it('says it is the last poll that dates a device row, on hover', async () => {
+    const user = userEvent.setup()
+    const device = makeItem({
+      kind: 'device',
+      id: 'dev-1',
+      name: 'pir-core',
+      ageBasis: 'last-polled',
+      ageIso: minutesAgo(3),
+    })
+    await renderLoaded([device])
+    const row = screen.getByText('pir-core').closest('tr') as HTMLElement
+    await user.hover(within(row).getByText('3m'))
+    expect(await screen.findByRole('tooltip')).toHaveTextContent(/^Last polled /)
   })
 
   it('lists a probe target among the rows, as a net row that opens its own page', async () => {
@@ -613,7 +672,7 @@ describe('states', () => {
       servers: { total: 0, online: 0, counts: zero },
       containers: { total: 0, running: 0, counts: zero },
       targets: { total: 0, up: 0, counts: zero, successTrend: [] },
-      devices: { inInventory: 0, byType: { router: 0, switch: 0, firewall: 0, other: 0 } },
+      devices: { total: 0, counts: zero },
     }
     const resource = {
       status: 'success' as const,

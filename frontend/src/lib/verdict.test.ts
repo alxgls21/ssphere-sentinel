@@ -15,12 +15,14 @@ function summary(
   servers: Partial<StatusCounts>,
   containers: Partial<StatusCounts> = {},
   targets: Partial<StatusCounts> = {},
+  devices: Partial<StatusCounts> = {},
 ): OverviewSummary {
   return {
     generatedAt: '2026-10-12T14:05:12Z',
     servers: { total: 0, counts: counts(servers) },
     containers: { total: 0, counts: counts(containers) },
     targets: { total: 0, counts: counts(targets) },
+    devices: { total: 0, counts: counts(devices) },
   }
 }
 
@@ -115,5 +117,39 @@ describe('an offline server does not change what decides', () => {
       ),
     ).toMatchObject({ critical: 4, offline: 2 })
     expect('offline' in sumCounts(counts({ critical: 1 }), counts({ warning: 1 }))).toBe(false)
+  })
+})
+
+describe('computeVerdict with SNMP devices', () => {
+  it('counts the devices by the API’s health beside the servers, containers and targets', () => {
+    const v = computeVerdict(
+      summary({ healthy: 10 }, {}, {}, { healthy: 20, critical: 2, unknown: 3, idle: 4 }),
+      'live',
+    )
+    expect(v.state).toBe('critical')
+    expect(v.needAttention).toBe(5)
+    expect(v.monitored).toBe(35)
+    expect(v.idle).toBe(4)
+  })
+
+  it('is DEGRADED or PARTIAL on devices alone, by the worst device state', () => {
+    expect(computeVerdict(summary({ healthy: 3 }, {}, {}, { warning: 1 }), 'live').state).toBe(
+      'degraded',
+    )
+    expect(computeVerdict(summary({ healthy: 3 }, {}, {}, { unknown: 1 }), 'live').state).toBe(
+      'partial',
+    )
+  })
+
+  it('is NOMINAL when every device is healthy, and monitors nothing without them', () => {
+    expect(computeVerdict(summary({}, {}, {}, { healthy: 4 }), 'live').state).toBe('nominal')
+    expect(computeVerdict(summary({}), 'live').state).toBe('nodata')
+  })
+
+  it('leaves disabled (idle) devices out of the count and the denominator', () => {
+    const v = computeVerdict(summary({ healthy: 1 }, {}, {}, { idle: 9 }), 'live')
+    expect(v.needAttention).toBe(0)
+    expect(v.monitored).toBe(1)
+    expect(v.idle).toBe(9)
   })
 })
