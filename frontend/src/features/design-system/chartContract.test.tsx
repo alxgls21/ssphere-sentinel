@@ -2,13 +2,17 @@ import { act, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import type { ReactElement } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import type { ServerSeries } from '@/api/types'
+import type { ServerSeries, TargetSeries } from '@/api/types'
 import type { ChartOption } from '@/charts/echarts'
 import { fakeCharts, resetFakeCharts } from '@/charts/testing/fakeEcharts'
 import { isReferenceSeries } from '@/charts/testing/referenceSeries'
 import { CHART_COLOR_TOKENS } from '@/charts/theme'
 import LatencyChart from '@/features/overview/latency/LatencyChart'
 import { makeSeries } from '@/features/overview/latency/testSeries'
+import TargetHistoryChart from '@/features/network/TargetHistoryChart'
+import { DeviceHistoryChart, InterfaceHistoryChart } from '@/features/snmp/HistoryCharts'
+import { deviceSeries, interfaceSeries } from '@/features/snmp/testing'
+import { DEFAULT_TARGET_LIMITS } from '@/lib/targets'
 import ServerHistoryChart from '@/features/servers/ServerHistoryChart'
 import { renderApp } from '@/test/render'
 import BandwidthChart from './sample/BandwidthChart'
@@ -45,6 +49,17 @@ const HISTORY: ServerSeries = {
   disk: [70, 70, 71, 71, 72],
 }
 
+const TARGET: TargetSeries = {
+  generatedAt: '2026-10-12T14:00:00Z',
+  bucketMs: 60_000,
+  t: HISTORY.t,
+  latencyMs: [10, 12, null, 11, 14],
+  latencyMaxMs: [14, 18, null, 13, 20],
+  lossPercent: [0, 1, null, 0, 3],
+  measurements: [1, 1, 1, 1, 1],
+  failed: [0, 0, 1, 0, 0],
+}
+
 const CHARTS: readonly ChartCase[] = [
   {
     name: 'network latency (two grids)',
@@ -69,6 +84,47 @@ const CHARTS: readonly ChartCase[] = [
     series: ['cpu', 'memory', 'disk'],
     references: [],
     cursorLabel: 'Resource history cursor',
+  },
+  {
+    name: 'network target history (three grids)',
+    element: () => (
+      <TargetHistoryChart
+        name="ath-gateway"
+        protocol="icmp"
+        series={TARGET}
+        range="1h"
+        limits={DEFAULT_TARGET_LIMITS}
+      />
+    ),
+    count: TARGET.t.length,
+    series: ['latency', 'latencyMax', 'loss', 'failed'],
+    references: ['reference:latency-warn', 'reference:loss-warn'],
+    cursorLabel: 'Target history cursor',
+  },
+  {
+    name: 'device poll history (three grids)',
+    element: () => <DeviceHistoryChart name="ath-core-sw" series={deviceSeries()} range="1h" />,
+    count: deviceSeries().t.length,
+    series: ['response', 'reachable', 'failed'],
+    references: [],
+    cursorLabel: 'Device history cursor',
+  },
+  {
+    name: 'interface traffic history (three grids)',
+    element: () => <InterfaceHistoryChart name="Gi1/0/1" series={interfaceSeries()} range="1h" />,
+    count: interfaceSeries().t.length,
+    series: [
+      'inBps',
+      'outBps',
+      'inBpsMax',
+      'outBpsMax',
+      'inErrorsPerSec',
+      'outErrorsPerSec',
+      'inDiscardsPerSec',
+      'outDiscardsPerSec',
+    ],
+    references: [],
+    cursorLabel: 'Interface history cursor',
   },
 ]
 

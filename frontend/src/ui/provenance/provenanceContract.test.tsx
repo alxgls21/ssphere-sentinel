@@ -66,9 +66,9 @@ describe.each([
   })
 })
 
-describe('C. network: stored by the backend, not served by the console API', () => {
+describe('C. snmp-overview: stored by the backend, not served by the console API', () => {
   it('is a placeholder as a panel over an HTTP adapter: no tag, no content, never live', () => {
-    renderApp(panel('network'), { api: api('http') })
+    renderApp(panel('snmp-overview'), { api: api('http') })
     const region = screen.getByRole('region', { name: 'Panel' })
     expect(region).toHaveAttribute('data-planned', 'true')
     expect(screen.queryByText('body')).toBeNull()
@@ -78,7 +78,7 @@ describe('C. network: stored by the backend, not served by the console API', () 
   })
 
   it('is a placeholder as a tile: no figure, no link, and it says why in words', () => {
-    renderApp(tile('network'), { api: api('http') })
+    renderApp(tile('snmp-overview'), { api: api('http') })
     expect(screen.queryByRole('link')).toBeNull()
     expect(screen.queryByText('live')).toBeNull()
     expect(screen.queryByText('15')).toBeNull()
@@ -183,8 +183,8 @@ describe('H. a genuinely connected, API-backed feature', () => {
   })
 
   it('is not live if its backend only stores the data, whatever the entry claims', () => {
-    overrides.set('network', { connected: true })
-    renderApp(tile('network'), { api: api('http') })
+    overrides.set('snmp-overview', { connected: true })
+    renderApp(tile('snmp-overview'), { api: api('http') })
     expect(screen.queryByText('live')).toBeNull()
     expect(screen.queryByRole('link')).toBeNull()
     expect(screen.getByText('Not connected to the console yet')).toBeInTheDocument()
@@ -248,7 +248,8 @@ describe('entity cells follow their own feature', () => {
     expect(spoken).not.toMatch(/srv, server, OK, /)
     // Containers are the overview counts', which the console API serves too.
     expect(spoken).not.toMatch(/ctr, container, OK, /)
-    expect(spoken).toMatch(/tgt, target, OK, mock data/)
+    // Targets are the Network feature's, which the console API serves and the screens read.
+    expect(spoken).not.toMatch(/tgt, target, OK, /)
   })
 
   it('does not call any kind live while the overview breakdown behind the grid is not connected', () => {

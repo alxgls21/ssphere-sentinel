@@ -4,23 +4,27 @@ The web console for SSphere Sentinel: a dark, terminal-inspired, NOC-style
 dashboard. It is a standalone React app in this directory and is **independent
 of the Django backend**.
 
-> **Status: sign-in, scope, servers, containers and the Overview counts are real; targets,
-> SNMP devices, alerts and events are not served yet and show no figure.**
+> **Status: sign-in, scope, servers, containers, network targets, SNMP devices and the Overview counts
+> are real; alerts and events are not served yet and show no figure.**
 > The console signs in against the Django console API (session cookie and CSRF) and reads
 > from it the customers and sites you may see, the Servers list (searched, filtered, sorted
 > and paged by the server), the Docker inventory, each server with its containers and its CPU, RAM and disk
-> history, the busiest servers by load, and the containers of every visible server. The
-> Overview is built from two of those lists, the worst first of each, and from the counts
+> history, the busiest servers by load, the containers of every visible server, and the network
+> targets (ICMP and TCP probes) with their measurements and history, and the SNMP devices with
+> their polls, interfaces, rates and history. The
+> Overview is built from three of those lists, the worst first of each, and from the counts
 > the API itself reports: the verdict, the tiles, the attention queue and the health by
-> domain and site are servers and containers, nothing else. Those panels say `live` only
-> because that is read from the API; a failed request is an error, never a stand-in.
-> Network targets, SNMP devices, alerts, incidents, events and network latency have no
-> console API: their panels and tiles carry a dashed frame, a `NOT CONNECTED` or `PLANNED`
+> domain and site are servers, containers and probe targets, nothing else. Those panels say
+> `live` only because that is read from the API; a failed request is an error, never a stand-in.
+> alerts, incidents and events have no console API, the Overview does not count SNMP devices yet,
+> and the API has no fleet-wide latency aggregate for the Overview's latency chart (the API serves each target, not an aggregate): their panels and tiles carry a dashed frame, a `NOT CONNECTED` or `PLANNED`
 > chip and one sentence saying why, and no number, chart or sample row. The built-in sample
 > fleet exists only in a development run with `VITE_SENTINEL_API=mock` (servers and
 > containers, marked `DEMO DATA`); a production bundle holds none of it.
-> Three screens are designed and built: **Overview**, **Servers** and **Docker** (every container of every
-> visible server, searched, filtered, sorted and paged by the server). The other five are routed and show
+> Five screens are designed and built: **Overview**, **Servers**, **Docker** (every container of every
+> visible server), **Network** (every probe target, with a page for each) and **SNMP** (every device,
+> with a page for each and the history of each of its interfaces); lists are searched,
+> filtered, sorted and paged by the server. The other three are routed and show
 > an honest "not designed yet" placeholder. The Overview's queue and sites are built from the worst rows
 > the API returns; where more exist than those rows hold, they say so, and the domain counts stay the API's
 > whole-fleet counts.

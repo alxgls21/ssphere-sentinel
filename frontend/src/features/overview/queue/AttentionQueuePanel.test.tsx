@@ -155,6 +155,28 @@ describe('the panel', () => {
       '/servers',
     )
     expect(within(region).getByRole('link', { name: 'Docker' })).toHaveAttribute('href', '/docker')
+    expect(within(region).getByRole('link', { name: 'Network' })).toHaveAttribute(
+      'href',
+      '/network',
+    )
+  })
+
+  it('lists a probe target among the rows, as a net row that opens its own page', async () => {
+    const target = makeItem({
+      kind: 'target',
+      id: 'tgt-1',
+      name: 'pir-gateway',
+      stateLabel: 'FAILING',
+      detail: 'ICMP 10.20.0.1 · latest measurements all failed',
+      ageBasis: 'last-measured',
+    })
+    await renderLoaded([target, ...referenceItems().slice(0, 2)])
+    const row = screen.getByText('pir-gateway').closest('tr') as HTMLElement
+    expect(row).toHaveAttribute(
+      'aria-label',
+      expect.stringMatching(/^Row 1 of 3, critical, net pir-gateway, ICMP 10\.20\.0\.1/),
+    )
+    expect(within(row).getByText('FAILING')).toBeInTheDocument()
   })
 
   it('says nothing about omitted rows when the queue is whole', async () => {

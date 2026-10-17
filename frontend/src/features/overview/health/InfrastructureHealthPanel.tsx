@@ -15,10 +15,10 @@ import { SITE_ROWS, isHealthEmpty, legendStates, rankedSites } from './healthMod
 import { useViewTo } from '@/app/viewSearch'
 
 /**
- * What this panel's figures come from: the overview counts of servers and containers, and the
- * site each server is placed on. The targets and SNMP rows carry no figures and their own marks.
+ * What this panel's figures come from: the overview counts of servers, containers and probe
+ * targets, and the site each is placed on. The SNMP row carries no figures and its own mark.
  */
-const FEATURES_USED: readonly FeatureId[] = ['overview', 'site-links']
+const FEATURES_USED: readonly FeatureId[] = ['overview', 'network', 'site-links']
 
 /**
  * The legend shares the 28px footer with the "more sites" link. Its rows are 12px
@@ -44,9 +44,8 @@ function HealthSkeleton() {
 
 /**
  * [4] Infrastructure health: composition of each monitored domain, then the
- * worst sites. The servers and containers rows and BY SITE are the console API's
- * counts; the targets and SNMP rows are marked rows without figures, because the
- * console API serves neither.
+ * worst sites. The servers, containers and targets rows and BY SITE are the console API's
+ * counts; the SNMP row is a marked row without figures, because the console API serves none.
  */
 export function InfrastructureHealthPanel({ className }: { className?: string }) {
   const viewTo = useViewTo()

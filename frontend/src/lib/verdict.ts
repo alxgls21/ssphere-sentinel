@@ -5,9 +5,9 @@ import { emptyCounts } from './status'
 /**
  * Tier-0 verdict: one word for the whole fleet, readable from across a room.
  *
- * Counts come ONLY from what the console API counts: servers and containers.
- * Probe targets, SNMP devices, alerts and events are not served, so none of them
- * feeds the verdict (it says so in a tooltip).
+ * Counts come ONLY from what the console API counts: servers, containers and probe
+ * targets, each by the health the API decided. SNMP devices, alerts and events are not
+ * served, so none of them feeds the verdict (it says so in a tooltip).
  *
  *   NO DATA   data older than 120 s, every resource failed, or nothing monitored
  *   CRITICAL  any critical entity
@@ -64,7 +64,7 @@ export function computeVerdict(
   freshness: Freshness,
 ): Verdict {
   const counts = summary
-    ? sumCounts(summary.servers.counts, summary.containers.counts)
+    ? sumCounts(summary.servers.counts, summary.containers.counts, summary.targets.counts)
     : emptyCounts()
   const monitored = counts.healthy + counts.warning + counts.critical + counts.unknown
   const base = { counts, idle: counts.idle, monitored }

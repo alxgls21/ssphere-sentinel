@@ -10,9 +10,11 @@ through the console API behind an API port.
   models, migrations, agent code, Docker files or CI).
 - The console API serves the session and the scope (`/api/v1/console/session/`,
   `scope/`, `auth/login/`, `auth/logout/`), the servers (`servers/`, `servers/<id>/`,
-  `servers/<id>/series/`) and the containers (`containers/`). The Servers screens, Fleet
-  load and the Overview read them. It serves no probe targets, SNMP devices, alerts,
-  incidents or events: wherever one of those would be drawn, the UI says it is not
+  `servers/<id>/series/`), the containers (`containers/`) and the network targets (`targets/`,
+  `targets/<id>/`, `targets/<id>/series/`) and the SNMP devices (`devices/`, `devices/<id>/`,
+  `devices/<id>/series/`, `devices/<id>/interfaces/<ifIndex>/series/`). The Servers, Docker, Network and
+  SNMP screens, Fleet load and the Overview read them. It serves no alerts, incidents or events, and no
+  fleet-wide probe aggregate: wherever one of those would be drawn, the UI says it is not
   served and shows no figure (see _Honest labelling_ below).
 - No unfinished feature may look operational, and no figure may be made up for one.
 
@@ -126,16 +128,18 @@ panel --useLiveResource(id, key, fetch)--> useApi() --> SentinelApi --> console 
   Offline is critical to anything that decides (verdict, ranking, filters, badges,
   tab title, favicon, severity edge), which reads `HealthStatus`; only marks that
   describe an entity or a composition show it apart (`design-system.md`).
-- **The Overview** is servers and containers. `app/consoleApi.ts` asks the console API for the
-  worst first of each (one page of 200, sorted by status) and derives the summary, the
-  attention queue and the health breakdown from those two answers (`lib/overview.ts`, pure).
-  The verdict, the queue and the health panel ask at the same moment and share one pair of
-  requests. Totals and per-status counts are the API's own and cover the whole scope; the console
+- **The Overview** is servers, containers and probe targets. `app/consoleApi.ts` asks the console
+  API for the worst first of each (one page of 200, sorted by status) and derives the summary, the
+  attention queue and the health breakdown from those three answers (`lib/overview.ts`, pure).
+  The verdict, the queue and the health panel ask at the same moment and share one set of
+  requests; if any of the three fails, the Overview fails with it, because a verdict without one
+  of its lists would understate. Totals and per-status counts are the API's own and cover the whole scope; the console
   never recounts a page as if it were the fleet. What is made of the rows is exact only for the part
   of the fleet the rows cover, and says so: the queue counts the problems it cannot list
-  (`AttentionResult.omitted`) and the idle containers beyond its rows (`hiddenIdle`), and the sites
-  carry a `siteCoverage`. `all`: both lists fit in one page, so every site is whole. `problems`:
-  they do not, but every server and container that needs attention is in the rows, so each site lists
+  (`AttentionResult.omitted`) and the idle containers and disabled targets beyond its rows
+  (`hiddenIdle`), and the sites carry a `siteCoverage`. `all`: all three lists fit in one page, so
+  every site is whole. `problems`: they do not, but every server, container and target that needs
+  attention is in the rows, so each site lists
   those (healthy and idle ones are not counted per site). `none`: the problems alone exceed the rows,
   so no site is totalled and the panel says so. Exact per-site totals for a larger fleet need a
   per-site count from the console API (see _Docker screen_). A failed request rejects: it is that
@@ -148,7 +152,8 @@ panel --useLiveResource(id, key, fetch)--> useApi() --> SentinelApi --> console 
   screen changes.
 - The sample fleet is deterministic (seeded, time-keyed): values are stable across
   refreshes and screenshots are reproducible, yet drift so the console feels live. It holds
-  servers and containers only: it invents no targets, devices, alerts or events.
+  servers and containers only: it invents no targets, devices, alerts or events (its target list
+  is empty and its summary counts none).
 
 ### State that lives in the URL
 
@@ -218,9 +223,10 @@ a quiet source tag (`live`, `mock`, `unverified`) always, and, when nothing real
 behind it (unsupported, or a placeholder feature such as probe targets or SNMP), a dashed
 frame, a chip and one sentence in place of the body. Such a panel renders no children, no
 footer and no loading or error state: it has nothing to load, so it holds no figure, chart,
-sample row or zero. PLANNED is reserved for what the backend does not implement. Probe
-targets and SNMP are `not-connected`: the backend stores them, but the console API does not
-serve them, so configuring them does not make data appear here. Stat tiles follow the same
+sample row or zero. PLANNED is reserved for what the backend does not implement. The Overview's
+SNMP spots and network figures (`snmp-overview`, `network-overview`) are `not-connected`: the backend
+stores or could derive them, but the Overview does not read them, so configuring them does not make
+data appear there. The Network and SNMP screens are the `network` and `snmp` features, which are live. Stat tiles follow the same
 rule. Placeholder panels never feed the verdict, the sidebar badges, the tab title or the
 palette's PROBLEMS list. The design-system gallery is the one place that draws sample
 content for such a feature; it does so in a panel labelled `mock` whose footer says
@@ -230,6 +236,84 @@ Presentational thresholds (80/95 %, 2 % loss, 150 ms) live in
 "UI defaults"; where the console API publishes the resource limits with the session, those are
 used instead and labelled "set on the server". When the backend gains a capability, or a screen is connected to it,
 change one registry entry.
+
+## Network screen
+
+`SentinelApi` has three target methods, all the console API's: `listTargets` (one page, with
+`q` over name, address, circuit id, site and customer; `status`; `sort` by `status`, `name`,
+`latency`, `loss`, `measured`; `dir`; `page`; `pageSize`; and the topbar scope), `getTarget` (the
+item, the newest 20 measurements and the last 24 hours; 404 for an unknown or hidden id) and
+`getTargetSeries` (`range` one of `15m`, `1h`, `6h`, `24h`, the ranges the API serves). Each item
+is `{target, latest, stale, health, reason, customerName?, siteName?}`. `health` and `reason` are
+the server's decision and are never recomputed: the console words the reason (`disabled`,
+`no_agent`, `agent_offline`, `no_measurement`, `stale`, `failing`, `failed`, `latency`, `loss`,
+`ok`) in `lib/targets.ts`, so a disabled target, one with no agent, an offline agent, no
+measurement, a stale one and a failing one each read differently.
+
+A measurement is a round of an agent's probes. `lossPercent` is the share of them that got no
+answer, and what that is depends on the protocol: lost packets for ICMP, failed connection
+attempts for TCP. Every label, cell, chart series and sentence follows the protocol (`Packet
+loss` and `2.0% lost`; `Failed connection attempts` and `2.0% failed`) and a TCP failure is
+never called packet loss. The shared inventory column is headed `LOSS / FAILED` with the
+distinction in its title.
+
+Latency and loss are shown as a reading only where the API judged health from a current
+measurement; for a stale, disabled, unassigned, unreported or never-measured target the cells
+are empty with the reason, and the last measurement is shown only as the last one, with its age
+and a `NOT CURRENT` tag. `availability24h.percent` is the share of the measurements taken that
+succeeded; `coveragePercent` (measurements against what the interval would give) is shown apart.
+Neither is called an SLA, an uptime or a guarantee. The history draws latency (mean and highest
+of the measurements that answered), loss and a count of failed measurements on three grids with
+one time axis: a bucket with nothing to average is a gap, a failed measurement is counted in its
+own series and never drawn as 100% loss, and a bucket with no measurement has no failed count
+either. The warning limits drawn come from the session (`probeLatencyWarnMs`,
+`probeLossWarnPercent`, `targetCritFailures`), or the console's own defaults, said to be so.
+
+An agent links to its server only when the API gives the agent's `serverId` (it does so only for
+servers the user may see); an assigned agent without one is named "assigned" and linked to
+nothing. The sample fleet monitors no targets: its list is empty and a target is a 404, so a
+development run shows the empty and not-found states, never an invented target. A failed request
+is that panel's error with Retry; nothing falls back to other data.
+
+## SNMP screen
+
+`SentinelApi` has four device methods, all the console API's: `listDevices` (one page, with `q`
+over name, address, site and customer; `status`; `sort` by `status`, `name`, `response`, `polled`;
+`dir`; `page`; `pageSize`; and the topbar scope), `getDevice` (the item, the recent polls and every
+present interface; 404 for an unknown or hidden id), `getDeviceSeries` and `getInterfaceSeries`
+(`range` one of `15m`, `1h`, `6h`, `24h`, completed buckets only). Each item is `{device, state,
+stale, health, reason, interfaces, customerName?, siteName?}`. The device's `health` and `reason`
+(`disabled`, `no_agent`, `agent_offline`, `no_poll`, `stale`, `unreachable`, `ok`) are the
+server's decision and are never recomputed; `lib/devices.ts` words them. The adapter names every
+field it reads, so a credential or credential profile could not reach the UI even if the API sent
+one, and it refuses a rate set that contradicts itself (`valid` with a reason, or invalid with a
+rate) as a bad response.
+
+A device's health ignores its interfaces: a switch with ports down stays reachable. An
+interface has its own health from the API: unhealthy device gives `device_unavailable` (unknown),
+admin down is idle, up and up is healthy, admin up with operational down is a warning, anything
+else is unknown. The words keep admin down, operationally down, healthy, unknown, absent and
+device unavailable apart, and never use critical for an interface.
+
+Response time and the other figures of a poll are shown as present only for a device whose latest
+poll is current. For a stale, unreachable-since, disabled, unassigned or never-polled device the
+cells are empty with the reason, and the last poll is shown as the last one, with its age and a
+`NOT CURRENT` tag. The interface inventory then says its states and rates are the last stored.
+
+Rates are the API's: the console never recalculates a delta. When `rates.valid` is false every
+rate is a dash with the `invalidReason` in words (`delta_state` says whether it was the first
+sample, a restart, a counter reset or a gap; `interval`; `implausible`; `stale`) and never a zero.
+An unknown speed shows the bits per second and an unavailable utilization. The history draws, for
+one interface, mean and highest inbound and outbound bits per second, errors and discards per
+second on three grids with one time axis: a bucket with no valid sample is a gap, never an
+interpolated line or a zero, and the counts of usable and unusable samples are given apart. The
+device history draws the mean response time and the reachable and failed polls the same way.
+
+The query lives in the URL (`?q=&status=&sort=&dir=&page=`), the chosen interface in `?interface=`
+of the device page, and the list's own query travels in the navigation state so the way back
+restores the search and filters. An agent links to its server only when the API gives its
+`serverId`. The sample fleet monitors no devices: its list is empty and a device is a 404. A failed
+request is that panel's error with Retry; nothing falls back to other data.
 
 ## Docker screen
 
@@ -421,10 +505,13 @@ from it on purpose:
   with a contract test rather than per-chart wiring.
 - **Not built (deferred in the spec)**: wall mode, density modes, the inspector
   drawer, "NEW" tags.
-- **The Overview counts servers and containers only.** The spec's queue, verdict, tiles and
-  health also cover ICMP/TCP targets, SNMP devices and alerts, and its panels [2], [5] and [6]
-  draw a latency chart, active alerts and recent events. The console API serves none of those,
-  so their tiles and panels carry a statement and no figure, and the verdict is "of the servers
-  and containers counted". Tiles show the ok count of the total (`13/16 ok`), not online or
-  running, because that is what the API's counts say.
+- **The Overview counts servers, containers and probe targets.** The spec's queue, verdict, tiles
+  and health also cover SNMP devices and alerts, and its panels [2], [5] and [6] draw a latency
+  chart, active alerts and recent events. The console API serves none of those (and no fleet-wide
+  latency aggregate, only each target's own history), so their tiles and panels carry a statement
+  and no figure, and the verdict is "of the servers, containers and targets counted". Tiles show
+  the ok count of the total (`13/16 ok`), not online or running, because that is what the API's
+  counts say. A queue row for a target is worded from the API's reason and dated by its newest
+  measurement, never by a start the API does not give. Fleet latency carries the
+  `network-overview` feature and stays a statement.
 - **Not installed yet**: Cytoscape (Topology screen).

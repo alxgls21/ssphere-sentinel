@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { ConsoleHttp } from '@/api/http'
-import type { ContainerList, ServerList } from '@/api/types'
+import type { ContainerList, ServerList, TargetList } from '@/api/types'
 import { OVERVIEW_PAGE_SIZE } from '@/lib/overview'
 import { emptyCounts } from '@/lib/status'
 import { createConsoleApi } from './consoleApi'
@@ -24,6 +24,14 @@ const containers = (over: Partial<ContainerList> = {}): ContainerList => ({
   scopeTotal: 42,
   ...over,
 })
+const targets = (over: Partial<TargetList> = {}): TargetList => ({
+  generatedAt: new Date(NOW).toISOString(),
+  items: [],
+  page,
+  counts: { ...emptyCounts(), healthy: 30, warning: 2, critical: 1, unknown: 3 },
+  scopeTotal: 36,
+  ...over,
+})
 
 function fakeHttp(over: Partial<ConsoleHttp> = {}) {
   const http = {
@@ -31,6 +39,7 @@ function fakeHttp(over: Partial<ConsoleHttp> = {}) {
     getScopeOptions: vi.fn(async () => ({ customers: [], sites: [] })),
     listServers: vi.fn(async () => servers()),
     listContainers: vi.fn(async () => containers()),
+    listTargets: vi.fn(async () => targets()),
     getServer: vi.fn(),
     getServerSeries: vi.fn(),
     getFleetLoad: vi.fn(),
@@ -38,6 +47,7 @@ function fakeHttp(over: Partial<ConsoleHttp> = {}) {
   } as unknown as ConsoleHttp & {
     listServers: ReturnType<typeof vi.fn>
     listContainers: ReturnType<typeof vi.fn>
+    listTargets: ReturnType<typeof vi.fn>
   }
   return http
 }
@@ -60,9 +70,16 @@ describe('createConsoleApi', () => {
         'getOverviewSummary',
         'getScopeOptions',
         'getServer',
+        'getInterfaceSeries',
         'getServerSeries',
+        'getDevice',
+        'getDeviceSeries',
+        'getTarget',
+        'getTargetSeries',
         'listAttention',
         'listContainers',
+        'listDevices',
+        'listTargets',
         'listServers',
         'source',
       ].sort(),
@@ -77,10 +94,13 @@ describe('createConsoleApi', () => {
     const summary = await api.getOverviewSummary()
     expect(summary.servers).toMatchObject({ total: 13, counts: { healthy: 12, critical: 1 } })
     expect(summary.containers).toMatchObject({ total: 42, counts: { healthy: 40, idle: 2 } })
-    expect(summary).not.toHaveProperty('targets')
+    expect(summary.targets).toEqual({
+      total: 36,
+      counts: { healthy: 30, warning: 2, critical: 1, unknown: 3, idle: 0 },
+    })
   })
 
-  it('asks for the worst first of servers and containers, one worst-first page of each', async () => {
+  it('asks for the worst first of servers, containers and targets, one worst-first page of each', async () => {
     const http = fakeHttp()
     await createConsoleApi(http).getOverviewSummary({ scope: { customerId: 'c1', siteId: null } })
     const query = {
@@ -92,13 +112,15 @@ describe('createConsoleApi', () => {
     }
     expect(http.listServers).toHaveBeenCalledExactlyOnceWith(query)
     expect(http.listContainers).toHaveBeenCalledExactlyOnceWith(query)
+    expect(http.listTargets).toHaveBeenCalledExactlyOnceWith(query)
   })
 
-  it('answers the verdict, the queue and the health panel from one pair of requests', async () => {
+  it('answers the verdict, the queue and the health panel from one set of requests', async () => {
     const http = fakeHttp()
     const api = createConsoleApi(http)
     await Promise.all([api.getOverviewSummary(), api.listAttention(), api.getHealthBreakdown()])
     expect(http.listServers).toHaveBeenCalledTimes(1)
+    expect(http.listTargets).toHaveBeenCalledTimes(1)
     expect(http.listContainers).toHaveBeenCalledTimes(1)
   })
 
@@ -120,6 +142,16 @@ describe('createConsoleApi', () => {
     await expect(api.getOverviewSummary()).rejects.toThrow('503')
     await expect(api.getOverviewSummary()).resolves.toMatchObject({ servers: { total: 13 } })
     expect(listServers).toHaveBeenCalledTimes(2)
+  })
+
+  it('rejects the whole Overview when the targets cannot be read: no summary without them', async () => {
+    const http = fakeHttp({
+      listTargets: vi.fn().mockRejectedValue(new Error('targets down')),
+    } as Partial<ConsoleHttp>)
+    const api = createConsoleApi(http)
+    await expect(api.getOverviewSummary()).rejects.toThrow('targets down')
+    await expect(api.listAttention()).rejects.toThrow('targets down')
+    await expect(api.getHealthBreakdown()).rejects.toThrow('targets down')
   })
 
   it('never stands in for a failed list: a failure rejects, with no summary, queue or breakdown', async () => {

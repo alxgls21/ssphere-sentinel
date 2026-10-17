@@ -46,10 +46,10 @@ describe('availabilityOf', () => {
     })
 
     it('F. is never live for data the backend only stores, even if an entry claims it is connected', () => {
-      setFeature('network', { connected: true })
-      expect(FEATURES.network.backend).toBe('stored')
-      expect(availabilityOf('network', 'http')).toBe('not-connected')
-      expect(describeAvailability('network', 'http')).toBe(
+      setFeature('snmp-overview', { connected: true })
+      expect(FEATURES['snmp-overview'].backend).toBe('stored')
+      expect(availabilityOf('snmp-overview', 'http')).toBe('not-connected')
+      expect(describeAvailability('snmp-overview', 'http')).toBe(
         'Stored by the backend; the console API does not serve it yet',
       )
     })
@@ -64,47 +64,44 @@ describe('availabilityOf', () => {
       expect(isPlaceholder(id, 'http')).toBe(false)
     })
 
-    it('network is not connected, and its panels show a placeholder instead of demo figures', () => {
-      expect(availabilityOf('network', 'http')).toBe('not-connected')
-      expect(isPlanned('network')).toBe(false)
-      expect(isPlaceholder('network', 'http')).toBe(true)
-    })
+    it.each(['snmp-overview', 'network-overview'] as const)(
+      '%s is not connected, and its panels show a placeholder instead of demo figures',
+      (id) => {
+        expect(availabilityOf(id, 'http')).toBe('not-connected')
+        expect(isPlanned(id)).toBe(false)
+        expect(isPlaceholder(id, 'http')).toBe(true)
+      },
+    )
 
     it('says whether the console API serves it or only the backend stores it', () => {
       expect(describeAvailability('customers')).toBe(
         'Served by the console API; this screen is not connected to it yet',
       )
-      expect(describeAvailability('network')).toBe(
+      expect(describeAvailability('snmp-overview')).toBe(
         'Stored by the backend; the console API does not serve it yet',
       )
     })
   })
 
-  describe('SNMP: collected and stored, but not served to the console', () => {
-    it('A. is not connected when the collector is configured and there is no console API', () => {
-      setFeature('snmp', { configuration: 'complete' })
-      expect(availabilityOf('snmp', 'http')).toBe('not-connected')
+  describe('SNMP: served by the console API and read by the SNMP screens', () => {
+    it('is live over the console API, and never on demo data', () => {
+      expect(availabilityOf('snmp', 'http')).toBe('live')
+      expect(availabilityOf('snmp', 'mock')).toBe('not-connected')
       expect(isPlanned('snmp')).toBe(false)
+      expect(isPlaceholder('snmp', 'http')).toBe(false)
     })
 
-    it('B. is not connected when the collector is not configured either: connection comes first', () => {
-      setFeature('snmp', { configuration: 'missing' })
-      expect(availabilityOf('snmp', 'http')).toBe('not-connected')
-      expect(shortfallOf('snmp', 'http')).not.toBe('needs-configuration')
-    })
-
-    it('is not connected as shipped, with its prerequisites kept as information', () => {
-      expect(availabilityOf('snmp', 'http')).toBe('not-connected')
+    it('keeps its prerequisites as information: setting them up says nothing about the data', () => {
       expect(FEATURES.snmp.requires).toMatch(/credentials file/)
       expect(FEATURES.snmp.configuration).toBeUndefined()
-      // Its panels show an empty placeholder, not demo figures.
-      expect(isPlaceholder('snmp', 'http')).toBe(true)
+      setFeature('snmp', { configuration: 'missing' })
+      expect(availabilityOf('snmp', 'http')).toBe('needs-configuration')
     })
 
-    it('says plainly that configuring it does not make data appear in the console', () => {
-      expect(FEATURES.snmp.note).toMatch(
-        /configuring SNMP does not make data appear in this console/,
-      )
+    it('leaves the Overview’s SNMP figures apart: not served there yet, so a statement, never a number', () => {
+      expect(availabilityOf('snmp-overview', 'http')).toBe('not-connected')
+      expect(isPlaceholder('snmp-overview', 'http')).toBe(true)
+      expect(FEATURES['snmp-overview'].note).toMatch(/does not count devices yet/)
     })
   })
 
@@ -198,7 +195,7 @@ describe('the registry as shipped', () => {
     const live = (Object.keys(FEATURES) as FeatureId[]).filter(
       (id) => availabilityOf(id, 'http') === 'live',
     )
-    expect(live).toEqual(['overview', 'servers', 'docker', 'site-links'])
+    expect(live).toEqual(['overview', 'servers', 'docker', 'network', 'snmp', 'site-links'])
   })
 
   it('is live nowhere on demo data, whatever is connected', () => {
@@ -214,8 +211,21 @@ describe('the registry as shipped', () => {
   })
 
   it('counts as data only the features whose figures a screen shows', () => {
-    expect([...DATA_FEATURES].sort()).toEqual(['docker', 'overview', 'servers', 'site-links'])
-    for (const id of ['network', 'snmp', 'alerts', 'events', 'topology'] as const) {
+    expect([...DATA_FEATURES].sort()).toEqual([
+      'docker',
+      'network',
+      'overview',
+      'servers',
+      'site-links',
+      'snmp',
+    ])
+    for (const id of [
+      'network-overview',
+      'snmp-overview',
+      'alerts',
+      'events',
+      'topology',
+    ] as const) {
       expect(DATA_FEATURES).not.toContain(id)
     }
   })

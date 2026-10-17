@@ -3,10 +3,17 @@ import type {
   AttentionResult,
   ContainerList,
   ContainerListOptions,
+  DeviceDetail,
+  DeviceList,
+  DeviceListOptions,
+  DeviceSeries,
+  DeviceSeriesOptions,
   EntityIndex,
   FleetLoad,
   FleetLoadOptions,
   HealthBreakdown,
+  InterfaceSeries,
+  InterfaceSeriesOptions,
   OverviewSummary,
   RequestOptions,
   ScopeOptions,
@@ -15,6 +22,11 @@ import type {
   ServerListOptions,
   ServerSeries,
   ServerSeriesOptions,
+  TargetDetail,
+  TargetList,
+  TargetListOptions,
+  TargetSeries,
+  TargetSeriesOptions,
 } from './types'
 
 /**
@@ -55,6 +67,27 @@ export interface SentinelApi {
 
   /** One page of the containers of every visible server, searched, filtered, sorted and paged by the answerer. */
   listContainers(options?: ContainerListOptions): Promise<ContainerList>
+
+  /** One page of the network targets in scope, searched, filtered, sorted and paged by the answerer. */
+  listTargets(options?: TargetListOptions): Promise<TargetList>
+
+  /** One target with its recent measurements and what the last 24 hours observed. 404 for an unknown or hidden id. */
+  getTarget(id: string, options?: Pick<RequestOptions, 'signal'>): Promise<TargetDetail>
+
+  /** A target's latency and loss history over one of the supported ranges. */
+  getTargetSeries(options: TargetSeriesOptions): Promise<TargetSeries>
+
+  /** One page of the SNMP devices in scope, searched, filtered, sorted and paged by the answerer. */
+  listDevices(options?: DeviceListOptions): Promise<DeviceList>
+
+  /** One device with its recent polls and present interfaces. 404 for an unknown or hidden id. */
+  getDevice(id: string, options?: Pick<RequestOptions, 'signal'>): Promise<DeviceDetail>
+
+  /** A device's response-time and poll history over one of the supported ranges. */
+  getDeviceSeries(options: DeviceSeriesOptions): Promise<DeviceSeries>
+
+  /** An interface's traffic, error and discard history over one of the supported ranges. */
+  getInterfaceSeries(options: InterfaceSeriesOptions): Promise<InterfaceSeries>
 
   /** One server and its containers. Rejects with ApiError(404) for an unknown id. */
   getServer(id: string, options?: Pick<RequestOptions, 'signal'>): Promise<ServerDetail>

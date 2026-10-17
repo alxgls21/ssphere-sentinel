@@ -46,8 +46,8 @@ import { recallRow, rememberRow } from './returnFocus'
 import { useOrderLock } from './useOrderLock'
 import { useQueueNavigation, type QueueActions } from './useQueueNavigation'
 
-/** The queue lists the servers and containers the console API counts, and nothing else. */
-const FEATURES: readonly FeatureId[] = ['servers', 'overview']
+/** The queue lists the servers, containers and probe targets the console API counts, and nothing else. */
+const FEATURES: readonly FeatureId[] = ['servers', 'network', 'overview']
 const NO_ITEMS: QueueItem[] = []
 
 /** A mouse click focuses a button too; only keyboard focus (a ring on screen) is worth keeping. */
@@ -213,10 +213,14 @@ export function AttentionQueuePanel({ className }: { className?: string }) {
           {omitted} more need attention and are not listed:{' '}
           <Link to={viewTo('/servers')} className="text-primary hover:text-primary-hover">
             Servers
-          </Link>{' '}
-          and{' '}
+          </Link>
+          ,{' '}
           <Link to={viewTo('/docker')} className="text-primary hover:text-primary-hover">
             Docker
+          </Link>{' '}
+          and{' '}
+          <Link to={viewTo('/network')} className="text-primary hover:text-primary-hover">
+            Network
           </Link>{' '}
           list them all
         </span>

@@ -44,6 +44,49 @@ Container (``annotate_containers``)
     ``created`` and ``paused`` are ``idle`` (deliberately not running); a
     running container is ``healthy``.
 
+Network target (``annotate_targets``), in this order, the first that holds:
+    * disabled -> ``idle``
+    * no agent assigned, its agent disabled or silent for longer than
+      ``SENTINEL_OFFLINE_THRESHOLD`` (or never seen), no measurement at all, or
+      a latest measurement that is stale -> ``unknown``. Stale: measured (on
+      the agent's clock, the time of the probe) longer ago than three of the
+      target's intervals, and never less than the offline threshold. A
+      measurement delivered late from the agent's queue describes the past.
+    * the latest ``SENTINEL_THRESHOLD_TARGET_CRIT_FAILURES`` measurements all
+      failed -> ``critical``
+    * the latest failed (fewer failures in a row than that) -> ``warning``
+    * the latest succeeded with a latency or a loss at or above
+      ``SENTINEL_THRESHOLD_PROBE_LATENCY_WARN_MS`` /
+      ``SENTINEL_THRESHOLD_PROBE_LOSS_WARN_PERCENT`` -> ``warning``
+    * otherwise ``healthy``.
+
+    A measurement is the agent's probes of one round: it succeeded when at
+    least one probe got an answer, its latency is the mean of those that did,
+    its loss the share that did not (for TCP, failed connection attempts).
+    ``health_reason`` says which rule decided, for the UI's wording.
+
+SNMP device (``annotate_devices``), in this order, the first that holds:
+    * disabled -> ``idle``
+    * no agent assigned, or its agent disabled, silent for longer than the
+      offline threshold or never seen -> ``unknown``
+    * never polled, or the latest poll is stale -> ``unknown``. Stale: taken (on
+      the agent's clock, the time of the poll, not of its delivery) longer ago
+      than three poll intervals, and never less than the offline threshold.
+    * the latest poll could not reach the device -> ``critical``
+    * otherwise ``healthy``.
+
+    The interfaces do not change the device's health: a switch with unused
+    ports down is a healthy switch. They have their own (``interface_health``).
+
+SNMP interface (``interface_health``), the first that holds:
+    * its device is not ``healthy`` (unreachable, stale, not polled, disabled,
+      no agent) -> ``unknown``: the stored status is last-known, not current
+    * absent from the device's latest complete listing -> ``unknown``
+    * administratively down -> ``idle``
+    * administratively up and operationally up -> ``healthy``
+    * administratively up and operationally down or lowerLayerDown -> ``warning``
+    * anything else (testing, dormant, notPresent, unknown) -> ``unknown``
+
 ``now`` is passed in, once per request, so ``generatedAt`` and every
 comparison use the same instant.
 """
@@ -56,12 +99,17 @@ from django.db.models import (
     BooleanField,
     Case,
     CharField,
+    DateTimeField,
+    DurationField,
+    Exists,
     ExpressionWrapper,
     F,
     FloatField,
     IntegerField,
+    OuterRef,
     Q,
     QuerySet,
+    Subquery,
     Value,
     When,
 )
@@ -70,6 +118,18 @@ from django.db.models.functions import Floor, Greatest
 from apps.console.thresholds import thresholds
 from apps.infrastructure.liveness import offline_threshold_seconds
 from apps.infrastructure.models import DockerContainer, Server
+from apps.network.models import NetworkMeasurement
+
+# The UI's words for why a target has its status (``health_reason``).
+TARGET_REASONS = ("disabled", "no_agent", "agent_offline", "no_measurement", "stale", "failing", "failed", "latency", "loss", "ok")
+# How many target intervals a measurement stays current (never less than the offline threshold).
+STALE_INTERVALS = 3
+# The UI's words for why a device has its status, and why an interface has its.
+DEVICE_REASONS = ("disabled", "no_agent", "agent_offline", "no_poll", "stale", "unreachable", "ok")
+INTERFACE_REASONS = ("device_unavailable", "absent", "admin_down", "up", "down", "other")
+# IF-MIB values (``apps.snmp.models``): ifAdminStatus up/down, ifOperStatus up/down/lowerLayerDown.
+_ADMIN_UP, _ADMIN_DOWN = 1, 2
+_OPER_UP, _OPER_DOWN, _OPER_LOWER_LAYER_DOWN = 1, 2, 7
 
 # Severity ranks, worst first: the UI's display order (``compareSeverity``).
 CRITICAL, WARNING, UNKNOWN, IDLE, HEALTHY = 0, 1, 2, 3, 4
@@ -209,3 +269,154 @@ def annotate_containers(queryset: QuerySet, now: datetime) -> QuerySet:
             output_field=IntegerField(),
         ),
     )
+
+
+def latest_measurements() -> QuerySet:
+    """A target's measurements, newest first (the ``(target, -measured_at)`` index), for correlated subqueries."""
+    return NetworkMeasurement.objects.filter(target=OuterRef("pk")).order_by("-measured_at", "-id")
+
+
+def target_stale_cutoff(now: datetime) -> ExpressionWrapper:
+    """Per target: measurements taken before this are not current (see the module docstring)."""
+    window = Greatest(
+        ExpressionWrapper(
+            F("monitoring_interval_seconds") * Value(timedelta(seconds=STALE_INTERVALS), output_field=DurationField()),
+            output_field=DurationField(),
+        ),
+        Value(timedelta(seconds=offline_threshold_seconds()), output_field=DurationField()),
+        output_field=DurationField(),
+    )
+    return ExpressionWrapper(Value(now, output_field=DateTimeField()) - window, output_field=DateTimeField())
+
+
+def annotate_targets(queryset: QuerySet, now: datetime) -> QuerySet:
+    """Add the latest measurement (``latest_*``), ``measurement_fresh``, ``severity`` and ``health_reason`` to target rows.
+
+    Each value is one index lookup per target: the latest row, and for the
+    failures in a row the time of the N-th latest and whether any success is
+    at or after it (at most N rows), however long the target's history.
+    """
+    limits = thresholds()
+    failures = limits["targetCritFailures"]
+    latest = latest_measurements()
+    queryset = queryset.annotate(
+        latest_id=Subquery(latest.values("id")[:1]),
+        latest_measured_at=Subquery(latest.values("measured_at")[:1]),
+        latest_success=Subquery(latest.values("success")[:1]),
+        latest_latency_ms=Subquery(latest.values("latency_ms")[:1]),
+        latest_loss=Subquery(latest.values("packet_loss_percentage")[:1]),
+        _nth_measured_at=Subquery(latest.values("measured_at")[failures - 1 : failures]),
+        _stale_before=target_stale_cutoff(now),
+    )
+    queryset = queryset.annotate(
+        _success_since_nth=Exists(
+            NetworkMeasurement.objects.filter(
+                target=OuterRef("pk"), success=True, measured_at__gte=OuterRef("_nth_measured_at")
+            )
+        ),
+    )
+    cutoff = offline_cutoff(now)
+    no_agent = Q(assigned_agent__isnull=True)
+    agent_offline = (
+        Q(assigned_agent__enabled=False)
+        | Q(assigned_agent__last_seen_at__isnull=True)
+        | Q(assigned_agent__last_seen_at__lt=cutoff)
+    )
+    no_measurement = Q(latest_measured_at__isnull=True)
+    stale = Q(latest_measured_at__lt=F("_stale_before"))
+    failing = Q(_nth_measured_at__isnull=False, _success_since_nth=False)
+    failed = Q(latest_success=False)
+    slow = Q(latest_latency_ms__gte=limits["probeLatencyWarnMs"])
+    lossy = Q(latest_loss__gte=limits["probeLossWarnPercent"])
+    rules = (
+        (Q(enabled=False), IDLE, "disabled"),
+        (no_agent, UNKNOWN, "no_agent"),
+        (agent_offline, UNKNOWN, "agent_offline"),
+        (no_measurement, UNKNOWN, "no_measurement"),
+        (stale, UNKNOWN, "stale"),
+        (failing, CRITICAL, "failing"),
+        (failed, WARNING, "failed"),
+        (slow, WARNING, "latency"),
+        (lossy, WARNING, "loss"),
+    )
+    return queryset.annotate(
+        measurement_fresh=Case(
+            When(Q(latest_measured_at__gte=F("_stale_before")), then=Value(True)),
+            default=Value(False),
+            output_field=BooleanField(),
+        ),
+        severity=Case(
+            *(When(condition, then=_int(rank)) for condition, rank, _ in rules),
+            default=_int(HEALTHY),
+            output_field=IntegerField(),
+        ),
+        health_reason=Case(
+            *(When(condition, then=_text(reason)) for condition, _, reason in rules),
+            default=_text("ok"),
+            output_field=CharField(),
+        ),
+    )
+
+
+def stale_cutoff(now: datetime, interval_field: str) -> ExpressionWrapper:
+    """Per row: what was measured before this is not current (three of ``interval_field``, at least the offline threshold)."""
+    window = Greatest(
+        ExpressionWrapper(
+            F(interval_field) * Value(timedelta(seconds=STALE_INTERVALS), output_field=DurationField()),
+            output_field=DurationField(),
+        ),
+        Value(timedelta(seconds=offline_threshold_seconds()), output_field=DurationField()),
+        output_field=DurationField(),
+    )
+    return ExpressionWrapper(Value(now, output_field=DateTimeField()) - window, output_field=DateTimeField())
+
+
+def annotate_devices(queryset: QuerySet, now: datetime) -> QuerySet:
+    """Add ``poll_fresh``, ``stale_before``, ``severity`` and ``health_reason`` to SNMP device rows (they have a config)."""
+    cutoff = offline_cutoff(now)
+    queryset = queryset.annotate(stale_before=stale_cutoff(now, "snmp_config__poll_interval_seconds"))
+    agent_offline = (
+        Q(assigned_agent__enabled=False)
+        | Q(assigned_agent__last_seen_at__isnull=True)
+        | Q(assigned_agent__last_seen_at__lt=cutoff)
+    )
+    rules = (
+        (Q(enabled=False), IDLE, "disabled"),
+        (Q(assigned_agent__isnull=True), UNKNOWN, "no_agent"),
+        (agent_offline, UNKNOWN, "agent_offline"),
+        (Q(snmp_state__last_poll_at__isnull=True), UNKNOWN, "no_poll"),
+        (Q(snmp_state__last_poll_at__lt=F("stale_before")), UNKNOWN, "stale"),
+        (Q(snmp_state__reachable=False), CRITICAL, "unreachable"),
+    )
+    return queryset.annotate(
+        poll_fresh=Case(
+            When(Q(snmp_state__last_poll_at__gte=F("stale_before")), then=Value(True)),
+            default=Value(False),
+            output_field=BooleanField(),
+        ),
+        severity=Case(
+            *(When(condition, then=_int(rank)) for condition, rank, _ in rules),
+            default=_int(HEALTHY),
+            output_field=IntegerField(),
+        ),
+        health_reason=Case(
+            *(When(condition, then=_text(reason)) for condition, _, reason in rules),
+            default=_text("ok"),
+            output_field=CharField(),
+        ),
+    )
+
+
+def interface_health(*, device_healthy: bool, present: bool, admin_status: int, oper_status: int) -> tuple[str, str]:
+    """``(health, reason)`` of one interface (see the module docstring)."""
+    if not device_healthy:
+        return HEALTH_NAMES[UNKNOWN], "device_unavailable"
+    if not present:
+        return HEALTH_NAMES[UNKNOWN], "absent"
+    if admin_status == _ADMIN_DOWN:
+        return HEALTH_NAMES[IDLE], "admin_down"
+    if admin_status == _ADMIN_UP and oper_status == _OPER_UP:
+        return HEALTH_NAMES[HEALTHY], "up"
+    if admin_status == _ADMIN_UP and oper_status in (_OPER_DOWN, _OPER_LOWER_LAYER_DOWN):
+        return HEALTH_NAMES[WARNING], "down"
+    return HEALTH_NAMES[UNKNOWN], "other"

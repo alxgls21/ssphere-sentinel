@@ -37,6 +37,8 @@ export function kindLabel(item: QueueItem): string {
       return 'srv'
     case 'container':
       return 'ctr'
+    case 'target':
+      return 'net'
   }
 }
 
@@ -109,6 +111,7 @@ export function rowCopyText(item: QueueItem, nowMs: number): string {
 const SCREEN_ID = {
   server: 'servers',
   container: 'docker',
+  target: 'network',
 } as const satisfies Record<AttentionItem['kind'], NavItem['id']>
 
 const SCREEN_PATH = Object.fromEntries(NAV_ITEMS.map(({ id, path }) => [id, path])) as Record<

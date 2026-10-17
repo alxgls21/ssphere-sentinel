@@ -14,11 +14,13 @@ const counts = (over: Partial<StatusCounts> = {}): StatusCounts => ({
 function summary(
   servers: Partial<StatusCounts>,
   containers: Partial<StatusCounts> = {},
+  targets: Partial<StatusCounts> = {},
 ): OverviewSummary {
   return {
     generatedAt: '2026-10-12T14:05:12Z',
     servers: { total: 0, counts: counts(servers) },
     containers: { total: 0, counts: counts(containers) },
+    targets: { total: 0, counts: counts(targets) },
   }
 }
 

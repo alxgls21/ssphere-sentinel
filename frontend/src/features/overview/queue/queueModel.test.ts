@@ -52,6 +52,13 @@ describe('rows', () => {
     expect(kindLabel(gateway)).toBe('srv')
   })
 
+  it('names a probe target net, and opens it through the Network screen', () => {
+    const target = makeItem({ kind: 'target', id: 'tgt-1' })
+    expect(kindLabel(target)).toBe('net')
+    expect(entityTarget(target)).toEqual({ pathname: '/network', extra: { focus: 'tgt-1' } })
+    expect(rowKey(target)).toBe('target:tgt-1')
+  })
+
   it('keys a row by kind and id, so two kinds may reuse an id', () => {
     expect(rowKey(makeItem({ kind: 'server', id: '7' }))).not.toBe(
       rowKey(makeItem({ kind: 'container', id: '7' })),

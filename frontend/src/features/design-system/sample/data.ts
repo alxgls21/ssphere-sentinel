@@ -36,6 +36,7 @@ export function summaryOf({ servers, containers }: Estate): OverviewSummary {
     generatedAt: new Date(SAMPLE_TIME).toISOString(),
     servers: { total: total(servers), counts: servers },
     containers: { total: total(containers), counts: containers },
+    targets: { total: 0, counts: counts() },
   }
 }
 

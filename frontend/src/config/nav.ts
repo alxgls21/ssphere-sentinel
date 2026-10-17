@@ -68,9 +68,9 @@ export const NAV_ITEMS: readonly NavItem[] = [
     path: '/network',
     icon: Network,
     chord: 'n',
-    description: 'ICMP and TCP probes, latency and packet loss',
+    description: 'ICMP and TCP probes, latency and loss',
     feature: 'network',
-    designed: false,
+    designed: true,
   },
   {
     id: 'snmp',
@@ -80,7 +80,7 @@ export const NAV_ITEMS: readonly NavItem[] = [
     chord: 'p',
     description: 'Network devices, interfaces and bandwidth',
     feature: 'snmp',
-    designed: false,
+    designed: true,
   },
   {
     id: 'topology',

@@ -152,7 +152,7 @@ describe('StatTile (placeholder)', () => {
   const planned = (over: Partial<StatTileProps> = {}) =>
     tile({
       label: 'Devices',
-      features: 'snmp',
+      features: 'snmp-overview',
       to: '/snmp',
       content: content({
         summary: '12 in inventory, no SNMP data',
@@ -163,7 +163,7 @@ describe('StatTile (placeholder)', () => {
       ...over,
     })
 
-  it('is not a link and, for SNMP, reads as not connected to the console: configuring it does not enable it here', () => {
+  it('is not a link and, for the Overview’s SNMP, reads as not connected to the console', () => {
     const { container } = renderApp(planned())
     expect(screen.queryByRole('link')).not.toBeInTheDocument()
     expect(screen.getByText('Not connected to the console yet')).toBeInTheDocument()
@@ -183,7 +183,7 @@ describe('StatTile (placeholder)', () => {
     renderApp(planned())
     expect(screen.getByText('Demo')).toHaveAttribute(
       'title',
-      expect.stringContaining('configuring SNMP does not make data appear in this console'),
+      expect.stringContaining('the Overview does not count devices yet'),
     )
     expect(screen.queryByText('mock')).not.toBeInTheDocument()
   })

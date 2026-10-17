@@ -246,6 +246,53 @@ describe('abort', () => {
   })
 })
 
+describe('network targets in the sample fleet', () => {
+  it('monitors none: an empty inventory, never an invented target', async () => {
+    const list = await apiFor('normal').listTargets()
+    expect(list.items).toEqual([])
+    expect(list.scopeTotal).toBe(0)
+    expect(list.counts).toEqual({ healthy: 0, warning: 0, critical: 0, unknown: 0, idle: 0 })
+    expect(list.page).toMatchObject({ number: 1, total: 0, pages: 1 })
+  })
+
+  it('has no target to open or to draw: a 404, as for an unknown or hidden one', async () => {
+    const api = apiFor('normal')
+    await expect(api.getTarget('anything')).rejects.toMatchObject({ status: 404 })
+    await expect(api.getTargetSeries({ targetId: 'anything', range: '1h' })).rejects.toMatchObject({
+      status: 404,
+    })
+  })
+
+  it('fails like every other method in the failing scenarios', async () => {
+    await expect(apiFor('error').listTargets()).rejects.toMatchObject({ status: 503 })
+  })
+})
+
+describe('SNMP devices in the sample fleet', () => {
+  it('monitors none: an empty inventory, never an invented device', async () => {
+    const list = await apiFor('normal').listDevices()
+    expect(list.items).toEqual([])
+    expect(list.scopeTotal).toBe(0)
+    expect(list.counts).toEqual({ healthy: 0, warning: 0, critical: 0, unknown: 0, idle: 0 })
+    expect(list.page).toMatchObject({ number: 1, total: 0, pages: 1 })
+  })
+
+  it('has no device to open and no history to draw: a 404, as for an unknown or hidden one', async () => {
+    const api = apiFor('normal')
+    await expect(api.getDevice('anything')).rejects.toMatchObject({ status: 404 })
+    await expect(api.getDeviceSeries({ deviceId: 'anything', range: '1h' })).rejects.toMatchObject({
+      status: 404,
+    })
+    await expect(
+      api.getInterfaceSeries({ deviceId: 'anything', ifIndex: 1, range: '1h' }),
+    ).rejects.toMatchObject({ status: 404 })
+  })
+
+  it('fails like every other method in the failing scenarios', async () => {
+    await expect(apiFor('error').listDevices()).rejects.toMatchObject({ status: 503 })
+  })
+})
+
 describe('determinism and the clock', () => {
   it('answers every method identically for the same clock', async () => {
     const a = apiFor('normal')

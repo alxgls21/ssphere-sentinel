@@ -12,9 +12,12 @@ import type {
   SiteCoverage,
   SiteEntity,
   StatusCounts,
+  TargetList,
+  TargetListItem,
 } from '@/api/types'
 import { EMPTY, formatAge, formatPercent } from './format'
 import { readingOf } from './serverList'
+import { reasonDetail, reasonWord } from './targets'
 import { compareSeverity, emptyCounts } from './status'
 
 /**
@@ -53,11 +56,16 @@ function serverCounts(servers: ServerList): StatusCounts {
   return offline === undefined ? { ...servers.counts } : { ...servers.counts, offline }
 }
 
-export function summaryOf(servers: ServerList, containers: ContainerList): OverviewSummary {
+export function summaryOf(
+  servers: ServerList,
+  containers: ContainerList,
+  targets: TargetList,
+): OverviewSummary {
   return {
     generatedAt: servers.generatedAt,
     servers: { total: servers.scopeTotal, counts: serverCounts(servers) },
     containers: { total: containers.scopeTotal, counts: { ...containers.counts } },
+    targets: { total: targets.scopeTotal, counts: { ...targets.counts } },
   }
 }
 
@@ -175,13 +183,34 @@ const RANK: Record<AttentionItem['severity'], number> = {
   idle: 3,
 }
 
+function targetItem(item: TargetListItem, nowMs: number): AttentionItem {
+  const { target, latest } = item
+  return {
+    kind: 'target',
+    id: target.id,
+    name: target.name,
+    // The API's health and reason, worded; nothing is worked out again from the measurement.
+    severity: item.health as AttentionItem['severity'],
+    stateLabel: reasonWord(item.reason, target.protocol),
+    detail: reasonDetail(item, nowMs),
+    ...(item.customerName ? { customerName: item.customerName } : {}),
+    ...(item.siteName ? { siteName: item.siteName } : {}),
+    // Dated by the newest measurement, whatever its age: the row never claims a start for the problem.
+    ageIso: latest ? latest.measuredAt : null,
+    ageBasis: latest ? 'last-measured' : null,
+  }
+}
+
 /**
  * What needs a look, worst first: critical, warning, unknown, then (when asked for) idle
- * containers, each group by name. Idle ones are counted, not listed, unless `includeIdle`.
+ * containers and disabled targets, each group by name. Idle ones are counted, not listed, unless
+ * `includeIdle`. The rows are the worst of each list the API returns; `omitted` and `hiddenIdle`
+ * count what exists beyond them, from the API's own counts.
  */
 export function attentionOf(
   servers: ServerList,
   containers: ContainerList,
+  targets: TargetList,
   { includeIdle = false, now }: { includeIdle?: boolean; now: number },
 ): AttentionResult {
   const items: AttentionItem[] = [
@@ -193,6 +222,11 @@ export function attentionOf(
         (item) => SERVER_PROBLEMS.includes(item.status) || (includeIdle && item.status === 'idle'),
       )
       .map(containerItem),
+    ...targets.items
+      .filter(
+        (item) => SERVER_PROBLEMS.includes(item.health) || (includeIdle && item.health === 'idle'),
+      )
+      .map((item) => targetItem(item, now)),
   ].sort(
     (a, b) =>
       RANK[a.severity] - RANK[b.severity] || a.name.localeCompare(b.name, 'en', { numeric: true }),
@@ -201,26 +235,37 @@ export function attentionOf(
     items.filter((item) => severity(item.severity)).length
   const omitted = Math.max(
     0,
-    problemsOf(servers.counts) + problemsOf(containers.counts) - listed((s) => s !== 'idle'),
+    problemsOf(servers.counts) +
+      problemsOf(containers.counts) +
+      problemsOf(targets.counts) -
+      listed((s) => s !== 'idle'),
   )
   return {
     generatedAt: servers.generatedAt,
     items,
-    // Idle containers the queue does not list: all of them unless asked for, then those beyond the rows.
-    hiddenIdle: Math.max(0, containers.counts.idle - listed((s) => s === 'idle')),
+    // Idle containers and targets the queue does not list: all of them unless asked for, then those beyond the rows.
+    hiddenIdle: Math.max(
+      0,
+      containers.counts.idle + targets.counts.idle - listed((s) => s === 'idle'),
+    ),
     ...(omitted > 0 ? { omitted } : {}),
   }
 }
 
 /* ------------------------------------------------------------------ health */
 
-const KIND_ORDER = { server: 0, container: 1 } as const
+const KIND_ORDER: Record<SiteEntity['kind'], number> = {
+  server: 0,
+  container: 1,
+  target: 2,
+  device: 3,
+}
 
 const sortEntities = (entities: SiteEntity[]): SiteEntity[] =>
   entities.sort(
     (a, b) =>
       compareSeverity(a.status, b.status) ||
-      KIND_ORDER[a.kind as 'server' | 'container'] - KIND_ORDER[b.kind as 'server' | 'container'] ||
+      KIND_ORDER[a.kind] - KIND_ORDER[b.kind] ||
       a.name.localeCompare(b.name, 'en', { numeric: true }),
   )
 
@@ -232,30 +277,35 @@ const needsALook = (status: HealthStatus): boolean =>
 
 /**
  * How much of the fleet the per-site rows can rest on. Whole lists: all of it. Otherwise the
- * rows are the worst first, so when every problem of both lists is among them the sites'
+ * rows are the worst first, so when every problem of every list is among them the sites'
  * problems are exact (the healthy and idle members per site are not known); when they are not,
  * no per-site figure would be true.
  */
-function coverageOf(servers: ServerList, containers: ContainerList): SiteCoverage {
-  const whole =
-    servers.items.length >= servers.scopeTotal && containers.items.length >= containers.scopeTotal
-  if (whole) return 'all'
-  const problemsFit =
-    problemsOf(servers.counts) <= servers.items.length &&
-    problemsOf(containers.counts) <= containers.items.length
-  return problemsFit ? 'problems' : 'none'
+function coverageOf(
+  servers: ServerList,
+  containers: ContainerList,
+  targets: TargetList,
+): SiteCoverage {
+  const lists = [servers, containers, targets]
+  if (lists.every((list) => list.items.length >= list.scopeTotal)) return 'all'
+  return lists.every((list) => problemsOf(list.counts) <= list.items.length) ? 'problems' : 'none'
 }
 
 /**
- * Composition by domain, and the sites with their servers and containers. Probe targets and
- * SNMP devices are `planned` rows that say so: the console API serves neither. The domain counts
- * are the API's and cover the whole scope. The sites are built from the rows, so they say how far
- * those reach (`siteCoverage`): every member, only the ones that need a look, or nothing. A
- * container is placed by the site of its server, and a server with no site is on none; a problem
- * whose server is not among the rows cannot be placed, and then nothing is claimed for the sites.
+ * Composition by domain, and the sites with their servers, containers and probe targets. SNMP
+ * devices are a `planned` row that says so: the console API serves none. The domain counts are the
+ * API's and cover the whole scope. The sites are built from the rows, so they say how far those
+ * reach (`siteCoverage`): every member, only the ones that need a look, or nothing. A container is
+ * placed by the site of its server and a target by its own site; a server or target with no site is
+ * on none. A problem container whose server is not among the rows cannot be placed, and then
+ * nothing is claimed for the sites.
  */
-export function healthOf(servers: ServerList, containers: ContainerList): HealthBreakdown {
-  let siteCoverage = coverageOf(servers, containers)
+export function healthOf(
+  servers: ServerList,
+  containers: ContainerList,
+  targets: TargetList,
+): HealthBreakdown {
+  let siteCoverage = coverageOf(servers, containers, targets)
   const onlyProblems = siteCoverage === 'problems'
   const siteOf = new Map(servers.items.map((item) => [item.server.id, item.server.siteId]))
   const sites = new Map<string, SiteBreakdown>()
@@ -291,6 +341,16 @@ export function healthOf(servers: ServerList, containers: ContainerList): Health
       status: item.status,
     })
   }
+  for (const item of targets.items) {
+    const { target } = item
+    if (target.siteId === null || (onlyProblems && !needsALook(item.health))) continue
+    place(target.siteId, item.customerName ?? '', item.siteName ?? '', {
+      id: target.id,
+      kind: 'target',
+      name: target.name,
+      status: item.health,
+    })
+  }
   const ranked = [...sites.values()].map((site) => ({
     ...site,
     entities: sortEntities(site.entities),
@@ -307,7 +367,7 @@ export function healthOf(servers: ServerList, containers: ContainerList): Health
     domains: [
       { domain: 'servers', label: 'SERVERS', counts: serverCounts(servers) },
       { domain: 'containers', label: 'CONTAINERS', counts: { ...containers.counts } },
-      { domain: 'targets', label: 'NET TARGETS', counts: emptyCounts(), planned: true },
+      { domain: 'targets', label: 'NET TARGETS', counts: { ...targets.counts } },
       { domain: 'snmp', label: 'SNMP DEVS', counts: emptyCounts(), planned: true },
     ],
     sites: siteCoverage === 'none' ? [] : ranked,

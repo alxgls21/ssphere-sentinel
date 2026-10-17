@@ -1,6 +1,6 @@
 import { render } from '@testing-library/react'
 import type { ReactElement, ReactNode } from 'react'
-import { MemoryRouter } from 'react-router'
+import { MemoryRouter, type InitialEntry } from 'react-router'
 import { vi } from 'vitest'
 import type { SentinelApi } from '@/api/client'
 import { ApiContext } from '@/api/context'
@@ -25,6 +25,13 @@ export function createTestApi(overrides: Partial<SentinelApi> = {}): SentinelApi
     getEntityIndex: unstubbed('getEntityIndex'),
     listServers: unstubbed('listServers'),
     listContainers: unstubbed('listContainers'),
+    listTargets: unstubbed('listTargets'),
+    getTarget: unstubbed('getTarget'),
+    getTargetSeries: unstubbed('getTargetSeries'),
+    listDevices: unstubbed('listDevices'),
+    getDevice: unstubbed('getDevice'),
+    getDeviceSeries: unstubbed('getDeviceSeries'),
+    getInterfaceSeries: unstubbed('getInterfaceSeries'),
     getServer: unstubbed('getServer'),
     getServerSeries: unstubbed('getServerSeries'),
     ...overrides,
@@ -67,7 +74,7 @@ export function createFakeShell(overrides: Partial<ShellApi> = {}): ShellApi {
 
 interface RenderAppOptions {
   api?: SentinelApi
-  route?: string
+  route?: InitialEntry
   /** Include the shared SummaryProvider (needs getOverviewSummary stubbed). */
   withSummary?: boolean
   /** Poll interval; the default never fires during a test. */

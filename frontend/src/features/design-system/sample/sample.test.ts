@@ -30,7 +30,8 @@ describe('sample summaries', () => {
     const { servers, containers } = SAMPLE_SUMMARIES.critical
     expect(servers.total).toBe(16)
     expect(containers.total).toBe(68)
-    expect(SAMPLE_SUMMARIES.critical).not.toHaveProperty('targets')
+    // The gallery's fleets hold no probe target.
+    expect(SAMPLE_SUMMARIES.critical.targets.total).toBe(0)
     expect(SAMPLE_SUMMARIES.critical).not.toHaveProperty('devices')
   })
 

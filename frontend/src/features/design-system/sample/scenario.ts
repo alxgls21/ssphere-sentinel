@@ -26,6 +26,13 @@ export const GALLERY_API: SentinelApi = {
   getEntityIndex: refuse('getEntityIndex'),
   listServers: refuse('listServers'),
   listContainers: refuse('listContainers'),
+  listTargets: refuse('listTargets'),
+  getTarget: refuse('getTarget'),
+  getTargetSeries: refuse('getTargetSeries'),
+  listDevices: refuse('listDevices'),
+  getDevice: refuse('getDevice'),
+  getDeviceSeries: refuse('getDeviceSeries'),
+  getInterfaceSeries: refuse('getInterfaceSeries'),
   getServer: refuse('getServer'),
   getServerSeries: refuse('getServerSeries'),
 }

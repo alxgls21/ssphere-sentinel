@@ -19,13 +19,17 @@ describe('HeroStrip', () => {
     expect(labels).toEqual(['Servers', 'Containers', 'Net targets', 'Devices', 'Alerts'])
   })
 
-  it('links the two tiles the console API serves and leaves the other three inert', () => {
+  it('links the three tiles the console API counts and leaves the other two inert', () => {
     renderHero(<HeroStrip />)
     const links = within(strip()).getAllByRole('link')
-    expect(links.map((link) => link.getAttribute('href'))).toEqual(['/servers', '/docker'])
-    expect(strip().querySelectorAll('[data-planned="true"]')).toHaveLength(3)
+    expect(links.map((link) => link.getAttribute('href'))).toEqual([
+      '/servers',
+      '/docker',
+      '/network',
+    ])
+    expect(strip().querySelectorAll('[data-planned="true"]')).toHaveLength(2)
     expect(screen.getAllByText('Planned')).toHaveLength(1)
-    expect(screen.getAllByText('mock')).toHaveLength(2)
+    expect(screen.getAllByText('mock')).toHaveLength(3)
   })
 
   it('has no sparkline and no figure on the tiles of what the console API does not serve', () => {
@@ -36,11 +40,11 @@ describe('HeroStrip', () => {
     }
   })
 
-  it('tabs through the verdict and the two links, and not through the planned tiles', async () => {
+  it('tabs through the verdict and the three links, and not through the planned tiles', async () => {
     renderHero(<HeroStrip />)
     await userEvent.tab()
     expect(screen.getByRole('button', { name: /^Fleet status:/ })).toHaveFocus()
-    for (const name of [/^Servers:/, /^Containers:/]) {
+    for (const name of [/^Servers:/, /^Containers:/, /^Net targets:/]) {
       await userEvent.tab()
       expect(screen.getByRole('link', { name })).toHaveFocus()
     }
@@ -77,8 +81,7 @@ describe('HeroStrip', () => {
     expect(tile(/^Servers:/)).toHaveClass('md:col-span-2', 'lg:col-span-1')
     expect(tile(/^Containers:/)).toHaveClass('md:col-span-2', 'lg:col-span-1')
     // Full width on a phone, so the two planned tiles share the last row.
-    const targets = within(grid).getByText('Net targets').closest('[data-planned="true"]')
-    expect(targets).toHaveClass('col-span-2', 'lg:col-span-1')
+    expect(tile(/^Net targets:/)).toHaveClass('col-span-2', 'lg:col-span-1')
   })
 
   it('shows the verdict and the summary-backed tiles in their error state, the others unchanged', async () => {
@@ -93,8 +96,8 @@ describe('HeroStrip', () => {
       }),
     })
     expect(within(strip()).getByRole('button', { name: /no data/ })).toBeInTheDocument()
-    expect(within(strip()).getAllByRole('alert')).toHaveLength(2)
-    expect(within(strip()).getAllByText('Not served by the console API')).toHaveLength(2)
+    expect(within(strip()).getAllByRole('alert')).toHaveLength(3)
+    expect(within(strip()).getAllByText('Not served by the console API')).toHaveLength(1)
     await userEvent.click(within(strip()).getByRole('button', { name: 'Retry loading Servers' }))
     expect(refetch).toHaveBeenCalledOnce()
   })

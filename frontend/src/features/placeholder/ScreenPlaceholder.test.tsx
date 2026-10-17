@@ -70,28 +70,6 @@ describe('ScreenPlaceholder', () => {
       expect(text()).not.toContain('Not implemented in the backend')
     })
 
-    it('Network: stored, and not served to the console yet', () => {
-      renderApp(<ScreenPlaceholder item={byId('network')} />)
-      expect(text()).toContain('Stored by the backend; the console API does not serve it yet')
-      expect(text()).toContain('A console API for probe targets and their measurements.')
-      // Probe targets can be placed on a site, so a missing site link is not a gap.
-      expect(text()).not.toContain('Site link')
-    })
-
-    it('SNMP: stored but not served to the console; prerequisites do not enable it here', () => {
-      renderApp(<ScreenPlaceholder item={byId('snmp')} />)
-      expect(text()).toContain('Stored by the backend; the console API does not serve it yet')
-      // The chip is NOT CONNECTED, never NEEDS SETUP: nothing says that setup is missing.
-      expect(screen.getByText('Not connected', { selector: 'span' })).toBeInTheDocument()
-      expect(screen.queryByText('Needs setup')).toBeNull()
-      expect(screen.getByRole('heading', { name: 'Prerequisites' })).toBeInTheDocument()
-      expect(text()).toContain('credentials file on the agent host')
-      expect(text()).toContain('Doing this does not show data in this console')
-      expect(text()).toContain('configuring SNMP does not make data appear in this console')
-      expect(text()).not.toContain('collector is not implemented')
-      expect(text()).not.toContain('Not implemented in the backend')
-    })
-
     it('Topology and Alerts: genuinely not implemented, and say so', () => {
       for (const id of ['topology', 'alerts']) {
         const { unmount } = renderApp(<ScreenPlaceholder item={byId(id)} />)
@@ -114,17 +92,6 @@ describe('ScreenPlaceholder', () => {
     })
   })
 
-  it('mentions docs/snmp.md for SNMP as plain text in the repository, not as a link', () => {
-    const snmp = NAV_ITEMS.find((item) => item.id === 'snmp') as (typeof NAV_ITEMS)[number]
-    renderApp(<ScreenPlaceholder item={snmp} />)
-    const doc = screen.getByText('docs/snmp.md')
-    expect(doc.tagName).toBe('CODE')
-    expect(doc.closest('a')).toBeNull()
-    expect(screen.getAllByRole('link').map((link) => link.textContent)).toEqual([
-      'Back to Overview',
-    ])
-  })
-
   it('mentions documentation only where a document exists', () => {
     const documented = new Set<string>()
     for (const item of SCREENS) {
@@ -132,7 +99,7 @@ describe('ScreenPlaceholder', () => {
       if (screen.queryByRole('heading', { name: 'Documentation' })) documented.add(item.id)
       unmount()
     }
-    expect([...documented].sort()).toEqual(['docker', 'network', 'snmp'])
+    expect([...documented].sort()).toEqual([])
   })
 
   it('links back to Overview, keeping the scope and range of the view', () => {
