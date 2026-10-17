@@ -768,11 +768,16 @@ Restore into the existing database (stops the application meanwhile):
 
 ```bash
 docker compose stop web
-docker compose exec -T db sh -c 'pg_restore -U "$POSTGRES_USER" -d "$POSTGRES_DB" --clean --if-exists' \
+docker compose exec -T db sh -c \
+    'pg_restore -U "$POSTGRES_USER" -d "$POSTGRES_DB" --clean --if-exists --single-transaction --exit-on-error' \
     < sentinel-<timestamp>.dump
 scripts/postgres-preflight.sh
 docker compose up -d
 ```
+
+The restore is one transaction and stops at the first error: if it fails, it
+changes nothing (the database is as it was before it began). Start the
+application only when it ended without an error.
 
 Use `docker compose up -d` to start the application again, not
 `docker compose start web`: `start` waits for the exited `migrate` container,

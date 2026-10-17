@@ -9,7 +9,7 @@ from collections.abc import Callable
 from typing import Any
 
 from agent.config import Config, uses_insecure_http
-from agent.docker_discovery import collect_docker
+from agent.docker_discovery import MAX_CONTAINERS, collect_docker
 from agent.errors import HeartbeatError, RequestTooLargeError
 from agent.http_client import MAX_REQUEST_BYTES, encoded_size, post_json, size_with_member
 from agent.network_delivery import DeliveryBatch, NetworkDelivery
@@ -108,7 +108,8 @@ def send_heartbeat(
     request has it) and the liveness every heartbeat carries.
 
     Only what fits a request even alone can be sent. A Docker report that does
-    not (with the telemetry) is left out of the heartbeat, in the log as an
+    not (with the telemetry), or that lists more containers than Sentinel
+    accepts in one report, is left out of the heartbeat, in the log as an
     error: the rest goes on. A telemetry or network section that does not fit
     fails the heartbeat before anything is sent (``RequestTooLargeError``), and
     nothing queued is touched.
@@ -219,8 +220,22 @@ def _fit_snapshots(payload: dict[str, Any]) -> tuple[dict[str, Any], int]:
     Within the limit they are sent as they are. Otherwise the Docker report is the only part
     that can be at fault (telemetry is a few hundred bytes): if the request fits without it, the
     report is left out, whole, because a snapshot cut down would mark the containers it no
-    longer lists as absent. If it does not fit without it either, nothing can be sent.
+    longer lists as absent. If it does not fit without it either, nothing can be sent. A report
+    of more containers than Sentinel accepts is left out the same way, whatever its size:
+    Sentinel would reject it whole.
     """
+    docker = payload.get("docker")
+    containers = docker.get("containers") if isinstance(docker, dict) else None
+    if isinstance(containers, list) and len(containers) > MAX_CONTAINERS:
+        logger.error(
+            "The Docker report cannot be sent: it lists %d containers, more than the %d Sentinel "
+            "accepts in one report, and a report is never cut down. It is left out of this "
+            "heartbeat, so the console shows this host's containers as unknown until it fits again "
+            "(fewer containers)",
+            len(containers),
+            MAX_CONTAINERS,
+        )
+        payload = {key: value for key, value in payload.items() if key != "docker"}
     size = encoded_size(payload)
     if size <= MAX_REQUEST_BYTES:
         return payload, size

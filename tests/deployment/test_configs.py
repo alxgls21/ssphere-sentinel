@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import os
 import re
+import shutil
 import stat
 import subprocess
 import tempfile
@@ -582,3 +583,52 @@ class InitializationGuardTests(unittest.TestCase):
         for key in ("entrypoint", "command"):
             self.assertNotIn(key, db)
         self.assertNotIn("SENTINEL_POSTGRES_INITIALIZE", db["environment"])
+
+
+class OperatorGuideTests(unittest.TestCase):
+    """What the guides have an operator run: restores that cannot half succeed, the whole cleanup, and copies of
+    the environment that git never takes."""
+
+    GUIDES = [ROOT / "README.md", *sorted((ROOT / "docs").glob("*.md"))]
+
+    def lines(self):
+        """Every line of the guides, a command's continuation lines joined to it."""
+        for path in self.GUIDES:
+            for line in re.sub(r"\\\n\s*", " ", path.read_text()).splitlines():
+                yield path.name, line
+
+    def test_every_restore_into_a_database_is_one_transaction_that_stops_at_the_first_error(self):
+        restores = [(name, line.strip()) for name, line in self.lines()
+                    if re.search(r"pg_restore\b[^`]*\s(-d|--dbname)\b", line)]
+        self.assertGreaterEqual(len(restores), 2)
+        for name, line in restores:
+            with self.subTest(guide=name, command=line):
+                self.assertIn("--single-transaction", line)
+                self.assertIn("--exit-on-error", line)
+
+    def test_every_cleanup_command_is_in_the_daily_set_of_both_guides(self):
+        commands = sorted(path.stem for path in ROOT.glob("apps/*/management/commands/purge_*.py"))
+        self.assertIn("purge_telemetry_samples", commands)
+
+        def section(path, heading, level):
+            text = path.read_text()
+            start = text.index(heading)
+            end = text.find("\n" + "#" * level + " ", start + len(heading))
+            return text[start:end if end != -1 else None]
+
+        readme = section(ROOT / "README.md", "## Data retention and history", 2)
+        retention = section(ROOT / "docs" / "server-deployment.md", "### Retention", 3)
+        for command in commands:
+            with self.subTest(command):
+                self.assertIn(f"python manage.py {command}\n", readme)
+                self.assertIn(f"docker compose exec -T web python manage.py {command}\n", retention)
+
+    def test_copies_of_the_environment_the_guides_make_are_never_committed(self):
+        copies = {copy for _, line in self.lines() for copy in re.findall(r"\bcp \.env (\S+)", line)}
+        self.assertLessEqual({"env.legacy.backup", "env.pg16.backup"}, copies)
+        if shutil.which("git") is None or not (ROOT / ".git").exists():
+            self.skipTest("not a git checkout")
+        for name in sorted(copies | {".env", ".env.bootstrap", ".env.migrate", ".env.tunnel"}):
+            with self.subTest(name):
+                ignored = subprocess.run(["git", "-C", str(ROOT), "check-ignore", "-q", "--no-index", name], check=False)
+                self.assertEqual(ignored.returncode, 0, f"git would take {name}, which holds the secrets of .env")

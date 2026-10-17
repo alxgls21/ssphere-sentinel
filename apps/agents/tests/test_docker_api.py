@@ -1,7 +1,7 @@
 import json
 from datetime import timedelta
 
-from django.test import Client, TestCase
+from django.test import Client, SimpleTestCase, TestCase
 from django.urls import reverse
 from django.utils import timezone
 
@@ -301,3 +301,11 @@ class AgentDockerAPITests(TestCase):
         self.assertEqual(ServerTelemetry.objects.count(), 1)
         self.assertEqual(ServerTelemetry.objects.get().cpu_percent, 33.0)
         self.assertFalse(DockerHostState.objects.exists())
+
+
+class ContainerLimitTests(SimpleTestCase):
+    def test_the_agent_holds_its_reports_to_the_same_container_limit(self):
+        # A longer report is left out by the agent (agent/heartbeat.py) instead of being sent to be rejected.
+        from agent.docker_discovery import MAX_CONTAINERS
+
+        self.assertEqual(MAX_CONTAINERS, MAX_CONTAINERS_PER_REPORT)
