@@ -32,6 +32,7 @@ export function makeSummary(over: Partial<OverviewSummary> = {}): OverviewSummar
     servers: { total: 16, counts: counts({ healthy: 13, warning: 2, critical: 1 }) },
     containers: { total: 68, counts: counts({ healthy: 62, warning: 1, critical: 2, idle: 3 }) },
     targets: { total: 0, counts: counts() },
+    devices: { total: 0, counts: counts() },
     ...over,
   }
 }

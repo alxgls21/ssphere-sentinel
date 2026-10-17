@@ -39,6 +39,8 @@ export function kindLabel(item: QueueItem): string {
       return 'ctr'
     case 'target':
       return 'net'
+    case 'device':
+      return 'dev'
   }
 }
 
@@ -112,6 +114,7 @@ const SCREEN_ID = {
   server: 'servers',
   container: 'docker',
   target: 'network',
+  device: 'snmp',
 } as const satisfies Record<AttentionItem['kind'], NavItem['id']>
 
 const SCREEN_PATH = Object.fromEntries(NAV_ITEMS.map(({ id, path }) => [id, path])) as Record<
@@ -119,12 +122,18 @@ const SCREEN_PATH = Object.fromEntries(NAV_ITEMS.map(({ id, path }) => [id, path
   string
 >
 
-/** Where Enter goes: the owning screen, told which entity to focus (merge into the view with useViewTo). */
+/**
+ * Where Enter goes (merge into the view with useViewTo): the owning screen, told which entity to
+ * focus, except a device, which has a page of its own and opens on it.
+ */
 export function entityTarget(item: AttentionItem): {
   pathname: string
-  extra: { focus: string }
+  extra: Record<string, string>
 } {
-  return { pathname: SCREEN_PATH[SCREEN_ID[item.kind]], extra: { focus: item.id } }
+  const screen = SCREEN_PATH[SCREEN_ID[item.kind]]
+  if (item.kind === 'device')
+    return { pathname: `${screen}/${encodeURIComponent(item.id)}`, extra: {} }
+  return { pathname: screen, extra: { focus: item.id } }
 }
 
 /* ------------------------------------------------------------------ filter */

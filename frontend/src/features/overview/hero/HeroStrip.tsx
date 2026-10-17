@@ -1,5 +1,5 @@
-import { ContainersTile, ServersTile, TargetsTile } from './DomainTiles'
-import { AlertsTile, DevicesTile } from './PlannedTiles'
+import { ContainersTile, DevicesTile, ServersTile, TargetsTile } from './DomainTiles'
+import { AlertsTile } from './PlannedTiles'
 import { VerdictHero } from './VerdictHero'
 
 /**
@@ -9,8 +9,8 @@ import { VerdictHero } from './VerdictHero'
  *   lg         verdict full width on one 88px line, then five tiles at 1fr
  *   md         six columns: verdict full width, tiles 3 + 2
  *   below md   two columns, the verdict hidden (the page shows the compact
- *              VerdictBar instead), net targets full width so the two planned
- *              tiles close the grid together
+ *              VerdictBar instead), net targets full width so devices and
+ *              alerts close the grid together
  *
  * Row heights are fixed so no state (loading, error, stale) can move the page.
  */

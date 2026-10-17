@@ -121,6 +121,23 @@ export function TargetsTile({ className }: TileProps) {
   )
 }
 
+export function DevicesTile({ className }: TileProps) {
+  return (
+    <DomainTile
+      label="Devices"
+      features={['snmp', 'overview']}
+      route="snmp"
+      word="ok"
+      pick={({ devices }) => ({
+        value: devices.counts.healthy,
+        total: devices.total,
+        counts: devices.counts,
+      })}
+      className={className}
+    />
+  )
+}
+
 export function ContainersTile({ className }: TileProps) {
   return (
     <DomainTile

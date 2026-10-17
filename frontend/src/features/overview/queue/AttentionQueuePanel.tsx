@@ -46,8 +46,8 @@ import { recallRow, rememberRow } from './returnFocus'
 import { useOrderLock } from './useOrderLock'
 import { useQueueNavigation, type QueueActions } from './useQueueNavigation'
 
-/** The queue lists the servers, containers and probe targets the console API counts, and nothing else. */
-const FEATURES: readonly FeatureId[] = ['servers', 'network', 'overview']
+/** The queue lists the servers, containers, probe targets and SNMP devices the console API counts, and nothing else. */
+const FEATURES: readonly FeatureId[] = ['servers', 'network', 'snmp', 'overview']
 const NO_ITEMS: QueueItem[] = []
 
 /** A mouse click focuses a button too; only keyboard focus (a ring on screen) is worth keeping. */
@@ -217,10 +217,14 @@ export function AttentionQueuePanel({ className }: { className?: string }) {
           ,{' '}
           <Link to={viewTo('/docker')} className="text-primary hover:text-primary-hover">
             Docker
-          </Link>{' '}
-          and{' '}
+          </Link>
+          ,{' '}
           <Link to={viewTo('/network')} className="text-primary hover:text-primary-hover">
             Network
+          </Link>{' '}
+          and{' '}
+          <Link to={viewTo('/snmp')} className="text-primary hover:text-primary-hover">
+            SNMP
           </Link>{' '}
           list them all
         </span>

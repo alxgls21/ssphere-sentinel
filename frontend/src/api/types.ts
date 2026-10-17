@@ -166,12 +166,14 @@ export interface OverviewSummary {
   servers: { total: number; counts: StatusCounts }
   containers: { total: number; counts: StatusCounts }
   targets: { total: number; counts: StatusCounts }
+  /** `total` is every SNMP device in scope; `counts` is the devices by health, never their interfaces. */
+  devices: { total: number; counts: StatusCounts }
 }
 
 export type AttentionSeverity = 'critical' | 'warning' | 'unknown' | 'idle'
 
 export interface AttentionItem {
-  kind: 'server' | 'container' | 'target'
+  kind: 'server' | 'container' | 'target' | 'device'
   id: string
   name: string
   severity: AttentionSeverity
@@ -186,7 +188,7 @@ export interface AttentionItem {
   siteName?: string
   /** When the problem is known to have started or last been seen. null = no timestamp exists. */
   ageIso: Iso | null
-  ageBasis: 'last-seen' | 'last-measured' | 'failing-since' | null
+  ageBasis: 'last-seen' | 'last-measured' | 'last-polled' | 'failing-since' | null
 }
 
 export interface AttentionOptions extends RequestOptions {
@@ -248,12 +250,29 @@ export interface FleetLoad {
   excluded: string[]
 }
 
+/**
+ * The interfaces of the SNMP devices the rows hold, counted by the interface's own health: up is
+ * healthy, down a warning, admin down idle, and an interface of a device that is not current
+ * unknown. The API counts interfaces per device, not for the scope, so this is a sum of the rows:
+ * the whole scope when `complete`, otherwise only the first `devices` of `of` devices.
+ */
+export interface InterfaceFigures {
+  total: number
+  counts: StatusCounts
+  /** Devices whose interfaces are summed. */
+  devices: number
+  /** Devices in the scope. */
+  of: number
+  /** Every device in scope is among the rows: the sum is the scope's. */
+  complete: boolean
+}
+
 export interface DomainBreakdown {
   domain: 'servers' | 'containers' | 'targets' | 'snmp'
   label: string
   counts: StatusCounts
-  /** True when the console API serves nothing for this domain (probe targets, SNMP): no figure is shown. */
-  planned?: boolean
+  /** SNMP devices only: their interfaces, and how much of the scope that sum reaches. */
+  interfaces?: InterfaceFigures
 }
 
 export interface SiteEntity {

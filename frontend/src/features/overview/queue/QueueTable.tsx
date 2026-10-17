@@ -26,6 +26,7 @@ const NO_HISTORY =
 const AGE_BASIS: Record<NonNullable<QueueItem['ageBasis']>, string> = {
   'last-seen': 'Last seen',
   'last-measured': 'Last measured',
+  'last-polled': 'Last polled',
   'failing-since': 'Failing since',
 }
 

@@ -32,7 +32,11 @@ describe('sample summaries', () => {
     expect(containers.total).toBe(68)
     // The gallery's fleets hold no probe target.
     expect(SAMPLE_SUMMARIES.critical.targets.total).toBe(0)
-    expect(SAMPLE_SUMMARIES.critical).not.toHaveProperty('devices')
+    // ... and no SNMP device.
+    expect(SAMPLE_SUMMARIES.critical.devices).toEqual({
+      total: 0,
+      counts: expect.objectContaining({ healthy: 0 }),
+    })
   })
 
   it('count an offline server once: it is already inside critical', () => {

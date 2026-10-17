@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest'
 import type {
   ContainerList,
   ContainerListItem,
+  DeviceList,
+  DeviceListItem,
   HealthStatus,
   Server,
   ServerList,
@@ -11,6 +13,7 @@ import type {
   TargetListItem,
 } from '@/api/types'
 import { item as targetItem, measurement } from '@/features/network/testing'
+import { item as deviceItem, list as snmpList } from '@/features/snmp/testing'
 import { OVERVIEW_PAGE_SIZE, attentionOf, healthOf, summaryOf } from './overview'
 import { countStatuses, emptyCounts } from './status'
 
@@ -112,6 +115,13 @@ const targetList = (items: TargetListItem[], over: Partial<TargetList> = {}): Ta
 })
 const noTargets = targetList([])
 
+const deviceList = (items: DeviceListItem[], over: Partial<DeviceList> = {}): DeviceList => ({
+  ...snmpList(items),
+  page: page(items.length),
+  ...over,
+})
+const noDevices = deviceList([])
+
 const STORY_SERVERS = [
   serverItem('pir-fs-01', 'critical', { status: 'offline', lastSeenAt: iso(14) }),
   serverItem('ath-db-01', 'warning', {
@@ -131,20 +141,36 @@ describe('summaryOf', () => {
   it('takes the totals and counts as the console API gave them', () => {
     const servers = serverList(STORY_SERVERS, { scopeTotal: 16 })
     const containers = containerList(STORY_CONTAINERS, { scopeTotal: 68 })
-    const summary = summaryOf(servers, containers, noTargets)
+    const summary = summaryOf(servers, containers, noTargets, noDevices)
     expect(summary.generatedAt).toBe(servers.generatedAt)
     expect(summary.servers.total).toBe(16)
     expect(summary.containers.total).toBe(68)
     expect(summary.containers.counts).toEqual(containers.counts)
   })
 
-  it('carries servers, containers and targets and nothing else: no invented device or alert figure', () => {
-    const summary = summaryOf(serverList(STORY_SERVERS), containerList(STORY_CONTAINERS), noTargets)
-    expect(Object.keys(summary).sort()).toEqual(['containers', 'generatedAt', 'servers', 'targets'])
+  it('carries servers, containers, targets and devices and nothing else: no invented alert figure', () => {
+    const summary = summaryOf(
+      serverList(STORY_SERVERS),
+      containerList(STORY_CONTAINERS),
+      noTargets,
+      noDevices,
+    )
+    expect(Object.keys(summary).sort()).toEqual([
+      'containers',
+      'devices',
+      'generatedAt',
+      'servers',
+      'targets',
+    ])
   })
 
   it('notes the servers that stopped reporting, inside critical, when every critical one is in hand', () => {
-    const { servers } = summaryOf(serverList(STORY_SERVERS), containerList([]), noTargets)
+    const { servers } = summaryOf(
+      serverList(STORY_SERVERS),
+      containerList([]),
+      noTargets,
+      noDevices,
+    )
     expect(servers.counts).toMatchObject({ critical: 1, offline: 1 })
   })
 
@@ -152,9 +178,9 @@ describe('summaryOf', () => {
     const servers = serverList(STORY_SERVERS, {
       counts: { ...countStatuses(STORY_SERVERS.map((item) => item.health)), critical: 500 },
     })
-    expect(summaryOf(servers, containerList([]), noTargets).servers.counts).not.toHaveProperty(
-      'offline',
-    )
+    expect(
+      summaryOf(servers, containerList([]), noTargets, noDevices).servers.counts,
+    ).not.toHaveProperty('offline')
   })
 
   it('notes no offline server where none is offline', () => {
@@ -162,13 +188,14 @@ describe('summaryOf', () => {
       serverList([serverItem('a', 'critical'), serverItem('b', 'healthy')]),
       containerList([]),
       noTargets,
+      noDevices,
     )
     expect(servers.counts).not.toHaveProperty('offline')
   })
 
   it('does not alias the lists: changing the summary leaves them alone', () => {
     const servers = serverList(STORY_SERVERS)
-    const summary = summaryOf(servers, containerList([]), noTargets)
+    const summary = summaryOf(servers, containerList([]), noTargets, noDevices)
     summary.servers.counts.healthy = 99
     expect(servers.counts.healthy).not.toBe(99)
   })
@@ -176,7 +203,7 @@ describe('summaryOf', () => {
 
 describe('attentionOf', () => {
   const attention = (includeIdle = false) =>
-    attentionOf(serverList(STORY_SERVERS), containerList(STORY_CONTAINERS), noTargets, {
+    attentionOf(serverList(STORY_SERVERS), containerList(STORY_CONTAINERS), noTargets, noDevices, {
       includeIdle,
       now: NOW,
     })
@@ -243,9 +270,15 @@ describe('attentionOf', () => {
       telemetry: { ...server('x').telemetry!, stale: true, receivedAt: iso(30) },
     })
     const missing = serverItem('missing-1', 'unknown', { telemetry: null })
-    const { items } = attentionOf(serverList([stale, missing]), containerList([]), noTargets, {
-      now: NOW,
-    })
+    const { items } = attentionOf(
+      serverList([stale, missing]),
+      containerList([]),
+      noTargets,
+      noDevices,
+      {
+        now: NOW,
+      },
+    )
     expect(items.find((item) => item.name === 'stale-1')).toMatchObject({
       stateLabel: 'NO READING',
       detail: 'reading is stale · last received 30m ago',
@@ -280,13 +313,17 @@ describe('attentionOf', () => {
       {},
       { customerName: undefined, siteName: undefined },
     )
-    const { items } = attentionOf(serverList([lonely]), containerList([]), noTargets, { now: NOW })
+    const { items } = attentionOf(serverList([lonely]), containerList([]), noTargets, noDevices, {
+      now: NOW,
+    })
     expect(items[0]).not.toHaveProperty('customerName')
     expect(items[0]).not.toHaveProperty('siteName')
   })
 
   it('is empty, with nothing hidden, when nothing is monitored', () => {
-    expect(attentionOf(serverList([]), containerList([]), noTargets, { now: NOW })).toMatchObject({
+    expect(
+      attentionOf(serverList([]), containerList([]), noTargets, noDevices, { now: NOW }),
+    ).toMatchObject({
       items: [],
       hiddenIdle: 0,
     })
@@ -317,7 +354,7 @@ describe('what the worst-first rows cannot reach', () => {
 
   it('counts the problems the queue does not list, from the API’s own counts', () => {
     const { servers, boxes } = big(200, { serversTotal: 600, containersTotal: 1 })
-    const result = attentionOf(servers, boxes, noTargets, { now: NOW })
+    const result = attentionOf(servers, boxes, noTargets, noDevices, { now: NOW })
     expect(result.items).toHaveLength(201)
     // 250 critical servers and 1 warning container exist; 200 + 1 are listed.
     expect(result.omitted).toBe(50)
@@ -328,6 +365,7 @@ describe('what the worst-first rows cannot reach', () => {
       serverList(STORY_SERVERS),
       containerList(STORY_CONTAINERS),
       noTargets,
+      noDevices,
       {
         now: NOW,
       },
@@ -341,18 +379,20 @@ describe('what the worst-first rows cannot reach', () => {
       counts: { ...emptyCounts(), idle: 5, healthy: 20 },
       scopeTotal: 25,
     })
-    const asked = attentionOf(serverList([]), containers, noTargets, {
+    const asked = attentionOf(serverList([]), containers, noTargets, noDevices, {
       includeIdle: true,
       now: NOW,
     })
     expect(asked.items).toHaveLength(1)
     expect(asked.hiddenIdle).toBe(4)
-    expect(attentionOf(serverList([]), containers, noTargets, { now: NOW }).hiddenIdle).toBe(5)
+    expect(
+      attentionOf(serverList([]), containers, noTargets, noDevices, { now: NOW }).hiddenIdle,
+    ).toBe(5)
   })
 
   it('gives every site its figures when both lists are whole', () => {
     expect(
-      healthOf(serverList(STORY_SERVERS), containerList(STORY_CONTAINERS), noTargets),
+      healthOf(serverList(STORY_SERVERS), containerList(STORY_CONTAINERS), noTargets, noDevices),
     ).not.toHaveProperty('siteCoverage')
   })
 
@@ -365,7 +405,7 @@ describe('what the worst-first rows cannot reach', () => {
       counts: { ...emptyCounts(), warning: 1, healthy: 49 },
       scopeTotal: 50,
     })
-    const health = healthOf(servers, containers, noTargets)
+    const health = healthOf(servers, containers, noTargets, noDevices)
     expect(health.siteCoverage).toBe('problems')
     expect(health.sites).toHaveLength(1)
     // The healthy server in the rows is not counted either: its site's healthy members are not known.
@@ -377,7 +417,7 @@ describe('what the worst-first rows cannot reach', () => {
 
   it('gives no per-site figure when the problems alone do not fit the rows', () => {
     const { servers, boxes } = big(200, { serversTotal: 600, containersTotal: 1 })
-    const health = healthOf(servers, boxes, noTargets)
+    const health = healthOf(servers, boxes, noTargets, noDevices)
     expect(health.siteCoverage).toBe('none')
     expect(health.sites).toEqual([])
     expect(health.domains[0]?.counts.critical).toBe(250)
@@ -392,7 +432,7 @@ describe('what the worst-first rows cannot reach', () => {
       counts: { ...emptyCounts(), warning: 1, healthy: 9 },
       scopeTotal: 10,
     })
-    const health = healthOf(servers, containers, noTargets)
+    const health = healthOf(servers, containers, noTargets, noDevices)
     expect(health.siteCoverage).toBe('none')
     expect(health.sites).toEqual([])
   })
@@ -400,9 +440,9 @@ describe('what the worst-first rows cannot reach', () => {
 
 describe('healthOf', () => {
   const health = () =>
-    healthOf(serverList(STORY_SERVERS), containerList(STORY_CONTAINERS), noTargets)
+    healthOf(serverList(STORY_SERVERS), containerList(STORY_CONTAINERS), noTargets, noDevices)
 
-  it('lists the four domains, with only SNMP, which the console API does not serve, planned and empty', () => {
+  it('lists the four domains, every one counted from the API', () => {
     const { domains } = health()
     expect(domains.map((domain) => domain.domain)).toEqual([
       'servers',
@@ -410,16 +450,16 @@ describe('healthOf', () => {
       'targets',
       'snmp',
     ])
-    for (const counted of domains.slice(0, 3)) expect(counted).not.toHaveProperty('planned')
-    expect(domains[3]).toMatchObject({ planned: true })
+    // Without a device in the lists, the SNMP row counts none.
     expect(domains[3]?.counts).toEqual(emptyCounts())
+    expect(domains[3]).not.toHaveProperty('interfaces')
   })
 
   it('counts the first two domains as the summary does', () => {
     const servers = serverList(STORY_SERVERS)
     const containers = containerList(STORY_CONTAINERS)
-    const summary = summaryOf(servers, containers, noTargets)
-    const { domains } = healthOf(servers, containers, noTargets)
+    const summary = summaryOf(servers, containers, noTargets, noDevices)
+    const { domains } = healthOf(servers, containers, noTargets, noDevices)
     expect(domains[0]?.counts).toEqual(summary.servers.counts)
     expect(domains[1]?.counts).toEqual(summary.containers.counts)
   })
@@ -454,7 +494,9 @@ describe('healthOf', () => {
   it('leaves a server with no site, and its containers, on no site', () => {
     const lonely = serverItem('lonely', 'critical', { siteId: null })
     const orphan = containerItem('orphan', 'warning', 'lonely')
-    expect(healthOf(serverList([lonely]), containerList([orphan]), noTargets).sites).toEqual([])
+    expect(
+      healthOf(serverList([lonely]), containerList([orphan]), noTargets, noDevices).sites,
+    ).toEqual([])
   })
 
   it('ranks the sites by their critical, then warning entities', () => {
@@ -470,7 +512,7 @@ describe('healthOf', () => {
       { siteId: 'site-l' },
       { siteName: 'Loud', customerName: 'Acme' },
     )
-    const { sites } = healthOf(serverList([quiet, loud]), containerList([]), noTargets)
+    const { sites } = healthOf(serverList([quiet, loud]), containerList([]), noTargets, noDevices)
     expect(sites.map((site) => site.siteName)).toEqual(['Loud', 'Quiet'])
   })
 })
@@ -481,8 +523,8 @@ describe('the overview page size', () => {
   })
 
   it('keeps the counts a type of StatusCounts', () => {
-    const counts: StatusCounts = summaryOf(serverList([]), containerList([]), noTargets).servers
-      .counts
+    const counts: StatusCounts = summaryOf(serverList([]), containerList([]), noTargets, noDevices)
+      .servers.counts
     expect(counts).toEqual(emptyCounts())
   })
 })
@@ -525,7 +567,7 @@ describe('probe targets in the Overview', () => {
     })
 
   it('counts the targets from the API’s own total and counts, not from the rows', () => {
-    const summary = summaryOf(serverList([]), containerList([]), targets())
+    const summary = summaryOf(serverList([]), containerList([]), targets(), noDevices)
     expect(summary.targets).toEqual({
       total: 60,
       counts: { healthy: 52, warning: 2, critical: 1, unknown: 4, idle: 1 },
@@ -533,7 +575,9 @@ describe('probe targets in the Overview', () => {
   })
 
   it('lists the targets that need a look in the queue with the API’s health and reason', () => {
-    const { items } = attentionOf(serverList([]), containerList([]), targets(), { now: NOW })
+    const { items } = attentionOf(serverList([]), containerList([]), targets(), noDevices, {
+      now: NOW,
+    })
     expect(items.map((entry) => `${entry.severity}:${entry.name}`)).toEqual([
       'critical:pir-gateway',
       'warning:api-https',
@@ -551,7 +595,9 @@ describe('probe targets in the Overview', () => {
   })
 
   it('words a row from the reason and the newest measurement, per protocol, without a limit it does not have', () => {
-    const { items } = attentionOf(serverList([]), containerList([]), targets(), { now: NOW })
+    const { items } = attentionOf(serverList([]), containerList([]), targets(), noDevices, {
+      now: NOW,
+    })
     const detail = (name: string) => items.find((entry) => entry.name === name)?.detail
     expect(detail('pir-gateway')).toBe('ICMP 10.20.0.1 · latest measurements all failed: timeout')
     expect(detail('cdn-edge')).toBe('TCP 443 api.example.net:443 · latency 212 ms')
@@ -569,17 +615,25 @@ describe('probe targets in the Overview', () => {
       reason: 'no_measurement',
       latest: null,
     })
-    const { items } = attentionOf(serverList([]), containerList([]), targetList([never]), {
-      now: NOW,
-    })
+    const { items } = attentionOf(
+      serverList([]),
+      containerList([]),
+      targetList([never]),
+      noDevices,
+      {
+        now: NOW,
+      },
+    )
     expect(items[0]).toMatchObject({ ageIso: null, ageBasis: null, stateLabel: 'NO DATA' })
   })
 
   it('hides disabled targets behind the idle count, and lists them last when asked', () => {
-    const hidden = attentionOf(serverList([]), containerList([]), targets(), { now: NOW })
+    const hidden = attentionOf(serverList([]), containerList([]), targets(), noDevices, {
+      now: NOW,
+    })
     expect(hidden.hiddenIdle).toBe(1)
     expect(hidden.items.some((entry) => entry.severity === 'idle')).toBe(false)
-    const asked = attentionOf(serverList([]), containerList([]), targets(), {
+    const asked = attentionOf(serverList([]), containerList([]), targets(), noDevices, {
       includeIdle: true,
       now: NOW,
     })
@@ -601,19 +655,20 @@ describe('probe targets in the Overview', () => {
       counts: { ...emptyCounts(), critical: 1, warning: 3, healthy: 20 },
       scopeTotal: 24,
     })
-    const result = attentionOf(servers, containerList([]), some, { now: NOW })
+    const result = attentionOf(servers, containerList([]), some, noDevices, { now: NOW })
     expect(result.items).toHaveLength(3)
     expect(result.omitted).toBe(2 + 2)
   })
 
-  it('shows the targets domain row as counted, from the API, and leaves SNMP planned', () => {
-    const { domains } = healthOf(serverList([]), containerList([]), targets())
+  it('shows the targets domain row as counted, from the API, and the SNMP row as the devices counted', () => {
+    const { domains } = healthOf(serverList([]), containerList([]), targets(), noDevices)
     expect(domains[2]).toEqual({
       domain: 'targets',
       label: 'NET TARGETS',
       counts: { healthy: 52, warning: 2, critical: 1, unknown: 4, idle: 1 },
     })
-    expect(domains[3]).toMatchObject({ domain: 'snmp', planned: true })
+    // No device in the lists: the SNMP row is a count of none, never a figure made up.
+    expect(domains[3]).toEqual({ domain: 'snmp', label: 'SNMP DEVS', counts: emptyCounts() })
   })
 
   it('puts a target on its own site, beside the servers and containers there', () => {
@@ -626,6 +681,7 @@ describe('probe targets in the Overview', () => {
       serverList(STORY_SERVERS),
       containerList(STORY_CONTAINERS),
       targetList([here(TARGETS[0]!), here(TARGETS[5]!)]),
+      noDevices,
     )
     expect(health).not.toHaveProperty('siteCoverage')
     const names = health.sites[0]?.entities.map((entity) => `${entity.kind}:${entity.name}`)
@@ -639,7 +695,9 @@ describe('probe targets in the Overview', () => {
 
   it('leaves a target with no site on none', () => {
     const lonely = targetItem({ id: 't-no-site', name: 'free', reason: 'failing', siteName: null })
-    expect(healthOf(serverList([]), containerList([]), targetList([lonely])).sites).toEqual([])
+    expect(
+      healthOf(serverList([]), containerList([]), targetList([lonely]), noDevices).sites,
+    ).toEqual([])
   })
 
   it('is not whole while the targets are cut: only the problems are listed per site, and not the healthy', () => {
@@ -647,7 +705,7 @@ describe('probe targets in the Overview', () => {
       scopeTotal: 90,
       counts: { ...emptyCounts(), critical: 1, healthy: 89 },
     })
-    const health = healthOf(serverList([]), containerList([]), cut)
+    const health = healthOf(serverList([]), containerList([]), cut, noDevices)
     expect(health.siteCoverage).toBe('problems')
     expect(health.sites[0]?.entities.map((entity) => entity.name)).toEqual(['pir-gateway'])
     // The domain row stays the API's whole count.
@@ -662,7 +720,7 @@ describe('probe targets in the Overview', () => {
       scopeTotal: 400,
       counts: { ...emptyCounts(), critical: 300, healthy: 100 },
     })
-    const health = healthOf(serverList([]), containerList([]), overflow)
+    const health = healthOf(serverList([]), containerList([]), overflow, noDevices)
     expect(health.siteCoverage).toBe('none')
     expect(health.sites).toEqual([])
     expect(health.domains[2]?.counts.critical).toBe(300)
@@ -670,15 +728,281 @@ describe('probe targets in the Overview', () => {
 
   it('counts into the verdict through the summary, by the API’s counts', async () => {
     const { computeVerdict } = await import('./verdict')
-    const summary = summaryOf(serverList(STORY_SERVERS), containerList(STORY_CONTAINERS), targets())
+    const summary = summaryOf(
+      serverList(STORY_SERVERS),
+      containerList(STORY_CONTAINERS),
+      targets(),
+      noDevices,
+    )
     const verdict = computeVerdict(summary, 'live')
     const without = computeVerdict(
-      summaryOf(serverList(STORY_SERVERS), containerList(STORY_CONTAINERS), noTargets),
+      summaryOf(serverList(STORY_SERVERS), containerList(STORY_CONTAINERS), noTargets, noDevices),
       'live',
     )
     // 1 critical + 2 warning + 4 unknown targets more need attention, of 59 more counted.
     expect(verdict.needAttention).toBe((without.needAttention ?? 0) + 7)
     expect(verdict.monitored).toBe(without.monitored + 59)
     expect(verdict.idle).toBe(without.idle + 1)
+  })
+})
+
+describe('SNMP devices in the Overview', () => {
+  const DEVICES = [
+    deviceItem({
+      id: 'd-down',
+      name: 'pir-core',
+      reason: 'unreachable',
+      error: 'timeout',
+      interfaces: { unknown: 48 },
+    }),
+    deviceItem({
+      id: 'd-agent',
+      name: 'edge-sw',
+      reason: 'agent_offline',
+      agent: 'offline',
+      interfaces: { unknown: 24 },
+    }),
+    deviceItem({ id: 'd-stale', name: 'old-router', reason: 'stale', interfaces: { unknown: 8 } }),
+    deviceItem({ id: 'd-new', name: 'fresh-sw', reason: 'no_poll', interfaces: {} }),
+    deviceItem({ id: 'd-off', name: 'spare-fw', reason: 'disabled', interfaces: {} }),
+    // Healthy, whatever its ports do: the API decides a device from its polls alone.
+    deviceItem({
+      id: 'd-ok',
+      name: 'ath-core-sw',
+      reason: 'ok',
+      interfaces: { healthy: 20, idle: 3, warning: 5 },
+    }),
+    deviceItem({ id: 'd-ok2', name: 'ath-dist-sw', reason: 'ok', interfaces: { healthy: 10 } }),
+  ]
+  const devices = () =>
+    deviceList(DEVICES, {
+      scopeTotal: 120,
+      counts: { ...emptyCounts(), healthy: 100, critical: 3, unknown: 9, idle: 8 },
+    })
+  const attention = (list: DeviceList, includeIdle = false) =>
+    attentionOf(serverList([]), containerList([]), noTargets, list, { includeIdle, now: NOW })
+
+  it('counts the devices from the API’s own total and counts, not from the rows', () => {
+    const summary = summaryOf(serverList([]), containerList([]), noTargets, devices())
+    expect(summary.devices).toEqual({
+      total: 120,
+      counts: { healthy: 100, warning: 0, critical: 3, unknown: 9, idle: 8 },
+    })
+  })
+
+  it('says no device, never a made-up one, for a scope without devices', () => {
+    const summary = summaryOf(serverList([]), containerList([]), noTargets, noDevices)
+    expect(summary.devices).toEqual({ total: 0, counts: emptyCounts() })
+  })
+
+  it('lists the devices that need a look, worst first, with the API’s health and reason', () => {
+    const { items } = attention(devices())
+    expect(items.map((entry) => `${entry.severity}:${entry.name}`)).toEqual([
+      'critical:pir-core',
+      'unknown:edge-sw',
+      'unknown:fresh-sw',
+      'unknown:old-router',
+    ])
+    expect(items[0]).toMatchObject({
+      kind: 'device',
+      id: 'd-down',
+      stateLabel: 'UNREACHABLE',
+      siteName: 'Athens DC',
+      customerName: 'Meridian',
+      ageBasis: 'last-polled',
+    })
+    expect(items.map((entry) => entry.stateLabel)).toEqual([
+      'UNREACHABLE',
+      'AGENT OFFLINE',
+      'NOT POLLED',
+      'STALE',
+    ])
+  })
+
+  it('does not list a healthy device because its interfaces are down', () => {
+    const { items } = attention(devices())
+    expect(items.map((entry) => entry.id)).not.toContain('d-ok')
+    expect(items.map((entry) => entry.id)).not.toContain('d-ok2')
+  })
+
+  it('words a row from the reason, and never gives a stale or unreachable device a present response', () => {
+    const { items } = attention(devices())
+    const detail = (name: string) => items.find((entry) => entry.name === name)?.detail
+    expect(detail('pir-core')).toBe('Switch 10.20.0.250 · no response: timeout')
+    expect(detail('edge-sw')).toBe('Switch 10.20.0.250 · agent not reporting')
+    expect(detail('fresh-sw')).toBe('Switch 10.20.0.250 · never polled')
+    expect(detail('old-router')).toMatch(/last polled 2h ago, not current/)
+  })
+
+  it('dates a row by its latest poll, whatever its age, and gives a never-polled device no date', () => {
+    const { items } = attention(devices())
+    const down = items.find((entry) => entry.name === 'pir-core')
+    expect(down?.ageIso).toBe(DEVICES[0]?.state?.lastPollAt)
+    expect(items.find((entry) => entry.name === 'old-router')?.ageIso).toBe(
+      DEVICES[2]?.state?.lastPollAt,
+    )
+    expect(items.find((entry) => entry.name === 'fresh-sw')).toMatchObject({
+      ageIso: null,
+      ageBasis: null,
+    })
+  })
+
+  it('hides disabled devices behind the idle count, and lists them last when asked', () => {
+    const hidden = attention(devices())
+    expect(hidden.hiddenIdle).toBe(8)
+    expect(hidden.items.some((entry) => entry.severity === 'idle')).toBe(false)
+    const asked = attention(devices(), true)
+    expect(asked.items.at(-1)).toMatchObject({
+      name: 'spare-fw',
+      severity: 'idle',
+      stateLabel: 'DISABLED',
+    })
+    // One of the eight is in the rows: seven are beyond them.
+    expect(asked.hiddenIdle).toBe(7)
+  })
+
+  it('counts the device problems beyond the rows from the API’s counts, with the other lists', () => {
+    // 12 device problems exist (3 critical, 9 unknown) and 4 are listed.
+    expect(attention(devices()).omitted).toBe(8)
+    const whole = deviceList(DEVICES.slice(0, 4))
+    expect(attention(whole).omitted).toBeUndefined()
+  })
+
+  it('shows the SNMP domain row as the devices counted, from the API', () => {
+    const { domains } = healthOf(serverList([]), containerList([]), noTargets, devices())
+    expect(domains[3]).toMatchObject({
+      domain: 'snmp',
+      label: 'SNMP DEVS',
+      counts: { healthy: 100, warning: 0, critical: 3, unknown: 9, idle: 8 },
+    })
+    expect(domains[3]).not.toHaveProperty('planned')
+  })
+
+  describe('their interfaces', () => {
+    it('are summed from the rows, and labelled partial while the rows are not every device', () => {
+      const { domains } = healthOf(serverList([]), containerList([]), noTargets, devices())
+      expect(domains[3]?.interfaces).toEqual({
+        // 48 + 24 + 8 + 28 + 10 across the seven rows.
+        total: 48 + 24 + 8 + 28 + 10,
+        counts: { healthy: 30, warning: 5, critical: 0, unknown: 80, idle: 3 },
+        devices: 7,
+        of: 120,
+        complete: false,
+      })
+    })
+
+    it('are the scope’s only when every device of the scope is among the rows', () => {
+      const { domains } = healthOf(
+        serverList([]),
+        containerList([]),
+        noTargets,
+        deviceList(DEVICES),
+      )
+      expect(domains[3]?.interfaces).toMatchObject({ devices: 7, of: 7, complete: true })
+    })
+
+    it('are the scope’s at the page boundary, and partial one device beyond it', () => {
+      const page200 = Array.from({ length: OVERVIEW_PAGE_SIZE }, (_, n) =>
+        deviceItem({ id: `d-${n}`, name: `d-${n}`, reason: 'ok', interfaces: { healthy: 2 } }),
+      )
+      const at = (scopeTotal: number) =>
+        healthOf(
+          serverList([]),
+          containerList([]),
+          noTargets,
+          deviceList(page200, {
+            scopeTotal,
+            counts: { ...emptyCounts(), healthy: scopeTotal },
+          }),
+        ).domains[3]?.interfaces
+      expect(at(OVERVIEW_PAGE_SIZE)).toMatchObject({ total: 400, devices: 200, complete: true })
+      expect(at(OVERVIEW_PAGE_SIZE + 1)).toMatchObject({
+        total: 400,
+        devices: 200,
+        of: 201,
+        complete: false,
+      })
+    })
+
+    it('are not given for a scope without devices', () => {
+      const { domains } = healthOf(serverList([]), containerList([]), noTargets, noDevices)
+      expect(domains[3]).not.toHaveProperty('interfaces')
+    })
+
+    it('never change a device’s health or the device counts', () => {
+      const quiet = DEVICES.map((entry) => ({
+        ...entry,
+        interfaces: { total: 0, counts: emptyCounts() },
+      }))
+      const noisy = healthOf(serverList([]), containerList([]), noTargets, deviceList(DEVICES))
+      const none = healthOf(serverList([]), containerList([]), noTargets, deviceList(quiet))
+      expect(noisy.domains[3]?.counts).toEqual(none.domains[3]?.counts)
+      expect(attention(deviceList(DEVICES)).items.map((entry) => entry.id)).toEqual(
+        attention(deviceList(quiet)).items.map((entry) => entry.id),
+      )
+    })
+  })
+
+  it('puts a device on its own site, beside the servers and containers there', () => {
+    const here = (entry: DeviceListItem): DeviceListItem => ({
+      ...entry,
+      device: { ...entry.device, siteId: 'site-a' },
+    })
+    const health = healthOf(
+      serverList(STORY_SERVERS),
+      containerList(STORY_CONTAINERS),
+      noTargets,
+      deviceList([here(DEVICES[0]!), here(DEVICES[5]!)]),
+    )
+    expect(health).not.toHaveProperty('siteCoverage')
+    const names = health.sites[0]?.entities.map((entity) => `${entity.kind}:${entity.name}`)
+    expect(names).toContain('device:pir-core')
+    expect(names).toContain('device:ath-core-sw')
+    expect(names?.indexOf('device:pir-core')).toBeLessThan(
+      names?.indexOf('device:ath-core-sw') ?? 0,
+    )
+  })
+
+  it('leaves a device with no site on none', () => {
+    const lonely = deviceItem({ id: 'd-none', name: 'free', reason: 'unreachable', siteName: null })
+    expect(
+      healthOf(serverList([]), containerList([]), noTargets, deviceList([lonely])).sites,
+    ).toEqual([])
+  })
+
+  it('is not whole while the devices are cut: only the problems are listed per site', () => {
+    const cut = deviceList([DEVICES[0]!, DEVICES[5]!], {
+      scopeTotal: 90,
+      counts: { ...emptyCounts(), critical: 1, healthy: 89 },
+    })
+    const health = healthOf(serverList([]), containerList([]), noTargets, cut)
+    expect(health.siteCoverage).toBe('problems')
+    expect(health.sites[0]?.entities.map((entity) => entity.name)).toEqual(['pir-core'])
+    expect(health.domains[3]?.counts.healthy).toBe(89)
+  })
+
+  it('gives no per-site figure when the device problems alone do not fit the rows', () => {
+    const many = Array.from({ length: 200 }, (_, n) =>
+      deviceItem({ id: `d-${n}`, name: `d-${String(n).padStart(3, '0')}`, reason: 'unreachable' }),
+    )
+    const overflow = deviceList(many, {
+      scopeTotal: 400,
+      counts: { ...emptyCounts(), critical: 300, healthy: 100 },
+    })
+    const health = healthOf(serverList([]), containerList([]), noTargets, overflow)
+    expect(health.siteCoverage).toBe('none')
+    expect(health.sites).toEqual([])
+    expect(health.domains[3]?.counts.critical).toBe(300)
+  })
+
+  it('counts into the verdict through the summary, by the API’s counts', async () => {
+    const { computeVerdict } = await import('./verdict')
+    const base = [serverList(STORY_SERVERS), containerList(STORY_CONTAINERS), noTargets] as const
+    const verdict = computeVerdict(summaryOf(...base, devices()), 'live')
+    const without = computeVerdict(summaryOf(...base, noDevices), 'live')
+    // 3 critical + 9 unknown devices more need attention, of 112 more counted.
+    expect(verdict.needAttention).toBe((without.needAttention ?? 0) + 12)
+    expect(verdict.monitored).toBe(without.monitored + 112)
+    expect(verdict.idle).toBe(without.idle + 8)
   })
 })

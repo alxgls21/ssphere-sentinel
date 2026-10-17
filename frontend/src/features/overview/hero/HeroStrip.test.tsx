@@ -19,17 +19,18 @@ describe('HeroStrip', () => {
     expect(labels).toEqual(['Servers', 'Containers', 'Net targets', 'Devices', 'Alerts'])
   })
 
-  it('links the three tiles the console API counts and leaves the other two inert', () => {
+  it('links the four tiles the console API counts and leaves the alerts tile inert', () => {
     renderHero(<HeroStrip />)
     const links = within(strip()).getAllByRole('link')
     expect(links.map((link) => link.getAttribute('href'))).toEqual([
       '/servers',
       '/docker',
       '/network',
+      '/snmp',
     ])
-    expect(strip().querySelectorAll('[data-planned="true"]')).toHaveLength(2)
+    expect(strip().querySelectorAll('[data-planned="true"]')).toHaveLength(1)
     expect(screen.getAllByText('Planned')).toHaveLength(1)
-    expect(screen.getAllByText('mock')).toHaveLength(3)
+    expect(screen.getAllByText('mock')).toHaveLength(4)
   })
 
   it('has no sparkline and no figure on the tiles of what the console API does not serve', () => {
@@ -40,11 +41,11 @@ describe('HeroStrip', () => {
     }
   })
 
-  it('tabs through the verdict and the three links, and not through the planned tiles', async () => {
+  it('tabs through the verdict and the four links, and not through the planned tile', async () => {
     renderHero(<HeroStrip />)
     await userEvent.tab()
     expect(screen.getByRole('button', { name: /^Fleet status:/ })).toHaveFocus()
-    for (const name of [/^Servers:/, /^Containers:/, /^Net targets:/]) {
+    for (const name of [/^Servers:/, /^Containers:/, /^Net targets:/, /^Devices:/]) {
       await userEvent.tab()
       expect(screen.getByRole('link', { name })).toHaveFocus()
     }
@@ -80,7 +81,7 @@ describe('HeroStrip', () => {
     const tile = (name: RegExp) => within(grid).getByRole('link', { name })
     expect(tile(/^Servers:/)).toHaveClass('md:col-span-2', 'lg:col-span-1')
     expect(tile(/^Containers:/)).toHaveClass('md:col-span-2', 'lg:col-span-1')
-    // Full width on a phone, so the two planned tiles share the last row.
+    // Full width on a phone, so devices and alerts share the last row.
     expect(tile(/^Net targets:/)).toHaveClass('col-span-2', 'lg:col-span-1')
   })
 
@@ -96,8 +97,8 @@ describe('HeroStrip', () => {
       }),
     })
     expect(within(strip()).getByRole('button', { name: /no data/ })).toBeInTheDocument()
-    expect(within(strip()).getAllByRole('alert')).toHaveLength(3)
-    expect(within(strip()).getAllByText('Not served by the console API')).toHaveLength(1)
+    expect(within(strip()).getAllByRole('alert')).toHaveLength(4)
+    expect(within(strip()).getAllByText('Not implemented in the backend')).toHaveLength(1)
     await userEvent.click(within(strip()).getByRole('button', { name: 'Retry loading Servers' }))
     expect(refetch).toHaveBeenCalledOnce()
   })

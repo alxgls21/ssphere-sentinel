@@ -59,6 +59,13 @@ describe('rows', () => {
     expect(rowKey(target)).toBe('target:tgt-1')
   })
 
+  it('names an SNMP device dev, and opens its own page rather than a list told to focus it', () => {
+    const device = makeItem({ kind: 'device', id: 'dev-1' })
+    expect(kindLabel(device)).toBe('dev')
+    expect(entityTarget(device)).toEqual({ pathname: '/snmp/dev-1', extra: {} })
+    expect(rowKey(device)).toBe('device:dev-1')
+  })
+
   it('keys a row by kind and id, so two kinds may reuse an id', () => {
     expect(rowKey(makeItem({ kind: 'server', id: '7' }))).not.toBe(
       rowKey(makeItem({ kind: 'container', id: '7' })),
@@ -148,6 +155,10 @@ describe('entityTarget', () => {
 
   it('leaves escaping to the router: the id is passed through untouched', () => {
     expect(entityTarget(makeItem({ id: 'a b&c' })).extra.focus).toBe('a b&c')
+  })
+
+  it('keeps a device id one path segment, whatever it holds', () => {
+    expect(entityTarget(makeItem({ kind: 'device', id: 'a/b c' })).pathname).toBe('/snmp/a%2Fb%20c')
   })
 })
 

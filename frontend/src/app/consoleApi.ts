@@ -1,6 +1,6 @@
 import type { SentinelApi } from '@/api/client'
 import type { ConsoleHttp } from '@/api/http'
-import type { ContainerList, Scope, ServerList, TargetList } from '@/api/types'
+import type { ContainerList, DeviceList, Scope, ServerList, TargetList } from '@/api/types'
 import { OVERVIEW_PAGE_SIZE, attentionOf, healthOf, summaryOf } from '@/lib/overview'
 
 /** Requests for the same view that arrive together (the verdict, the queue, the health panel) share one answer. */
@@ -10,6 +10,7 @@ interface Worst {
   servers: ServerList
   containers: ContainerList
   targets: TargetList
+  devices: DeviceList
 }
 
 /** Rejects with an AbortError when `signal` aborts, as a request of its own would. */
@@ -33,10 +34,11 @@ function abortable<T>(promise: Promise<T>, signal: AbortSignal | undefined): Pro
 }
 
 /**
- * The console API as the whole SentinelApi. The Overview is servers and containers: the
- * worst first of each, from the same two list requests, and the counts the API gives. What the
- * API does not serve (probe targets, SNMP devices, alerts, events) has no method here and no
- * figure anywhere: a failed request is that panel's error, and nothing stands in for it.
+ * The console API as the whole SentinelApi. The Overview is servers, containers, probe targets and
+ * SNMP devices: the worst first of each, from the same four list requests (one page each, shared
+ * by every panel and refresh), and the counts the API gives. What the API does not serve (alerts,
+ * events) has no method here and no figure anywhere: a failed request is that panel's error, and
+ * nothing stands in for it.
  */
 export function createConsoleApi(http: ConsoleHttp): SentinelApi {
   let shared: { key: string; at: number; promise: Promise<Worst> } | null = null
@@ -56,7 +58,13 @@ export function createConsoleApi(http: ConsoleHttp): SentinelApi {
       http.listServers(query),
       http.listContainers(query),
       http.listTargets(query),
-    ]).then(([servers, containers, targets]) => ({ servers, containers, targets }))
+      http.listDevices(query),
+    ]).then(([servers, containers, targets, devices]) => ({
+      servers,
+      containers,
+      targets,
+      devices,
+    }))
     const entry = { key, at: now, promise }
     shared = entry
     // A failure is not shared: the next request asks again.
@@ -82,28 +90,28 @@ export function createConsoleApi(http: ConsoleHttp): SentinelApi {
     getServer: (id, options) => http.getServer(id, options),
     getServerSeries: (options) => http.getServerSeries(options),
     getOverviewSummary: async (options) => {
-      const { servers, containers, targets } = await abortable(
+      const { servers, containers, targets, devices } = await abortable(
         worstFirst(options?.scope),
         options?.signal,
       )
-      return summaryOf(servers, containers, targets)
+      return summaryOf(servers, containers, targets, devices)
     },
     listAttention: async (options) => {
-      const { servers, containers, targets } = await abortable(
+      const { servers, containers, targets, devices } = await abortable(
         worstFirst(options?.scope),
         options?.signal,
       )
-      return attentionOf(servers, containers, targets, {
+      return attentionOf(servers, containers, targets, devices, {
         includeIdle: options?.includeIdle,
         now: Date.parse(servers.generatedAt),
       })
     },
     getHealthBreakdown: async (options) => {
-      const { servers, containers, targets } = await abortable(
+      const { servers, containers, targets, devices } = await abortable(
         worstFirst(options?.scope),
         options?.signal,
       )
-      return healthOf(servers, containers, targets)
+      return healthOf(servers, containers, targets, devices)
     },
     // Search across every entity is not built on the console API yet: the palette lists screens and actions only.
     getEntityIndex: async () => ({ generatedAt: new Date().toISOString(), items: [] }),

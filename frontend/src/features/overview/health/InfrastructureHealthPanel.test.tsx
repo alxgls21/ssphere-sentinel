@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type {
   DomainBreakdown,
   HealthBreakdown,
+  InterfaceFigures,
   HealthStatus,
   SiteBreakdown,
   SiteEntity,
@@ -40,7 +41,7 @@ const DOMAINS: DomainBreakdown[] = [
     label: 'NET TARGETS',
     counts: counts({ critical: 1, warning: 2, healthy: 37 }),
   },
-  { domain: 'snmp', label: 'SNMP DEVS', counts: counts({ unknown: 12 }), planned: true },
+  { domain: 'snmp', label: 'SNMP DEVS', counts: counts({ critical: 1, healthy: 11 }) },
 ]
 
 const entities = (siteId: string, parts: [HealthStatus, number, string[]?][]): SiteEntity[] =>
@@ -125,15 +126,15 @@ afterEach(() => {
 })
 
 describe('InfrastructureHealthPanel', () => {
-  it('is panel [4]: a labelled, solid region marked mock (only its sub-elements say they are not connected)', async () => {
+  it('is panel [4]: a labelled, solid region marked mock (only BY SITE says it is not connected)', async () => {
     renderApp(<InfrastructureHealthPanel />, { api: apiWith() })
     expect(region()).toHaveAttribute('aria-keyshortcuts', '4')
     expect(region()).not.toHaveAttribute('data-planned')
     expect(region()).not.toHaveAttribute('aria-describedby')
     expect(within(region()).getByText(/^mock/)).toBeInTheDocument()
     await screen.findByText('SERVERS')
-    // The SNMP row and BY SITE each carry their own marker; the header does not.
-    expect(within(region()).getAllByText('Not connected')).toHaveLength(2)
+    // BY SITE carries its own marker; the header does not.
+    expect(within(region()).getAllByText('Not connected')).toHaveLength(1)
     // Neither is claimed to be unimplemented, nor to be missing its setup: nothing says either.
     expect(within(region()).queryByText('Needs setup')).toBeNull()
     expect(within(region()).queryByText('Planned')).toBeNull()
@@ -164,7 +165,7 @@ describe('InfrastructureHealthPanel', () => {
     const overHttp = (data: HealthBreakdown = breakdown()) =>
       createTestApi({ getHealthBreakdown: vi.fn(async () => data), source: 'http' })
     /** Every domain counted from real figures, as a connected API answers. */
-    const counted = () => breakdown({ domains: DOMAINS.map((d) => ({ ...d, planned: false })) })
+    const counted = () => breakdown()
 
     it.each(['overview', 'site-links'] as const)(
       'stays mock over http while %s is not connected, since the figures mix demo and real data',
@@ -183,18 +184,22 @@ describe('InfrastructureHealthPanel', () => {
       expect(within(header()).getByText(/^live/)).toBeInTheDocument()
     })
 
-    it('shows the targets row as counted, with figures, and only SNMP as not connected', async () => {
-      const withTargets = breakdown({
-        domains: DOMAINS.map((d) => (d.domain === 'snmp' ? { ...d, counts: counts({}) } : d)),
-      })
-      renderApp(<InfrastructureHealthPanel />, { api: overHttp(withTargets) })
+    it('shows the targets and SNMP rows as counted, with figures and no marker of their own', async () => {
+      renderApp(<InfrastructureHealthPanel />, { api: overHttp() })
       await screen.findByText('SERVERS')
-      expect(within(rowOf('NET TARGETS')).queryByText('Not connected')).toBeNull()
-      expect(
-        within(rowOf('NET TARGETS')).getByRole('img', { name: /critical/i }),
-      ).toBeInTheDocument()
-      expect(within(rowOf('SNMP DEVS')).getByText('Not connected')).toBeInTheDocument()
+      for (const label of ['NET TARGETS', 'SNMP DEVS']) {
+        expect(within(rowOf(label)).queryByText('Not connected')).toBeNull()
+        expect(within(rowOf(label)).getByRole('img', { name: /critical/i })).toBeInTheDocument()
+      }
       expect(within(header()).getByText(/^live/)).toBeInTheDocument()
+    })
+
+    it('stays mock over http while the SNMP feature is not connected, since devices mix in', async () => {
+      overrides.set('snmp', { connected: false })
+      renderApp(<InfrastructureHealthPanel />, { api: overHttp() })
+      await screen.findByText('SERVERS')
+      expect(within(header()).getByText(/^mock/)).toBeInTheDocument()
+      expect(within(header()).queryByText(/^live/)).toBeNull()
     })
 
     it('stays mock over http while the Network feature is not connected, since targets mix in', async () => {
@@ -202,25 +207,6 @@ describe('InfrastructureHealthPanel', () => {
       renderApp(<InfrastructureHealthPanel />, { api: overHttp() })
       await screen.findByText('SERVERS')
       expect(within(header()).getByText(/^mock/)).toBeInTheDocument()
-    })
-
-    it('marks the rows of what the console API does not serve, with no figure in them', async () => {
-      const planned = breakdown({
-        domains: DOMAINS.map((d) =>
-          d.domain === 'targets' || d.domain === 'snmp'
-            ? { ...d, counts: counts({}), planned: true }
-            : d,
-        ),
-      })
-      renderApp(<InfrastructureHealthPanel />, { api: overHttp(planned) })
-      await screen.findByText('SERVERS')
-      for (const label of ['NET TARGETS', 'SNMP DEVS']) {
-        const row = rowOf(label)
-        expect(within(row).getByText('Not connected')).toBeInTheDocument()
-        expect(row.querySelector('svg[data-status]:not([data-status="planned"])')).toBeNull()
-      }
-      // The panel itself is not marked down for it: its counted rows are real.
-      expect(within(header()).getByText(/^live/)).toBeInTheDocument()
     })
 
     it('is tagged live, with nothing marked as sample data, once every feature is connected over http', async () => {
@@ -246,25 +232,6 @@ describe('InfrastructureHealthPanel', () => {
         'Not connected',
       )
       expect(within(region()).getByText('sample data')).toBeInTheDocument()
-    })
-
-    it('marks only the SNMP row as not connected while the SNMP of the Overview is the one feature not connected', async () => {
-      overrides.connectAll()
-      overrides.set('snmp-overview', { connected: false })
-      renderApp(<InfrastructureHealthPanel />, { api: overHttp() })
-      await screen.findByText('SERVERS')
-      expect(within(header()).getByText(/^live/)).toBeInTheDocument()
-      expect(within(region()).getAllByText('Not connected')).toHaveLength(1)
-      expect(within(rowOf('SNMP DEVS')).getByText('Not connected')).toBeInTheDocument()
-      expect(within(region()).queryByText('sample data')).toBeNull()
-    })
-
-    it('keeps the SNMP row marked while the backend only stores SNMP, whatever the registry claims', async () => {
-      overrides.connectAll()
-      overrides.set('snmp-overview', { connected: true })
-      renderApp(<InfrastructureHealthPanel />, { api: overHttp() })
-      await screen.findByText('SERVERS')
-      expect(within(rowOf('SNMP DEVS')).getByText('Not connected')).toBeInTheDocument()
     })
   })
 
@@ -328,15 +295,27 @@ describe('InfrastructureHealthPanel', () => {
       ])
     })
 
-    it('shows the SNMP row as a placeholder bar with a NOT CONNECTED chip and no counts', async () => {
+    it('shows the SNMP row as the devices counted: a bar and glyph counts, with no marker', async () => {
       renderApp(<InfrastructureHealthPanel />, { api: apiWith() })
       const row = (await screen.findByText('SNMP DEVS')).closest('li') as HTMLElement
       expect(
-        within(row).getByRole('img', { name: 'SNMP devices: no SNMP data' }),
+        within(row).getByRole('img', { name: 'SNMP devices: 1 critical, 11 ok' }),
       ).toBeInTheDocument()
-      expect(within(row).getByText('Not connected')).toBeInTheDocument()
+      expect(figures(row.querySelector('[aria-hidden="true"]') as HTMLElement)).toEqual([
+        ['critical', '1'],
+        ['healthy', '11'],
+      ])
+      expect(within(row).queryByText('Not connected')).toBeNull()
       expect(within(row).queryByText('Planned')).toBeNull()
-      expect(row.querySelector('svg[data-status="unknown"]')).toBeNull()
+    })
+
+    it('says "none" for the SNMP row of a scope without devices, and invents no figure', async () => {
+      const domains = DOMAINS.map((d) => (d.domain === 'snmp' ? { ...d, counts: counts({}) } : d))
+      renderApp(<InfrastructureHealthPanel />, { api: apiWith(async () => breakdown({ domains })) })
+      const row = (await screen.findByText('SNMP DEVS')).closest('li') as HTMLElement
+      expect(within(row).getByRole('img', { name: 'SNMP devices: none' })).toBeInTheDocument()
+      expect(within(row).getByText('none')).toBeInTheDocument()
+      expect(row).not.toHaveAttribute('tabindex')
     })
 
     it('says "none" for a domain with nothing counted', async () => {
@@ -372,19 +351,18 @@ describe('InfrastructureHealthPanel', () => {
         }),
       )
 
-    it('gives each counted domain row one tab stop, and the SNMP row none', async () => {
+    it('gives each counted domain row one tab stop', async () => {
       renderApp(<InfrastructureHealthPanel />, { api: apiWith() })
       await screen.findByText('SERVERS')
-      for (const label of ['SERVERS', 'CONTAINERS', 'NET TARGETS'])
+      for (const label of ['SERVERS', 'CONTAINERS', 'NET TARGETS', 'SNMP DEVS'])
         expect(rowOf(label)).toHaveAttribute('tabindex', '0')
-      expect(rowOf('SNMP DEVS')).not.toHaveAttribute('tabindex')
     })
 
     it('opens on keyboard focus, row by row, and the next tab stop after the rows is the first site', async () => {
       const user = userEvent.setup()
       renderApp(<InfrastructureHealthPanel />, { api: apiWith() })
       await screen.findByText('SERVERS')
-      for (const label of ['SERVERS', 'CONTAINERS', 'NET TARGETS']) {
+      for (const label of ['SERVERS', 'CONTAINERS', 'NET TARGETS', 'SNMP DEVS']) {
         await user.tab()
         expect(rowOf(label)).toHaveFocus()
         expect(screen.getByRole('tooltip')).toBeInTheDocument()
@@ -536,16 +514,67 @@ describe('InfrastructureHealthPanel', () => {
       expect(tipRows(tip)).toEqual([['OK', '16', '100%']])
     })
 
-    it('gives the SNMP row no tooltip, so nothing claims numbers for it', async () => {
-      const user = userEvent.setup()
-      renderApp(<InfrastructureHealthPanel />, { api: apiWith() })
-      await screen.findByText('SNMP DEVS')
-      const row = rowOf('SNMP DEVS')
-      await user.hover(row)
-      await new Promise((resolve) => setTimeout(resolve, 400))
-      expect(screen.queryByRole('tooltip')).not.toBeInTheDocument()
-      expect(row).not.toHaveAttribute('aria-describedby')
-      expect(within(row).getByRole('img')).toHaveAccessibleName('SNMP devices: no SNMP data')
+    describe('the SNMP row', () => {
+      const interfaces = (over: Partial<InterfaceFigures> = {}): InterfaceFigures => ({
+        total: 96,
+        counts: counts({ healthy: 80, warning: 6, idle: 4, unknown: 6 }),
+        devices: 12,
+        of: 12,
+        complete: true,
+        ...over,
+      })
+      const withInterfaces = (given: InterfaceFigures | undefined) =>
+        apiWith(async () =>
+          breakdown({
+            domains: DOMAINS.map((d) =>
+              d.domain === 'snmp' ? { ...d, ...(given ? { interfaces: given } : {}) } : d,
+            ),
+          }),
+        )
+      const open = async (api: ReturnType<typeof apiWith>) => {
+        const user = userEvent.setup()
+        renderApp(<InfrastructureHealthPanel />, { api })
+        await screen.findByText('SNMP DEVS')
+        await user.click(rowOf('SNMP DEVS'))
+        return screen.getByRole('tooltip')
+      }
+
+      it('lists the devices by their own health, with their share of the total', async () => {
+        const tip = await open(withInterfaces(undefined))
+        expect(tip).toHaveTextContent('SNMP devices')
+        expect(tip).toHaveTextContent('12 total')
+        expect(tipRows(tip)).toEqual([
+          ['CRIT', '1', '8%'],
+          ['OK', '11', '92%'],
+        ])
+        expect(tip).not.toHaveTextContent(/interfaces/i)
+      })
+
+      it('gives the interfaces apart from the devices, whole when every device is among the rows', async () => {
+        const tip = await open(withInterfaces(interfaces()))
+        expect(tip).toHaveTextContent('96 interfaces on 12 devices')
+        expect(tip).not.toHaveTextContent(/partial/i)
+        const ports = tipRows(tip).slice(2)
+        expect(ports.map(([word, count]) => `${word} ${count}`)).toEqual([
+          'DOWN 6',
+          'UNKNOWN 6',
+          'ADMIN DOWN 4',
+          'UP 80',
+        ])
+      })
+
+      it('labels the interfaces partial, and not a total, when the rows hold only some of the devices', async () => {
+        const tip = await open(
+          withInterfaces(interfaces({ total: 400, devices: 200, of: 340, complete: false })),
+        )
+        expect(tip).toHaveTextContent('400 interfaces on the first 200 devices of 340')
+        expect(tip).toHaveTextContent(/Partial: .* not a total for the scope/)
+      })
+
+      it('claims no interface figure when none was given', async () => {
+        const tip = await open(withInterfaces(undefined))
+        expect(tip).not.toHaveTextContent(/interface/i)
+      })
     })
 
     it('gives a domain with nothing counted no tooltip and no tab stop', async () => {
@@ -750,7 +779,7 @@ describe('InfrastructureHealthPanel', () => {
       })
       expect(await screen.findByText('No site assignments yet')).toBeInTheDocument()
       expect(screen.queryByRole('list', { name: /by site/i })).not.toBeInTheDocument()
-      expect(within(region()).getAllByText('Not connected')).toHaveLength(2)
+      expect(within(region()).getAllByText('Not connected')).toHaveLength(1)
     })
   })
 
@@ -778,7 +807,7 @@ describe('InfrastructureHealthPanel', () => {
     it('explains OK, WARN and CRIT, then the other states the panel draws', async () => {
       renderApp(<InfrastructureHealthPanel />, { api: apiWith() })
       await screen.findByText('SERVERS')
-      // Idle containers are drawn; unknown only exists in the SNMP row, which draws no marks.
+      // Idle containers are drawn; no counted row holds an unknown or an offline mark.
       expect(legendWords()).toEqual(['OK', 'WARN', 'CRIT', 'IDLE'])
       const legend = screen.getByRole('list', { name: 'Status legend' })
       expect(
@@ -798,7 +827,16 @@ describe('InfrastructureHealthPanel', () => {
       expect(order).toEqual(['OK', 'WARN', 'CRIT', 'OFFL', 'UNKN', 'IDLE'])
     })
 
-    it('lists a state that only a listed site draws, but not one that only the SNMP row or a hidden site holds', async () => {
+    it('lists a state that only a counted SNMP row draws', async () => {
+      const domains = [
+        servers({ healthy: 3 }),
+        { domain: 'snmp', label: 'SNMP DEVS', counts: counts({ unknown: 2, idle: 1, healthy: 5 }) },
+      ] as DomainBreakdown[]
+      renderApp(<InfrastructureHealthPanel />, { api: apiWith(async () => breakdown({ domains })) })
+      await waitFor(() => expect(legendWords()).toEqual(['OK', 'WARN', 'CRIT', 'UNKN', 'IDLE']))
+    })
+
+    it('lists a state that only a listed site draws, but not one that only a hidden site holds', async () => {
       const unknownSite: SiteBreakdown = {
         siteId: 'site-u',
         customerName: 'Zed',
@@ -814,7 +852,7 @@ describe('InfrastructureHealthPanel', () => {
         siteName: 'Idle',
         entities: entities('i', [['idle', 2]]),
       }
-      const domains = [servers({ warning: 1, healthy: 3 }), DOMAINS[3] as DomainBreakdown]
+      const domains = [servers({ warning: 1, healthy: 3 })]
 
       // Listed: it ranks among the three worst sites.
       const listed = apiWith(async () =>
@@ -899,8 +937,8 @@ describe('InfrastructureHealthPanel', () => {
       expect(screen.queryByText('SERVERS')).not.toBeInTheDocument()
     })
 
-    it('says nothing is monitored when no real domain counts anything', async () => {
-      const domains = DOMAINS.map((d) => (d.planned ? d : { ...d, counts: counts({}) }))
+    it('says nothing is monitored when no domain counts anything', async () => {
+      const domains = DOMAINS.map((d) => ({ ...d, counts: counts({}) }))
       renderApp(<InfrastructureHealthPanel />, {
         api: apiWith(async () => breakdown({ domains, sites: [] })),
       })

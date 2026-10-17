@@ -66,9 +66,9 @@ describe.each([
   })
 })
 
-describe('C. snmp-overview: stored by the backend, not served by the console API', () => {
+describe('C. network-overview: stored by the backend, not served by the console API', () => {
   it('is a placeholder as a panel over an HTTP adapter: no tag, no content, never live', () => {
-    renderApp(panel('snmp-overview'), { api: api('http') })
+    renderApp(panel('network-overview'), { api: api('http') })
     const region = screen.getByRole('region', { name: 'Panel' })
     expect(region).toHaveAttribute('data-planned', 'true')
     expect(screen.queryByText('body')).toBeNull()
@@ -78,7 +78,7 @@ describe('C. snmp-overview: stored by the backend, not served by the console API
   })
 
   it('is a placeholder as a tile: no figure, no link, and it says why in words', () => {
-    renderApp(tile('snmp-overview'), { api: api('http') })
+    renderApp(tile('network-overview'), { api: api('http') })
     expect(screen.queryByRole('link')).toBeNull()
     expect(screen.queryByText('live')).toBeNull()
     expect(screen.queryByText('15')).toBeNull()
@@ -183,8 +183,8 @@ describe('H. a genuinely connected, API-backed feature', () => {
   })
 
   it('is not live if its backend only stores the data, whatever the entry claims', () => {
-    overrides.set('snmp-overview', { connected: true })
-    renderApp(tile('snmp-overview'), { api: api('http') })
+    overrides.set('network-overview', { connected: true })
+    renderApp(tile('network-overview'), { api: api('http') })
     expect(screen.queryByText('live')).toBeNull()
     expect(screen.queryByRole('link')).toBeNull()
     expect(screen.getByText('Not connected to the console yet')).toBeInTheDocument()

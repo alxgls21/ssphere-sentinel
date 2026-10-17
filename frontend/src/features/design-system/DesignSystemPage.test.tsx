@@ -350,7 +350,7 @@ describe('hero', () => {
     expect(stale.querySelector('.opacity-60')).not.toBeNull()
   })
 
-  it('draws the tiles: the counted domains are links, the others hold no figure and no link', () => {
+  it('draws the tiles: the counted domains are links, the alerts tile holds no figure and no link', () => {
     renderPage()
     const hero = within(section('Hero'))
     expect(
@@ -360,8 +360,10 @@ describe('hero', () => {
     ).toHaveAttribute('href', '/servers')
     expect(hero.getByRole('link', { name: /^Containers: 62 of 68 ok/ })).toBeInTheDocument()
     expect(hero.getByRole('link', { name: /^Net targets: 0 of 0 ok/ })).toBeInTheDocument()
-    expect(hero.queryByRole('link', { name: /^(Devices|Alerts)/ })).not.toBeInTheDocument()
-    expect(hero.getAllByText('Not served by the console API')).toHaveLength(1)
+    // The sample fleet monitors no device: the tile counts none and invents none.
+    expect(hero.getByRole('link', { name: /^Devices: 0 of 0 ok/ })).toBeInTheDocument()
+    expect(hero.queryByRole('link', { name: /^Alerts/ })).not.toBeInTheDocument()
+    expect(hero.queryByText('Not served by the console API')).not.toBeInTheDocument()
     expect(hero.getAllByText('Not implemented in the backend')).toHaveLength(1)
   })
 

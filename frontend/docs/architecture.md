@@ -128,18 +128,19 @@ panel --useLiveResource(id, key, fetch)--> useApi() --> SentinelApi --> console 
   Offline is critical to anything that decides (verdict, ranking, filters, badges,
   tab title, favicon, severity edge), which reads `HealthStatus`; only marks that
   describe an entity or a composition show it apart (`design-system.md`).
-- **The Overview** is servers, containers and probe targets. `app/consoleApi.ts` asks the console
-  API for the worst first of each (one page of 200, sorted by status) and derives the summary, the
-  attention queue and the health breakdown from those three answers (`lib/overview.ts`, pure).
-  The verdict, the queue and the health panel ask at the same moment and share one set of
-  requests; if any of the three fails, the Overview fails with it, because a verdict without one
-  of its lists would understate. Totals and per-status counts are the API's own and cover the whole scope; the console
+- **The Overview** is servers, containers, probe targets and SNMP devices. `app/consoleApi.ts` asks
+  the console API for the worst first of each (one page of 200, sorted by status, in the topbar
+  scope) and derives the summary, the attention queue and the health breakdown from those four
+  answers (`lib/overview.ts`, pure). No device is read one by one: the Overview never asks for a
+  device's detail or history, and never for a second page. The verdict, the queue and the health
+  panel ask at the same moment and share one set of requests; if any of the four fails, the
+  Overview fails with it, because a verdict without one of its lists would understate. Totals and per-status counts are the API's own and cover the whole scope; the console
   never recounts a page as if it were the fleet. What is made of the rows is exact only for the part
   of the fleet the rows cover, and says so: the queue counts the problems it cannot list
-  (`AttentionResult.omitted`) and the idle containers and disabled targets beyond its rows
-  (`hiddenIdle`), and the sites carry a `siteCoverage`. `all`: all three lists fit in one page, so
-  every site is whole. `problems`: they do not, but every server, container and target that needs
-  attention is in the rows, so each site lists
+  (`AttentionResult.omitted`) and the idle containers, disabled targets and disabled devices beyond
+  its rows (`hiddenIdle`), and the sites carry a `siteCoverage`. `all`: all four lists fit in one
+  page, so every site is whole. `problems`: they do not, but every server, container, target and
+  device that needs attention is in the rows, so each site lists
   those (healthy and idle ones are not counted per site). `none`: the problems alone exceed the rows,
   so no site is totalled and the panel says so. Exact per-site totals for a larger fleet need a
   per-site count from the console API (see _Docker screen_). A failed request rejects: it is that
@@ -220,13 +221,15 @@ figure on any screen are not in the list).
 
 `Panel` takes the backing features as a required prop and derives its markers:
 a quiet source tag (`live`, `mock`, `unverified`) always, and, when nothing real exists
-behind it (unsupported, or a placeholder feature such as probe targets or SNMP), a dashed
+behind it (unsupported, or a placeholder feature such as the Overview's fleet latency), a dashed
 frame, a chip and one sentence in place of the body. Such a panel renders no children, no
 footer and no loading or error state: it has nothing to load, so it holds no figure, chart,
 sample row or zero. PLANNED is reserved for what the backend does not implement. The Overview's
-SNMP spots and network figures (`snmp-overview`, `network-overview`) are `not-connected`: the backend
-stores or could derive them, but the Overview does not read them, so configuring them does not make
-data appear there. The Network and SNMP screens are the `network` and `snmp` features, which are live. Stat tiles follow the same
+fleet latency (`network-overview`) is `not-connected`: the backend stores what it could be derived
+from, but the console API serves no aggregate, so configuring it does not make data appear there.
+The Network and SNMP screens are the `network` and `snmp` features, which are live, and so are the
+Overview's device tile, queue rows and health row: they are the `snmp` feature read through the
+Overview's counts. Stat tiles follow the same
 rule. Placeholder panels never feed the verdict, the sidebar badges, the tab title or the
 palette's PROBLEMS list. The design-system gallery is the one place that draws sample
 content for such a feature; it does so in a panel labelled `mock` whose footer says
@@ -314,6 +317,24 @@ of the device page, and the list's own query travels in the navigation state so 
 restores the search and filters. An agent links to its server only when the API gives its
 `serverId`. The sample fleet monitors no devices: its list is empty and a device is a 404. A failed
 request is that panel's error with Retry; nothing falls back to other data.
+
+### SNMP on the Overview
+
+The devices are the fourth list of the Overview, read as the others are (see _The Overview_ under
+_Data flow_), and the API's `scopeTotal` and `counts` are the totals: the Devices tile (`ok` of the
+total, problems worst first), the verdict, and the SNMP DEVS row of the health panel. A device's
+health is the API's, so an interface that is down never raises the verdict, a tile count or a queue
+row. The queue lists the devices that are critical, warning or unknown (disabled ones on request),
+worst first and by name, each as `dev` with the type and address, the API's reason in a few words,
+the site, and the age of the latest poll (`Last polled` on hover); Enter opens the device's own
+page, not a list told to focus it. A device with a site is placed on it in BY SITE.
+
+The API counts interfaces per device, not for the scope, so the Overview has no scope-wide
+interface total. The SNMP DEVS row's tooltip adds the interfaces of the devices in the rows, apart
+from the devices and in the interfaces' own words (up, down, admin down, unknown): whole when every
+device in scope is in the rows (`complete`), and otherwise headed "the first N devices of M" with a
+sentence saying it is not a total for the scope. When the scope has no device, there is no
+interface figure at all.
 
 ## Docker screen
 
@@ -505,13 +526,13 @@ from it on purpose:
   with a contract test rather than per-chart wiring.
 - **Not built (deferred in the spec)**: wall mode, density modes, the inspector
   drawer, "NEW" tags.
-- **The Overview counts servers, containers and probe targets.** The spec's queue, verdict, tiles
-  and health also cover SNMP devices and alerts, and its panels [2], [5] and [6] draw a latency
+- **The Overview counts servers, containers, probe targets and SNMP devices.** The spec's queue,
+  verdict, tiles and health also cover alerts, and its panels [2], [5] and [6] draw a latency
   chart, active alerts and recent events. The console API serves none of those (and no fleet-wide
   latency aggregate, only each target's own history), so their tiles and panels carry a statement
-  and no figure, and the verdict is "of the servers, containers and targets counted". Tiles show
+  and no figure, and the verdict is "of the servers, containers, targets and devices counted". Tiles show
   the ok count of the total (`13/16 ok`), not online or running, because that is what the API's
   counts say. A queue row for a target is worded from the API's reason and dated by its newest
-  measurement, never by a start the API does not give. Fleet latency carries the
-  `network-overview` feature and stays a statement.
+  measurement, and a row for a device by its latest poll, never by a start the API does not give.
+  Fleet latency carries the `network-overview` feature and stays a statement.
 - **Not installed yet**: Cytoscape (Topology screen).

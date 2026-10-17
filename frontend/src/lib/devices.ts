@@ -91,6 +91,33 @@ export function deviceReasonSentence(item: DeviceListItem, nowMs: number): strin
   }
 }
 
+/**
+ * One line for a queue row: what the device is and the API's reason in a few words. A stale or
+ * unreachable device never gives its last response as a present one; the age is the last poll's.
+ */
+export function deviceDetail(item: DeviceListItem, nowMs: number): string {
+  const { device, state } = item
+  const what = `${DEVICE_TYPE_LABEL[device.type]} ${device.address}`
+  switch (item.reason) {
+    case 'disabled':
+      return `${what} · monitoring switched off`
+    case 'no_agent':
+      return `${what} · no agent assigned`
+    case 'agent_offline':
+      return `${what} · agent not reporting`
+    case 'no_poll':
+      return `${what} · never polled`
+    case 'stale':
+      return `${what} · last polled ${state ? formatAge(state.lastPollAt, nowMs) : EMPTY} ago, not current`
+    case 'unreachable': {
+      const why = pollErrorText(state?.error ?? null)
+      return `${what} · no response${why ? `: ${why}` : ''}`
+    }
+    case 'ok':
+      return `${what} · reached`
+  }
+}
+
 /** One short line for a card or a notice: how long ago the device was last polled. */
 export const polledAgo = (item: DeviceListItem, nowMs: number): string =>
   item.state === null ? 'never' : `${formatAge(item.state.lastPollAt, nowMs)} ago`

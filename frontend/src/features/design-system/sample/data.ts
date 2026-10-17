@@ -37,6 +37,7 @@ export function summaryOf({ servers, containers }: Estate): OverviewSummary {
     servers: { total: total(servers), counts: servers },
     containers: { total: total(containers), counts: containers },
     targets: { total: 0, counts: counts() },
+    devices: { total: 0, counts: counts() },
   }
 }
 

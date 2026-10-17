@@ -3,8 +3,11 @@ import type {
   AttentionResult,
   ContainerList,
   ContainerListItem,
+  DeviceList,
+  DeviceListItem,
   HealthBreakdown,
   HealthStatus,
+  InterfaceFigures,
   OverviewSummary,
   ServerList,
   ServerListItem,
@@ -15,23 +18,25 @@ import type {
   TargetList,
   TargetListItem,
 } from '@/api/types'
+import { deviceDetail, deviceReasonWord } from './devices'
 import { EMPTY, formatAge, formatPercent } from './format'
 import { readingOf } from './serverList'
 import { reasonDetail, reasonWord } from './targets'
-import { compareSeverity, emptyCounts } from './status'
+import { compareSeverity } from './status'
+import { sumCounts } from './verdict'
 
 /**
- * The Overview, from what the console API counts and lists: servers and containers. Each
- * function is pure: the worst-first pages of the two lists go in, a view-model comes out. A
- * count is the server's own; nothing here makes up a figure for what it does not serve.
+ * The Overview, from what the console API counts and lists: servers, containers, probe targets
+ * and SNMP devices. Each function is pure: the worst-first pages of the lists go in, a view-model
+ * comes out. A count is the server's own; nothing here makes up a figure for what it does not serve.
  */
 
 /** What an Overview request asks the lists for: the worst first, as many as one page holds. */
 export const OVERVIEW_PAGE_SIZE = 200
 
 /**
- * What a request for the worst first of the Overview cannot reach. The counts and totals of both
- * lists are the API's own and cover the whole scope; the rows are only the first page of each.
+ * What a request for the worst first of the Overview cannot reach. The counts and totals of every
+ * list are the API's own and cover the whole scope; the rows are only the first page of each.
  * So the summary and the domain counts are exact, while whatever is made of the rows (the queue,
  * the sites) is exact only for the part of the fleet the rows cover, and says so.
  */
@@ -60,12 +65,14 @@ export function summaryOf(
   servers: ServerList,
   containers: ContainerList,
   targets: TargetList,
+  devices: DeviceList,
 ): OverviewSummary {
   return {
     generatedAt: servers.generatedAt,
     servers: { total: servers.scopeTotal, counts: serverCounts(servers) },
     containers: { total: containers.scopeTotal, counts: { ...containers.counts } },
     targets: { total: targets.scopeTotal, counts: { ...targets.counts } },
+    devices: { total: devices.scopeTotal, counts: { ...devices.counts } },
   }
 }
 
@@ -176,6 +183,24 @@ function containerItem(item: ContainerListItem): AttentionItem {
   }
 }
 
+function deviceItem(item: DeviceListItem, nowMs: number): AttentionItem {
+  const { device, state } = item
+  return {
+    kind: 'device',
+    id: device.id,
+    name: device.name,
+    // The API's health and reason, worded; never worked out again, and never from an interface.
+    severity: item.health as AttentionItem['severity'],
+    stateLabel: deviceReasonWord(item.reason),
+    detail: deviceDetail(item, nowMs),
+    ...(item.customerName ? { customerName: item.customerName } : {}),
+    ...(item.siteName ? { siteName: item.siteName } : {}),
+    // Dated by the latest poll, whatever its age: the row never claims a start for the problem.
+    ageIso: state ? state.lastPollAt : null,
+    ageBasis: state ? 'last-polled' : null,
+  }
+}
+
 const RANK: Record<AttentionItem['severity'], number> = {
   critical: 0,
   warning: 1,
@@ -211,6 +236,7 @@ export function attentionOf(
   servers: ServerList,
   containers: ContainerList,
   targets: TargetList,
+  devices: DeviceList,
   { includeIdle = false, now }: { includeIdle?: boolean; now: number },
 ): AttentionResult {
   const items: AttentionItem[] = [
@@ -227,6 +253,11 @@ export function attentionOf(
         (item) => SERVER_PROBLEMS.includes(item.health) || (includeIdle && item.health === 'idle'),
       )
       .map((item) => targetItem(item, now)),
+    ...devices.items
+      .filter(
+        (item) => SERVER_PROBLEMS.includes(item.health) || (includeIdle && item.health === 'idle'),
+      )
+      .map((item) => deviceItem(item, now)),
   ].sort(
     (a, b) =>
       RANK[a.severity] - RANK[b.severity] || a.name.localeCompare(b.name, 'en', { numeric: true }),
@@ -237,16 +268,20 @@ export function attentionOf(
     0,
     problemsOf(servers.counts) +
       problemsOf(containers.counts) +
-      problemsOf(targets.counts) -
+      problemsOf(targets.counts) +
+      problemsOf(devices.counts) -
       listed((s) => s !== 'idle'),
   )
   return {
     generatedAt: servers.generatedAt,
     items,
-    // Idle containers and targets the queue does not list: all of them unless asked for, then those beyond the rows.
+    // Idle containers, targets and devices the queue does not list: all of them unless asked for, then those beyond the rows.
     hiddenIdle: Math.max(
       0,
-      containers.counts.idle + targets.counts.idle - listed((s) => s === 'idle'),
+      containers.counts.idle +
+        targets.counts.idle +
+        devices.counts.idle -
+        listed((s) => s === 'idle'),
     ),
     ...(omitted > 0 ? { omitted } : {}),
   }
@@ -285,16 +320,33 @@ function coverageOf(
   servers: ServerList,
   containers: ContainerList,
   targets: TargetList,
+  devices: DeviceList,
 ): SiteCoverage {
-  const lists = [servers, containers, targets]
+  const lists = [servers, containers, targets, devices]
   if (lists.every((list) => list.items.length >= list.scopeTotal)) return 'all'
   return lists.every((list) => problemsOf(list.counts) <= list.items.length) ? 'problems' : 'none'
 }
 
 /**
- * Composition by domain, and the sites with their servers, containers and probe targets. SNMP
- * devices are a `planned` row that says so: the console API serves none. The domain counts are the
- * API's and cover the whole scope. The sites are built from the rows, so they say how far those
+ * The interfaces of the devices the rows hold. The API counts them per device and not for the
+ * scope, so this sums what the rows carry and says whether the rows are every device in scope.
+ * None is made up: a scope without devices has no figure.
+ */
+function interfaceFigures(devices: DeviceList): InterfaceFigures | undefined {
+  if (devices.scopeTotal === 0 || devices.items.length === 0) return undefined
+  return {
+    total: devices.items.reduce((sum, item) => sum + item.interfaces.total, 0),
+    counts: sumCounts(...devices.items.map((item) => item.interfaces.counts)),
+    devices: devices.items.length,
+    of: devices.scopeTotal,
+    complete: devices.items.length >= devices.scopeTotal,
+  }
+}
+
+/**
+ * Composition by domain, and the sites with their servers, containers, probe targets and SNMP
+ * devices. The domain counts are the API's and cover the whole scope; a device's health is the
+ * API's and no interface enters it. The sites are built from the rows, so they say how far those
  * reach (`siteCoverage`): every member, only the ones that need a look, or nothing. A container is
  * placed by the site of its server and a target by its own site; a server or target with no site is
  * on none. A problem container whose server is not among the rows cannot be placed, and then
@@ -304,8 +356,9 @@ export function healthOf(
   servers: ServerList,
   containers: ContainerList,
   targets: TargetList,
+  devices: DeviceList,
 ): HealthBreakdown {
-  let siteCoverage = coverageOf(servers, containers, targets)
+  let siteCoverage = coverageOf(servers, containers, targets, devices)
   const onlyProblems = siteCoverage === 'problems'
   const siteOf = new Map(servers.items.map((item) => [item.server.id, item.server.siteId]))
   const sites = new Map<string, SiteBreakdown>()
@@ -351,6 +404,16 @@ export function healthOf(
       status: item.health,
     })
   }
+  for (const item of devices.items) {
+    const { device } = item
+    if (device.siteId === null || (onlyProblems && !needsALook(item.health))) continue
+    place(device.siteId, item.customerName ?? '', item.siteName ?? '', {
+      id: device.id,
+      kind: 'device',
+      name: device.name,
+      status: item.health,
+    })
+  }
   const ranked = [...sites.values()].map((site) => ({
     ...site,
     entities: sortEntities(site.entities),
@@ -362,13 +425,19 @@ export function healthOf(
       a.customerName.localeCompare(b.customerName) ||
       a.siteName.localeCompare(b.siteName),
   )
+  const interfaces = interfaceFigures(devices)
   return {
     generatedAt: servers.generatedAt,
     domains: [
       { domain: 'servers', label: 'SERVERS', counts: serverCounts(servers) },
       { domain: 'containers', label: 'CONTAINERS', counts: { ...containers.counts } },
       { domain: 'targets', label: 'NET TARGETS', counts: { ...targets.counts } },
-      { domain: 'snmp', label: 'SNMP DEVS', counts: emptyCounts(), planned: true },
+      {
+        domain: 'snmp',
+        label: 'SNMP DEVS',
+        counts: { ...devices.counts },
+        ...(interfaces ? { interfaces } : {}),
+      },
     ],
     sites: siteCoverage === 'none' ? [] : ranked,
     ...(siteCoverage === 'all' ? {} : { siteCoverage }),
