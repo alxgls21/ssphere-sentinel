@@ -14,6 +14,9 @@ vi.mock('@/features/servers/ServersListPage', () => ({
 vi.mock('@/features/servers/ServerDetailPage', () => ({
   default: () => <p>server detail screen</p>,
 }))
+vi.mock('@/features/docker/DockerPage', () => ({
+  default: () => <p>docker screen</p>,
+}))
 vi.mock('@/features/design-system/DesignSystemPage', () => ({
   default: () => <p>design system gallery</p>,
 }))
@@ -42,6 +45,12 @@ describe('AppRoutes', () => {
     expect(screen.getByRole('link', { name: 'Servers' })).toHaveAttribute('aria-current', 'page')
   })
 
+  it('lazy-loads the Docker inventory inside the shell', async () => {
+    renderShell(<AppRoutes />, { route: '/docker' })
+    expect(await within(main()).findByText('docker screen')).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'Docker' })).toHaveAttribute('aria-current', 'page')
+  })
+
   it('routes every screen that is not designed yet to its placeholder', async () => {
     for (const item of NAV_ITEMS.filter((nav) => !nav.designed)) {
       const { unmount } = renderShell(<AppRoutes />, { route: item.path })
@@ -55,11 +64,11 @@ describe('AppRoutes', () => {
   })
 
   it('keeps a screen’s own sub-paths with its screen', async () => {
-    renderShell(<AppRoutes />, { route: '/docker/some-host' })
+    renderShell(<AppRoutes />, { route: '/network/some-host' })
     expect(
-      await within(main()).findByRole('heading', { level: 1, name: 'Docker' }),
+      await within(main()).findByRole('heading', { level: 1, name: 'Network' }),
     ).toBeInTheDocument()
-    expect(screen.getByRole('link', { name: 'Docker' })).toHaveAttribute('aria-current', 'page')
+    expect(screen.getByRole('link', { name: 'Network' })).toHaveAttribute('aria-current', 'page')
   })
 
   it('titles each page from NAV_ITEMS', async () => {

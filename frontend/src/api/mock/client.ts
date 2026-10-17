@@ -3,7 +3,7 @@ import { ApiError } from '../errors'
 import type { RequestOptions, Scope } from '../types'
 import { listAttention } from './attention'
 import { entityIndex, fleetLoad, healthBreakdown, scopeOptions, summarize } from './derive'
-import { buildServerSeries, listServers, serverDetail } from './servers'
+import { buildServerSeries, listContainers, listServers, serverDetail } from './servers'
 import { buildEstate, scopeEstate, type Estate, type FleetProfile } from './fixtures'
 import { hash01, hashString } from './random'
 import type { MockScenario } from './scenario'
@@ -132,6 +132,11 @@ export function createMockApi(options: MockApiOptions = {}): SentinelApi {
 
     listServers: (request) =>
       scoped('listServers', request, ({ fleet }, { now }) => listServers(fleet, now, request)),
+
+    listContainers: (request) =>
+      scoped('listContainers', request, ({ fleet }, { now }) =>
+        listContainers(fleet, now, request),
+      ),
 
     getServer: (id, request) =>
       respond('getServer', request?.signal, (clock) =>

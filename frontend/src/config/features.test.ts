@@ -29,8 +29,8 @@ describe('availabilityOf', () => {
     })
 
     it('is not live while the screen does not read it, however ready the backend is', () => {
-      expect(FEATURES.docker.backend).toBe('console-api')
-      expect(availabilityOf('docker', 'http')).toBe('not-connected')
+      expect(FEATURES.customers.backend).toBe('console-api')
+      expect(availabilityOf('customers', 'http')).toBe('not-connected')
       setFeature('servers', { connected: false })
       expect(availabilityOf('servers', 'http')).toBe('not-connected')
     })
@@ -56,7 +56,7 @@ describe('availabilityOf', () => {
   })
 
   describe('a feature the backend supports but the console does not read yet', () => {
-    it.each(['docker', 'customers'] as const)('%s is not connected', (id) => {
+    it.each(['customers'] as const)('%s is not connected', (id) => {
       expect(availabilityOf(id, 'http')).toBe('not-connected')
       expect(shortfallOf(id, 'http')).toBe('not-connected')
       expect(isPlanned(id)).toBe(false)
@@ -71,7 +71,7 @@ describe('availabilityOf', () => {
     })
 
     it('says whether the console API serves it or only the backend stores it', () => {
-      expect(describeAvailability('docker')).toBe(
+      expect(describeAvailability('customers')).toBe(
         'Served by the console API; this screen is not connected to it yet',
       )
       expect(describeAvailability('network')).toBe(
@@ -151,8 +151,8 @@ describe('availabilityOf', () => {
     })
 
     it('does not treat confirmed-missing setup as news for a feature that is not connected anyway', () => {
-      setFeature('docker', { configuration: 'missing' })
-      expect(availabilityOf('docker', 'http')).toBe('not-connected')
+      setFeature('customers', { configuration: 'missing' })
+      expect(availabilityOf('customers', 'http')).toBe('not-connected')
     })
 
     it('treats complete setup like unknown: it adds nothing to what is connected', () => {
@@ -194,11 +194,11 @@ describe('availabilityOf', () => {
 })
 
 describe('the registry as shipped', () => {
-  it('lists as live only what the console reads from the console API: the overview counts, servers and site assignment', () => {
+  it('lists as live only what the console reads from the console API: the overview counts, servers, containers and site assignment', () => {
     const live = (Object.keys(FEATURES) as FeatureId[]).filter(
       (id) => availabilityOf(id, 'http') === 'live',
     )
-    expect(live).toEqual(['overview', 'servers', 'site-links'])
+    expect(live).toEqual(['overview', 'servers', 'docker', 'site-links'])
   })
 
   it('is live nowhere on demo data, whatever is connected', () => {
@@ -214,7 +214,7 @@ describe('the registry as shipped', () => {
   })
 
   it('counts as data only the features whose figures a screen shows', () => {
-    expect([...DATA_FEATURES].sort()).toEqual(['overview', 'servers', 'site-links'])
+    expect([...DATA_FEATURES].sort()).toEqual(['docker', 'overview', 'servers', 'site-links'])
     for (const id of ['network', 'snmp', 'alerts', 'events', 'topology'] as const) {
       expect(DATA_FEATURES).not.toContain(id)
     }

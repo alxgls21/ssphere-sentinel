@@ -8,7 +8,7 @@ of the Django backend**.
 > SNMP devices, alerts and events are not served yet and show no figure.**
 > The console signs in against the Django console API (session cookie and CSRF) and reads
 > from it the customers and sites you may see, the Servers list (searched, filtered, sorted
-> and paged by the server), each server with its containers and its CPU, RAM and disk
+> and paged by the server), the Docker inventory, each server with its containers and its CPU, RAM and disk
 > history, the busiest servers by load, and the containers of every visible server. The
 > Overview is built from two of those lists, the worst first of each, and from the counts
 > the API itself reports: the verdict, the tiles, the attention queue and the health by
@@ -19,8 +19,11 @@ of the Django backend**.
 > chip and one sentence saying why, and no number, chart or sample row. The built-in sample
 > fleet exists only in a development run with `VITE_SENTINEL_API=mock` (servers and
 > containers, marked `DEMO DATA`); a production bundle holds none of it.
-> Two screens are designed and built: **Overview** and **Servers**. The other six
-> are routed and show an honest "not designed yet" placeholder.
+> Three screens are designed and built: **Overview**, **Servers** and **Docker** (every container of every
+> visible server, searched, filtered, sorted and paged by the server). The other five are routed and show
+> an honest "not designed yet" placeholder. The Overview's queue and sites are built from the worst rows
+> the API returns; where more exist than those rows hold, they say so, and the domain counts stay the API's
+> whole-fleet counts.
 
 ## Quick start
 

@@ -537,6 +537,51 @@ describe('InfrastructureHealthPanel', () => {
     })
   })
 
+  describe('BY SITE when the rows do not cover the fleet', () => {
+    const sourced = (siteCoverage: 'problems' | 'none', sites = SITES) =>
+      createTestApi({
+        getHealthBreakdown: vi.fn(async () => breakdown({ siteCoverage, sites })),
+        source: 'http',
+      })
+
+    it('says the sites hold problems only, and why, and keeps the counted domain rows', async () => {
+      renderApp(<InfrastructureHealthPanel />, { api: sourced('problems') })
+      const list = await screen.findByRole('list', { name: 'By site' })
+      expect(screen.getByRole('heading', { name: /by site/i }).parentElement).toHaveTextContent(
+        'problems only',
+      )
+      expect(list).toHaveAccessibleDescription(/not all of it/)
+      expect(list).toHaveAccessibleDescription(/healthy and idle ones are not counted per site/)
+      expect(within(region()).getByText('SERVERS')).toBeInTheDocument()
+    })
+
+    it('says no site has a problem, instead of "no site assignments", when none is listed', async () => {
+      renderApp(<InfrastructureHealthPanel />, { api: sourced('problems', []) })
+      expect(
+        await screen.findByText('No server or container at any site needs attention'),
+      ).toBeInTheDocument()
+      expect(screen.queryByText('No site assignments yet')).toBeNull()
+    })
+
+    it('gives no site figure when the problems do not fit, and names what would be needed', async () => {
+      renderApp(<InfrastructureHealthPanel />, { api: sourced('none', []) })
+      expect(
+        await screen.findByText(/Not available: more servers and containers need attention/),
+      ).toBeVisible()
+      expect(screen.getByText(/needs a per-site count from the console API/)).toBeVisible()
+      expect(screen.queryByRole('list', { name: 'By site' })).toBeNull()
+      // The counts of the domains above stay: they are the API's, over the whole scope.
+      expect(within(region()).getByText('SERVERS')).toBeInTheDocument()
+    })
+
+    it('says nothing of coverage when the rows are whole', async () => {
+      renderApp(<InfrastructureHealthPanel />, { api: apiWith() })
+      await screen.findByRole('list', { name: 'By site' })
+      expect(within(region()).queryByText('problems only')).toBeNull()
+      expect(within(region()).queryByText(/Not available/)).toBeNull()
+    })
+  })
+
   describe('BY SITE', () => {
     it('is marked not connected and as sample data over the sample API, with its reason available to everyone', async () => {
       renderApp(<InfrastructureHealthPanel />, { api: apiWith() })

@@ -47,7 +47,7 @@ const linkName = () => screen.getByRole('link').getAttribute('aria-label') ?? ''
 
 describe.each([
   ['A', 'servers', 'Disconnected servers'],
-  ['B', 'docker', 'Disconnected Docker'],
+  ['B', 'customers', 'Disconnected Customers'],
 ] as const)('%s. %s: %s', (_id, feature, _what) => {
   // The servers are read from the console API; this row is about a feature that is not.
   beforeEach(() => overrides.set('servers', { connected: false }))
@@ -103,7 +103,7 @@ describe('D. site assignment and the overview counts: served and read', () => {
 
 describe('E. a mock-backed tile over an HTTP adapter', () => {
   it('keeps its visual tag and its spoken mock-data warning', () => {
-    renderApp(tile(['servers', 'docker'], 'Servers'), { api: api('http') })
+    renderApp(tile(['servers', 'customers'], 'Servers'), { api: api('http') })
     expect(screen.getByText('mock')).toBeVisible()
     expect(screen.getByRole('link', { name: /, mock data$/ })).toBeVisible()
   })
@@ -197,8 +197,8 @@ describe('I. a mixed adapter: one real feature and one demo feature', () => {
     renderApp(
       <>
         {panel('servers', 'Real')}
-        {panel('docker', 'Demo')}
-        {panel(['servers', 'docker'], 'Both')}
+        {panel('customers', 'Demo')}
+        {panel(['servers', 'customers'], 'Both')}
       </>,
       { api: api('http') },
     )
@@ -213,8 +213,8 @@ describe('I. a mixed adapter: one real feature and one demo feature', () => {
     renderApp(
       <>
         {tile('servers', 'Real')}
-        {tile('docker', 'Demo')}
-        {tile(['servers', 'docker'], 'Both')}
+        {tile('customers', 'Demo')}
+        {tile(['servers', 'customers'], 'Both')}
       </>,
       { api: api('http') },
     )

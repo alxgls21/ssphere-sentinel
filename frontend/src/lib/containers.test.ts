@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { ContainerHealth, ContainerState, HealthStatus, ServerContainer } from '@/api/types'
-import { containerWord, sortContainers, startedText } from './containerModel'
+import { containerWord, sortContainers, startedText } from './containers'
 
 const row = (
   name: string,

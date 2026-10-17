@@ -2,6 +2,9 @@ import { ApiError } from '../errors'
 import type {
   RangeKey,
   Server,
+  ContainerList,
+  ContainerListItem,
+  ContainerListOptions,
   ServerDetail,
   ServerList,
   ServerListItem,
@@ -9,6 +12,7 @@ import type {
   ServerSeries,
 } from '../types'
 import { RANGE_MS } from '@/lib/range'
+import { queryContainers } from '@/lib/containerList'
 import { queryServers } from '@/lib/serverList'
 import { countStatuses } from '@/lib/status'
 import type { Fleet } from './fixtures'
@@ -46,6 +50,30 @@ export function listServers(
   const lookup = makeLookup(fleet)
   const everyone = fleet.servers.map((server) => itemOf(server, fleet, lookup))
   return queryServers(everyone, toIso(now), options)
+}
+
+/** The page of containers a query asks for, by the rules the console API applies (see lib/containerList). */
+export function listContainers(
+  fleet: Fleet,
+  now: number,
+  options: ContainerListOptions = {},
+): ContainerList {
+  const lookup = makeLookup(fleet)
+  const everyone: ContainerListItem[] = fleet.containers.flatMap((container) => {
+    const host = lookup.serverById.get(container.serverId)
+    if (!host) return []
+    const place = lookup.placeOfContainer(container)
+    return [
+      {
+        container,
+        status: containerHealthOf(container),
+        serverName: host.name,
+        ...(place.customerName ? { customerName: place.customerName } : {}),
+        ...(place.siteName ? { siteName: place.siteName } : {}),
+      },
+    ]
+  })
+  return queryContainers(everyone, toIso(now), options)
 }
 
 export function serverDetail(fleet: Fleet, id: string, now: number): ServerDetail {

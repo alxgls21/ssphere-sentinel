@@ -1,6 +1,8 @@
 import type {
   AttentionOptions,
   AttentionResult,
+  ContainerList,
+  ContainerListOptions,
   EntityIndex,
   FleetLoad,
   FleetLoadOptions,
@@ -50,6 +52,9 @@ export interface SentinelApi {
 
   /** One page of the servers in scope that match the query, with their latest telemetry and the counts the filter chips show. */
   listServers(options?: ServerListOptions): Promise<ServerList>
+
+  /** One page of the containers of every visible server, searched, filtered, sorted and paged by the answerer. */
+  listContainers(options?: ContainerListOptions): Promise<ContainerList>
 
   /** One server and its containers. Rejects with ApiError(404) for an unknown id. */
   getServer(id: string, options?: Pick<RequestOptions, 'signal'>): Promise<ServerDetail>

@@ -1,11 +1,13 @@
+import { Link } from 'react-router'
 import type { ServerContainer } from '@/api/types'
+import { useViewTo } from '@/app/viewSearch'
 import { cn } from '@/lib/cn'
 import type { Resource } from '@/hooks/useResource'
 import type { ServerDetail } from '@/api/types'
 import { Panel } from '@/ui/Panel'
 import { EmptyState, SkeletonRows } from '@/ui/states'
 import { STATUS_EDGE, StatusTag } from '@/ui/status'
-import { containerWord, sortContainers, startedText } from './containerModel'
+import { containerWord, sortContainers, startedText } from '@/lib/containers'
 
 const HEAD =
   'type-label sticky top-0 z-10 h-6 border-b border-border bg-raised text-left whitespace-nowrap text-fg-faint'
@@ -74,11 +76,12 @@ interface ContainersPanelProps {
 
 /**
  * The Docker containers of one server, worst first. They arrive with the server detail, so they
- * are as real as the server is; this does not make the Docker screen (the inventory across
- * servers) connected, which is a feature of its own.
+ * are as real as the server is. The Docker screen lists the same containers across servers.
  */
 export function ContainersPanel({ index, resource, hostOffline, className }: ContainersPanelProps) {
+  const viewTo = useViewTo()
   const rows = resource.data ? sortContainers(resource.data.containers) : []
+  const serverId = resource.data?.item.server.id
   const nowMs = resource.data ? Date.parse(resource.data.generatedAt) : 0
   const problems = rows.filter((row) => row.status === 'critical' || row.status === 'warning')
   return (
@@ -103,11 +106,21 @@ export function ContainersPanel({ index, resource, hostOffline, className }: Con
       }
       skeleton={<SkeletonRows count={4} className="p-3" />}
       footer={
-        hostOffline ? (
-          <span className="truncate">Host offline: container state cannot be observed.</span>
-        ) : problems.length > 0 ? (
-          <span className="truncate">{problems.length} need attention</span>
-        ) : null
+        <>
+          {hostOffline ? (
+            <span className="truncate">Host offline: container state cannot be observed.</span>
+          ) : problems.length > 0 ? (
+            <span className="truncate">{problems.length} need attention</span>
+          ) : null}
+          {serverId ? (
+            <Link
+              to={viewTo('/docker', { server: serverId })}
+              className="ml-auto shrink-0 text-primary hover:text-primary-hover"
+            >
+              Open in Docker
+            </Link>
+          ) : null}
+        </>
       }
       flush
     >

@@ -24,6 +24,7 @@ export function createTestApi(overrides: Partial<SentinelApi> = {}): SentinelApi
     getHealthBreakdown: unstubbed('getHealthBreakdown'),
     getEntityIndex: unstubbed('getEntityIndex'),
     listServers: unstubbed('listServers'),
+    listContainers: unstubbed('listContainers'),
     getServer: unstubbed('getServer'),
     getServerSeries: unstubbed('getServerSeries'),
     ...overrides,

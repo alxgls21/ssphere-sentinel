@@ -62,6 +62,7 @@ describe('createConsoleApi', () => {
         'getServer',
         'getServerSeries',
         'listAttention',
+        'listContainers',
         'listServers',
         'source',
       ].sort(),
@@ -160,6 +161,20 @@ describe('createConsoleApi', () => {
     const signal = new AbortController().signal
     await api.getScopeOptions({ signal })
     expect(http.getScopeOptions).toHaveBeenCalledWith(signal)
+  })
+
+  it('passes the container inventory straight to the console API, with its query', async () => {
+    const http = fakeHttp({
+      listContainers: vi.fn(async () => containers({ scopeTotal: 9 })),
+    } as Partial<ConsoleHttp>)
+    const api = createConsoleApi(http)
+    const list = await api.listContainers({ q: 'pg', status: 'critical', server: 'srv-1' })
+    expect(http.listContainers).toHaveBeenCalledExactlyOnceWith({
+      q: 'pg',
+      status: 'critical',
+      server: 'srv-1',
+    })
+    expect(list.scopeTotal).toBe(9)
   })
 
   it('has no search index yet, and says so with an empty one rather than a made-up list', async () => {

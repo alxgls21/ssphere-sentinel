@@ -1,3 +1,4 @@
+import type { SentinelApi } from '../client'
 import type { ContainerList, ContainerListItem, ContainerListOptions } from '../types'
 import { array, record, text, time, whole } from './parse'
 import { parseContainer, parseCounts, parsePage } from './servers'
@@ -32,9 +33,12 @@ export function parseContainerList(raw: unknown): ContainerList {
 
 /** The query string of a list request: what is left at its default is not sent. */
 function listQuery(options: ContainerListOptions): Record<string, string | undefined> {
+  const words = options.q?.trim()
   return {
     customer: options.scope?.customerId ?? undefined,
     site: options.scope?.siteId ?? undefined,
+    server: options.server || undefined,
+    q: words || undefined,
     status: options.status && options.status !== 'all' ? options.status : undefined,
     sort: options.sort,
     dir: options.dir,
@@ -44,7 +48,7 @@ function listQuery(options: ContainerListOptions): Record<string, string | undef
 }
 
 export const listContainers =
-  (transport: Transport) =>
+  (transport: Transport): SentinelApi['listContainers'] =>
   async (options: ContainerListOptions = {}): Promise<ContainerList> =>
     parseContainerList(
       await transport.get('containers/', { signal: options.signal, query: listQuery(options) }),

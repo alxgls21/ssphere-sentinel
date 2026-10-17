@@ -77,6 +77,8 @@ describe('containers list', () => {
       query: {
         customer: 'c1',
         site: undefined,
+        server: undefined,
+        q: undefined,
         status: 'warning',
         sort: 'status',
         dir: 'desc',
@@ -88,6 +90,20 @@ describe('containers list', () => {
     expect(t.get).toHaveBeenLastCalledWith('containers/', {
       signal: undefined,
       query: expect.objectContaining({ status: undefined, page: undefined }),
+    })
+  })
+
+  it('sends the search words and the one server, trimmed, only when there are some', async () => {
+    const t = transport(list())
+    await listContainers(t)({ q: '  pg   bouncer ', server: 'srv-1' })
+    expect(t.get).toHaveBeenLastCalledWith('containers/', {
+      signal: undefined,
+      query: expect.objectContaining({ q: 'pg   bouncer', server: 'srv-1' }),
+    })
+    await listContainers(t)({ q: '   ', server: '' })
+    expect(t.get).toHaveBeenLastCalledWith('containers/', {
+      signal: undefined,
+      query: expect.objectContaining({ q: undefined, server: undefined }),
     })
   })
 

@@ -107,7 +107,7 @@ export function InfrastructureHealthPanel({ className }: { className?: string })
       {data ? (
         <>
           <DomainRows domains={data.domains} />
-          <SiteSection sites={listed} />
+          <SiteSection sites={listed} coverage={data.siteCoverage} />
         </>
       ) : null}
     </Panel>

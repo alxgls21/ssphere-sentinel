@@ -13,6 +13,7 @@ import { DESIGN_SYSTEM_PATH } from '@/shell/screen'
 const OverviewPage = lazy(() => import('@/features/overview/OverviewPage'))
 const ServersListPage = lazy(() => import('@/features/servers/ServersListPage'))
 const ServerDetailPage = lazy(() => import('@/features/servers/ServerDetailPage'))
+const DockerPage = lazy(() => import('@/features/docker/DockerPage'))
 
 // Development only: in a production build the condition is a constant, so the gallery
 // (and its chunk) is dropped entirely.
@@ -22,7 +23,7 @@ const DesignSystemPage = import.meta.env.DEV
 
 /**
  * Everything but /login needs a signed-in user (RequireAuth). Every screen in NAV_ITEMS is routed from day one. The designed ones (Overview,
- * Servers) have their own routes; the rest render an honest placeholder. A
+ * Servers, Docker) have their own routes; the rest render an honest placeholder. A
  * placeholder's own sub-paths stay with its screen, hence the trailing /*.
  */
 export function AppRoutes() {
@@ -36,6 +37,7 @@ export function AppRoutes() {
             <Route index element={<ServersListPage />} />
             <Route path=":id" element={<ServerDetailPage />} />
           </Route>
+          <Route path="docker" element={<DockerPage />} />
           {NAV_ITEMS.flatMap((item) =>
             item.designed
               ? []
