@@ -343,7 +343,8 @@ class ComposeRehearsalTests(ApplicationTestCase):
         deadline = time.monotonic() + 60
         while self.shell("holds_provisioning").returncode != 0:
             self.assertLess(time.monotonic(), deadline, "the program did not reach its wait")
-            self.assertIsNone(client.poll(), "the program ended: " + client.stderr.read())
+            if client.poll() is not None:  # read only then: the pipe is at its end only when the program is
+                self.fail("the program ended: " + client.stderr.read())
             time.sleep(0.2)
         # Nobody else sees what a transaction that has not committed has done.
         self.assertEqual(self.value("SELECT count(*) FROM pg_roles WHERE rolname = ANY (%s)", list(ROLES)), 0)
