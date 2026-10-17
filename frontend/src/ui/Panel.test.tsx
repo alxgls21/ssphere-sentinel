@@ -59,9 +59,11 @@ describe('Panel', () => {
     )
     const region = screen.getByRole('region', { name: 'Active alerts' })
     expect(region).toHaveAttribute('data-planned', 'true')
-    expect(region).toHaveAccessibleDescription(expect.stringContaining('Sample data.'))
+    expect(region).toHaveAccessibleDescription(
+      expect.stringContaining('Not implemented in the backend.'),
+    )
     expect(screen.getByText('Planned')).toBeInTheDocument()
-    expect(screen.getByText('Sample data. Alert engine not implemented.')).toBeInTheDocument()
+    expect(screen.getByText('Alert engine not implemented.')).toBeInTheDocument()
     expect(screen.queryByText(/^mock/)).not.toBeInTheDocument()
 
     // A mixed panel (one implemented feature) is not planned.
@@ -71,6 +73,63 @@ describe('Panel', () => {
       </Panel>,
     )
     expect(screen.queryByText('Planned')).not.toBeInTheDocument()
+  })
+
+  describe('a panel with nothing real behind it', () => {
+    it('holds no content of its own: not its children, not a sample, not a footer', () => {
+      renderApp(
+        <Panel
+          title="Active alerts"
+          features="alerts"
+          footer={<span>3 of 3 alerts</span>}
+          count={3}
+        >
+          <ul>
+            <li>disk full on edge-gw-02</li>
+          </ul>
+        </Panel>,
+      )
+      expect(screen.queryByText('disk full on edge-gw-02')).not.toBeInTheDocument()
+      expect(screen.queryByText('3 of 3 alerts')).not.toBeInTheDocument()
+      expect(screen.queryByText(/sample/i)).not.toBeInTheDocument()
+      expect(screen.getByText('Not implemented in the backend')).toBeInTheDocument()
+      // The registry's own sentence says why, when the panel gives none.
+      expect(screen.getAllByText(/alert engine is not implemented/i).length).toBeGreaterThan(0)
+    })
+
+    it('stays an honest empty frame while it loads, fails or is stale: none of those states apply', () => {
+      renderApp(
+        <Panel title="Active alerts" features="alerts" status="error" error={new Error('503')}>
+          x
+        </Panel>,
+      )
+      expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+      expect(screen.queryByRole('button', { name: 'Retry' })).not.toBeInTheDocument()
+      expect(screen.getByText('Not implemented in the backend')).toBeInTheDocument()
+    })
+
+    it('says "not connected", not "planned", for what the backend stores but the console API does not serve', () => {
+      renderApp(
+        <Panel title="Network latency" features="network" scope="1h">
+          x
+        </Panel>,
+      )
+      const region = screen.getByRole('region', { name: 'Network latency' })
+      expect(region).toHaveAttribute('data-planned', 'true')
+      expect(screen.getByText('Not connected to the console yet')).toBeInTheDocument()
+      expect(screen.queryByText('Planned')).not.toBeInTheDocument()
+      expect(screen.queryByText('x')).not.toBeInTheDocument()
+      expect(screen.queryByText(/^mock/)).not.toBeInTheDocument()
+    })
+
+    it('draws a dashed frame', () => {
+      renderApp(
+        <Panel title="Recent events" features="events">
+          x
+        </Panel>,
+      )
+      expect(screen.getByRole('region', { name: 'Recent events' })).toHaveClass('border-dashed')
+    })
   })
 
   it('shows no skeleton for a fast load, then a skeleton after 150 ms, aria-busy throughout', () => {

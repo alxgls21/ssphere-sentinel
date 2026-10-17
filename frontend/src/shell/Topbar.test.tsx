@@ -204,8 +204,14 @@ describe('Topbar: provenance and the palette', () => {
     const { unmount } = await setup()
     expect(screen.getByText('Demo data')).toBeInTheDocument()
     unmount()
+    overrides.set('servers', { connected: false })
     await setup({}, { api: { source: 'http' } })
     expect(screen.getByText('Demo data')).toBeInTheDocument()
+  })
+
+  it('has no chip over an HTTP adapter while every feature that shows figures is connected', async () => {
+    await setup({}, { api: { source: 'http' } })
+    expect(screen.queryByText('Demo data')).not.toBeInTheDocument()
   })
 
   it('drops the chip only when every feature is connected and the data is real', async () => {

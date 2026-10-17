@@ -84,7 +84,7 @@ function Tiles() {
     <Specimen
       label="Stat tiles"
       bare
-      note="One link per implemented domain. Net targets is the only tile with a trend, because the backend stores probe history. Devices and Alerts are planned: dashed frame, PLANNED chip, no link."
+      note="One link per domain the console API counts: servers and containers. Net targets, Devices and Alerts have no figure to show: a dashed frame, a chip saying why, no number and no link."
     >
       <SummaryScenario summary={SAMPLE_SUMMARIES.critical}>
         <div className={TILE_GRID}>

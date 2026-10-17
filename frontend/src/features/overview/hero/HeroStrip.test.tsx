@@ -3,52 +3,44 @@ import userEvent from '@testing-library/user-event'
 import { describe, expect, it, vi } from 'vitest'
 import { createMockApi } from '@/api/mock/client'
 import { ShellContext } from '@/app/shell'
-import { createTestApi, renderApp } from '@/test/render'
-import { AlertsProvider } from '../AlertsProvider'
+import { renderApp } from '@/test/render'
 import { HeroStrip } from './HeroStrip'
 import { makeResource, makeShell, renderHero } from './testing'
-
-const noAlerts = () => createTestApi({ listAlerts: vi.fn().mockResolvedValue([]) })
 
 const strip = () => screen.getByRole('region', { name: 'Fleet summary' })
 
 describe('HeroStrip', () => {
   it('is a labelled region holding the verdict, then the five tiles in order', async () => {
-    renderHero(<HeroStrip />, { api: noAlerts() })
+    renderHero(<HeroStrip />)
     const region = strip()
     expect(within(region).getByRole('button', { name: /^Fleet status:/ })).toBeInTheDocument()
-    await within(region).findByText('sample')
 
     const labels = [...region.querySelectorAll('.type-label')].map((label) => label.textContent)
     expect(labels).toEqual(['Servers', 'Containers', 'Net targets', 'Devices', 'Alerts'])
   })
 
-  it('links the three implemented tiles to their screens and leaves the planned two inert', async () => {
-    renderHero(<HeroStrip />, { api: noAlerts() })
+  it('links the two tiles the console API serves and leaves the other three inert', () => {
+    renderHero(<HeroStrip />)
     const links = within(strip()).getAllByRole('link')
-    expect(links.map((link) => link.getAttribute('href'))).toEqual([
-      '/servers',
-      '/docker',
-      '/network',
-    ])
-    await screen.findByText('sample')
+    expect(links.map((link) => link.getAttribute('href'))).toEqual(['/servers', '/docker'])
+    expect(strip().querySelectorAll('[data-planned="true"]')).toHaveLength(3)
     expect(screen.getAllByText('Planned')).toHaveLength(1)
-    expect(screen.getAllByText('Demo')).toHaveLength(1)
-    expect(screen.getAllByText('mock')).toHaveLength(3)
+    expect(screen.getAllByText('mock')).toHaveLength(2)
   })
 
-  it('has the sparkline on the targets tile only', async () => {
-    renderHero(<HeroStrip />, { api: noAlerts() })
-    await screen.findByText('sample')
-    expect(strip().querySelectorAll('[aria-label^="Success rate"]')).toHaveLength(1)
+  it('has no sparkline and no figure on the tiles of what the console API does not serve', () => {
+    renderHero(<HeroStrip />)
+    expect(strip().querySelectorAll('[aria-label^="Success rate"]')).toHaveLength(0)
+    for (const tile of strip().querySelectorAll('[data-planned="true"]')) {
+      expect(tile.querySelector('.type-kpi')).toBeNull()
+    }
   })
 
-  it('tabs through the verdict and the three links, and not through the planned tiles', async () => {
-    renderHero(<HeroStrip />, { api: noAlerts() })
-    await screen.findByText('sample')
+  it('tabs through the verdict and the two links, and not through the planned tiles', async () => {
+    renderHero(<HeroStrip />)
     await userEvent.tab()
     expect(screen.getByRole('button', { name: /^Fleet status:/ })).toHaveFocus()
-    for (const name of [/^Servers:/, /^Containers:/, /^Net targets:/]) {
+    for (const name of [/^Servers:/, /^Containers:/]) {
       await userEvent.tab()
       expect(screen.getByRole('link', { name })).toHaveFocus()
     }
@@ -57,7 +49,7 @@ describe('HeroStrip', () => {
   })
 
   it('lays out the spec grid: one 7.5rem row at xl, two rows at lg, 3 + 2 at md, two columns below', () => {
-    const { container } = renderHero(<HeroStrip />, { api: noAlerts() })
+    const { container } = renderHero(<HeroStrip />)
     const grid = container.querySelector('section') as HTMLElement
     expect(grid).toHaveClass(
       'grid',
@@ -85,13 +77,13 @@ describe('HeroStrip', () => {
     expect(tile(/^Servers:/)).toHaveClass('md:col-span-2', 'lg:col-span-1')
     expect(tile(/^Containers:/)).toHaveClass('md:col-span-2', 'lg:col-span-1')
     // Full width on a phone, so the two planned tiles share the last row.
-    expect(tile(/^Net targets:/)).toHaveClass('col-span-2', 'lg:col-span-1')
+    const targets = within(grid).getByText('Net targets').closest('[data-planned="true"]')
+    expect(targets).toHaveClass('col-span-2', 'lg:col-span-1')
   })
 
-  it('shows every tile and the verdict in their loading and error states together', async () => {
+  it('shows the verdict and the summary-backed tiles in their error state, the others unchanged', async () => {
     const refetch = vi.fn()
     renderHero(<HeroStrip />, {
-      api: createTestApi({ listAlerts: vi.fn().mockRejectedValue(new Error('503')) }),
       summary: makeResource({
         status: 'error',
         data: undefined,
@@ -101,8 +93,9 @@ describe('HeroStrip', () => {
       }),
     })
     expect(within(strip()).getByRole('button', { name: /no data/ })).toBeInTheDocument()
-    await waitFor(() => expect(within(strip()).getAllByRole('alert')).toHaveLength(5))
-    await userEvent.click(within(strip()).getByRole('button', { name: 'Retry loading Devices' }))
+    expect(within(strip()).getAllByRole('alert')).toHaveLength(2)
+    expect(within(strip()).getAllByText('Not served by the console API')).toHaveLength(2)
+    await userEvent.click(within(strip()).getByRole('button', { name: 'Retry loading Servers' }))
     expect(refetch).toHaveBeenCalledOnce()
   })
 })
@@ -113,36 +106,31 @@ describe('HeroStrip against the mock API', () => {
     const summary = await api.getOverviewSummary()
     renderApp(
       <ShellContext.Provider value={makeShell()}>
-        <AlertsProvider>
-          <HeroStrip />
-        </AlertsProvider>
+        <HeroStrip />
       </ShellContext.Provider>,
       { api, withSummary: true },
     )
 
-    const { servers, containers, targets } = summary
+    const { servers, containers } = summary
     // The link exists while the tile is still loading, so assert with retry rather than on first sight.
     const link = (label: string) => screen.getByRole('link', { name: new RegExp(`^${label}: `) })
     await waitFor(() => {
-      expect(link('Servers')).toHaveTextContent(`${servers.online}/${servers.total} online`)
+      expect(link('Servers')).toHaveTextContent(`${servers.counts.healthy}/${servers.total} ok`)
       expect(link('Containers')).toHaveTextContent(
-        `${containers.running}/${containers.total} running`,
+        `${containers.counts.healthy}/${containers.total} ok`,
       )
-      expect(link('Net targets')).toHaveTextContent(`${targets.up}/${targets.total} up`)
     })
 
     const counted = (['critical', 'warning', 'unknown', 'healthy'] as const).reduce(
-      (sum, status) =>
-        sum + servers.counts[status] + containers.counts[status] + targets.counts[status],
+      (sum, status) => sum + servers.counts[status] + containers.counts[status],
       0,
     )
-    const attention = [servers, containers, targets].reduce(
+    const attention = [servers, containers].reduce(
       (sum, domain) => sum + domain.counts.critical + domain.counts.warning + domain.counts.unknown,
       0,
     )
     const hero = await screen.findByRole('button', { name: /^Fleet status:/ })
     expect(hero).toHaveTextContent(`need attention of ${counted}`)
     expect(hero.querySelector('.type-hero')).toHaveTextContent(String(attention))
-    expect(await screen.findByText('in inventory')).toBeInTheDocument()
   })
 })

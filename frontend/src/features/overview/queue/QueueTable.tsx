@@ -20,8 +20,6 @@ import { PlaceName } from '@/ui/PlaceName'
 /** Narrow containers show cards; only this many until the operator asks for all. */
 const CARD_LIMIT = 5
 
-const SITE_NOTE =
-  'Servers and probe targets can be placed on a site in the admin. The sites shown here are samples.'
 const NO_HISTORY =
   'No history: the backend stores no start time for this problem, only the latest sample.'
 
@@ -102,15 +100,6 @@ export function QueueTable({
             {showSite ? (
               <th scope="col" className={cn(HEAD_CELL, 'px-3 @min-md:@max-[40rem]:hidden')}>
                 SITE
-                <Tooltip content={SITE_NOTE}>
-                  <button
-                    type="button"
-                    aria-label="Sample data"
-                    className="cursor-help rounded-sm px-0.5 focus-visible:-outline-offset-2"
-                  >
-                    †
-                  </button>
-                </Tooltip>
               </th>
             ) : null}
             <th scope="col" className={cn(HEAD_CELL, 'px-3 text-right')}>
@@ -178,7 +167,7 @@ export function QueueTable({
                   className={cn(
                     CELL,
                     'w-full max-w-0 px-3 @max-md:col-start-1 @max-md:row-start-2 @max-md:w-auto @max-md:max-w-none',
-                    // Card: line 1 severity + entity, line 2 detail + age, line 3 the (sample) site.
+                    // Card: line 1 severity + entity, line 2 detail + age, line 3 the site.
                     '@max-md:col-span-2',
                   )}
                 >

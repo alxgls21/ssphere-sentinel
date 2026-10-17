@@ -72,7 +72,11 @@ interface ContainersPanelProps {
   className?: string
 }
 
-/** The Docker containers of one server, worst first. Demo data until connected to the console API, which serves them. */
+/**
+ * The Docker containers of one server, worst first. They arrive with the server detail, so they
+ * are as real as the server is; this does not make the Docker screen (the inventory across
+ * servers) connected, which is a feature of its own.
+ */
 export function ContainersPanel({ index, resource, hostOffline, className }: ContainersPanelProps) {
   const rows = resource.data ? sortContainers(resource.data.containers) : []
   const nowMs = resource.data ? Date.parse(resource.data.generatedAt) : 0
@@ -81,7 +85,7 @@ export function ContainersPanel({ index, resource, hostOffline, className }: Con
     <Panel
       index={index}
       title="Containers"
-      features="docker"
+      features="servers"
       scope="NOW"
       className={className}
       count={resource.data ? rows.length : undefined}

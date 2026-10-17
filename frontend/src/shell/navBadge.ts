@@ -13,14 +13,13 @@ export interface NavBadge {
 }
 
 /**
- * Only domains the backend really ingests have counts. SNMP, Topology and
- * Alerts are absent on purpose: a number beside them would imply a working
+ * Only domains the console API counts have a badge: servers and containers. Network, SNMP,
+ * Topology and Alerts are absent on purpose: a number beside them would imply a working
  * engine behind it.
  */
 const DOMAIN_COUNTS: Partial<Record<NavItem['id'], (summary: OverviewSummary) => StatusCounts>> = {
   servers: (summary) => summary.servers.counts,
   docker: (summary) => summary.containers.counts,
-  network: (summary) => summary.targets.counts,
 }
 
 /**

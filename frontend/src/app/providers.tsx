@@ -1,34 +1,55 @@
-import { Fragment, useMemo, useState, type ReactNode } from 'react'
+import { Fragment, useEffect, useMemo, useState, type ReactNode } from 'react'
 import { BrowserRouter } from 'react-router'
 import { ApiContext } from '@/api/context'
-import { composeDemoApi } from '@/api/demo'
+import type { SentinelApi } from '@/api/client'
 import { createConsoleHttp, type ConsoleHttp } from '@/api/http'
-import { createMockApi } from '@/api/mock/client'
 import { ConfigurationError, resolveApiMode, type ApiMode } from '@/config/runtime'
 import { ShellProvider } from '@/shell/ShellProvider'
 import { AuthProvider } from './auth/AuthProvider'
+import { createConsoleApi } from './consoleApi'
 import { useAuth } from './auth/auth'
 import { createSessionSignals } from './auth/signals'
 import { LiveProvider } from './LiveProvider'
 import { ModeContext } from './mode'
 import { PrefsProvider } from './PrefsProvider'
+import { LimitsProvider } from './LimitsProvider'
 import { useMockScenario } from './scenario'
 import { SummaryProvider } from './SummaryProvider'
 
 /**
- * Supplies the data source. In `http` mode the scope comes from the console API
- * and every other screen reads demo data kept apart from it (see composeDemoApi);
- * in `mock` mode (development and tests only) everything is the sample fleet.
+ * The sample fleet is loaded only by a development run with VITE_SENTINEL_API=mock. The test
+ * is on the build-time setting, so a production bundle holds no import of it at all.
+ */
+const loadSampleFleet = () =>
+  import.meta.env.VITE_SENTINEL_API === 'mock'
+    ? import('@/api/mock/client').then((module) => module.createMockApi)
+    : Promise.reject(new Error('The sample fleet is not part of this build.'))
+
+/**
+ * Supplies the data source: the console API, or, in `mock` mode (development and tests
+ * only), the sample fleet. In mock mode nothing renders until the sample fleet has loaded.
  *
  * Changing the mock scenario remounts everything below (via `key`) so every
  * screen replays its loading state from scratch.
  */
 function ApiProvider({ http, children }: { http: ConsoleHttp | null; children: ReactNode }) {
   const scenario = useMockScenario()
-  const api = useMemo(() => {
-    const demo = createMockApi({ scenario })
-    return http ? composeDemoApi(demo, http) : demo
-  }, [scenario, http])
+  const [createMock, setCreateMock] = useState<
+    typeof import('@/api/mock/client').createMockApi | null
+  >(null)
+  useEffect(() => {
+    if (http) return
+    let live = true
+    void loadSampleFleet().then((create) => live && setCreateMock(() => create))
+    return () => {
+      live = false
+    }
+  }, [http])
+  const api = useMemo<SentinelApi | null>(() => {
+    if (http) return createConsoleApi(http)
+    return createMock ? createMock({ scenario }) : null
+  }, [scenario, http, createMock])
+  if (!api) return null
   return (
     <ApiContext.Provider value={api}>
       <Fragment key={scenario}>{children}</Fragment>
@@ -69,9 +90,11 @@ function Services({ mode, children }: { mode: ApiMode; children: ReactNode }) {
   return (
     <AuthProvider client={http?.auth ?? null} signals={signals}>
       <ApiProvider http={http}>
-        <PrefsProvider>
-          <SessionScope>{children}</SessionScope>
-        </PrefsProvider>
+        <LimitsProvider>
+          <PrefsProvider>
+            <SessionScope>{children}</SessionScope>
+          </PrefsProvider>
+        </LimitsProvider>
       </ApiProvider>
     </AuthProvider>
   )

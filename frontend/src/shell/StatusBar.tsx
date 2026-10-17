@@ -9,7 +9,6 @@ import { useFlashMessage } from './flash'
 import { nextPollText } from './nextPoll'
 import { useNow } from './useNow'
 import { APP_VERSION } from './version'
-import { useApiMode } from '@/app/mode'
 import { useMockScenario } from '@/app/scenario'
 
 function subscribeOnline(onChange: () => void) {
@@ -67,7 +66,6 @@ export function StatusBar() {
   const { source } = useApi()
   const demo = useShowsDemoData()
   const scenario = useMockScenario()
-  const apiMode = useApiMode()
   const { mode, pending } = useHotkeyState()
   const { paused, pollMs } = useLive()
   const { lastUpdatedAt, fetching } = useLiveSnapshot()
@@ -76,13 +74,11 @@ export function StatusBar() {
   const flash = useFlashMessage()
 
   const sourceLine =
-    source === 'mock' && apiMode === 'http'
-      ? 'Sample fleet, not your infrastructure · customers and sites from the console API'
-      : source === 'mock'
-        ? `MOCK · mock://fixtures v1 · MockApi (no backend read APIs) · scenario ${scenario}`
-        : demo
-          ? 'Partly demo data: features not yet connected to the console API show sample figures'
-          : `LIVE · ${window.location.origin}/api/v1`
+    source === 'mock'
+      ? `MOCK · mock://fixtures v1 · sample fleet · scenario ${scenario}`
+      : demo
+        ? 'Partly demo data: features not yet connected to the console API show sample figures'
+        : `LIVE · ${window.location.origin}/api/v1`
 
   return (
     <footer className="type-chart flex h-6 shrink-0 items-center gap-3 border-t border-border bg-panel pr-3 text-fg-faint">

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
-import type { AuthClient, ConsoleSession, ConsoleUser } from '@/api/auth'
+import type { AuthClient, ConsoleSession, ConsoleUser, PublishedThresholds } from '@/api/auth'
 import { ApiError } from '@/api/errors'
 import { AuthContext, type AuthApi, type AuthStatus } from './auth'
 import type { SessionSignals } from './signals'
@@ -12,6 +12,8 @@ interface State {
   user: ConsoleUser | null
   error: string | null
   signedOut: boolean
+  /** The limits the server judges health by, from the signed-in session. */
+  thresholds?: PublishedThresholds
 }
 
 /** While the server is being told to end the session, or could not be, no answer may show the app. */
@@ -21,7 +23,13 @@ const CHECKING: State = { status: 'checking', user: null, error: null, signedOut
 
 function fromSession(session: ConsoleSession, previous: AuthStatus): State {
   if (session.authenticated && session.user) {
-    return { status: 'authenticated', user: session.user, error: null, signedOut: false }
+    return {
+      status: 'authenticated',
+      user: session.user,
+      error: null,
+      signedOut: false,
+      ...(session.thresholds ? { thresholds: session.thresholds } : {}),
+    }
   }
   if (session.reason === 'no_console_access')
     return { status: 'denied', user: null, error: null, signedOut: false }
@@ -154,6 +162,7 @@ export function AuthProvider({ client, signals, children }: AuthProviderProps) {
   const value = useMemo<AuthApi>(
     () => ({
       ...state,
+      thresholds: state.thresholds ?? null,
       signIn,
       signOut,
       refresh: () => {

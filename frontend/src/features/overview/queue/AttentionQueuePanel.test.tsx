@@ -69,15 +69,15 @@ describe('the table', () => {
     await renderLoaded()
     expect(
       screen.getAllByRole('columnheader').map((header) => header.textContent?.replace(/\s+/g, ' ')),
-    ).toEqual(['SEV', 'ENTITY', 'DETAIL', 'SITE†', 'AGE'])
+    ).toEqual(['SEV', 'ENTITY', 'DETAIL', 'SITE', 'AGE'])
     expect(names()).toEqual([
       'srv edge-gw-02',
-      'tcp acme-vpn:443',
+      'ctr acme-proxy',
       'ctr payments-api',
       'ctr redis-cache',
       'ctr worker-3',
-      'icmp 10.20.0.1',
-      'tcp cdn-edge:80',
+      'srv edge-gw-01',
+      'ctr cdn-edge',
       'srv api-02',
       'srv db-prod-01',
     ])
@@ -86,7 +86,7 @@ describe('the table', () => {
   it('gives each row a label that reads the whole line', async () => {
     await renderLoaded()
     expect(labelOf(rows()[1])).toBe(
-      'Row 2 of 9, critical, tcp acme-vpn:443, connection refused, 9 failed probes, Acme Athens-DC, 9 minutes',
+      'Row 2 of 9, critical, ctr acme-proxy, dead, on edge-gw-02, Acme Athens-DC, 9 minutes',
     )
     expect(labelOf(rows()[7])).toBe(
       'Row 8 of 9, warning, srv api-02, cpu 82%, warn at 80, Globex Thess-1, age unavailable',
@@ -97,9 +97,9 @@ describe('the table', () => {
     await renderLoaded()
     const cells = within(rows()[1] as HTMLElement).getAllByRole('cell')
     expect(cells.map((cell) => cell.textContent)).toEqual([
-      'DOWN',
-      'tcp acme-vpn:443',
-      'connection refused · 9 failed probes',
+      'DEAD',
+      'ctr acme-proxy',
+      'dead · on edge-gw-02',
       'Acme / Athens-DC',
       '9m',
     ])
@@ -128,15 +128,6 @@ describe('the table', () => {
     )
     expect(screen.queryByRole('columnheader', { name: /SITE/ })).not.toBeInTheDocument()
     expect(within(rows()[0] as HTMLElement).getAllByRole('cell')).toHaveLength(4)
-  })
-
-  it('flags the SITE column as sample data', async () => {
-    const user = userEvent.setup()
-    await renderLoaded()
-    await user.hover(screen.getByRole('button', { name: 'Sample data' }))
-    expect(await screen.findByRole('tooltip')).toHaveTextContent(
-      'Servers and probe targets can be placed on a site in the admin. The sites shown here are samples.',
-    )
   })
 })
 
@@ -178,7 +169,7 @@ describe('an offline server', () => {
     expect(tag).toHaveClass('bg-offline-tint', 'text-offline')
     // Another critical row keeps the critical indicator.
     const down = within(rows()[1] as HTMLElement)
-      .getByText('DOWN')
+      .getByText('DEAD')
       .closest('[data-status]')
     expect(down).toHaveAttribute('data-status', 'critical')
   })
@@ -204,7 +195,7 @@ describe('an offline server', () => {
     await user.click(screen.getByRole('button', { name: 'CRIT 4' }))
     expect(names()).toEqual([
       'srv edge-gw-02',
-      'tcp acme-vpn:443',
+      'ctr acme-proxy',
       'ctr payments-api',
       'ctr redis-cache',
     ])
@@ -320,8 +311,8 @@ describe('keyboard', () => {
     await renderLoaded()
     expect(rows().filter((row) => row.tabIndex === 0)).toEqual([rows()[0]])
     expect(rows().filter((row) => row.tabIndex === -1)).toHaveLength(8)
-    // Tab order: chips, the SITE note, then the table's one stop.
-    for (let i = 0; i < 5; i += 1) await user.tab()
+    // Tab order: the filter chips, then the table's one stop.
+    for (let i = 0; i < 4; i += 1) await user.tab()
     expect(document.activeElement).toBe(rows()[0])
   })
 
@@ -384,13 +375,13 @@ describe('keyboard', () => {
     const user = userEvent.setup()
     await renderLoaded()
     const selection = vi.spyOn(window, 'getSelection').mockReturnValue({
-      toString: () => 'acme-vpn',
+      toString: () => 'acme-proxy',
     } as Selection)
     await user.click(rows()[1] as HTMLElement)
     expect(screen.getByTestId('location')).toHaveTextContent(/^\/$/)
     selection.mockRestore()
     await user.click(rows()[1] as HTMLElement)
-    expect(screen.getByTestId('location')).toHaveTextContent('/network?focus=tgt-vpn')
+    expect(screen.getByTestId('location')).toHaveTextContent('/docker?focus=ctr-proxy')
   })
 
   it('puts focus back on the same row when the operator comes back', async () => {
@@ -407,7 +398,7 @@ describe('keyboard', () => {
     renderQueue(
       <Routes>
         <Route path="/" element={<Page />} />
-        <Route path="/network" element={<Away />} />
+        <Route path="/docker" element={<Away />} />
       </Routes>,
       { api: queue.api },
     )
@@ -417,7 +408,7 @@ describe('keyboard', () => {
     await user.click(await screen.findByRole('button', { name: 'Back' }))
     await screen.findByRole('table', { name: 'Needs attention' })
     await waitFor(() => expect(focusedRow()).toBe(labelOf(rows()[1])))
-    expect(focusedRow()).toMatch(/^Row 2 of 9, critical, tcp acme-vpn:443/)
+    expect(focusedRow()).toMatch(/^Row 2 of 9, critical, ctr acme-proxy/)
   })
 
   it('moves to the next and previous problem on the global event, skipping idle rows', async () => {
@@ -430,7 +421,7 @@ describe('keyboard', () => {
     })
     await renderLoaded([...referenceItems().slice(0, 2), idle, ...referenceItems().slice(2)])
     nextProblem(1)
-    expect(focusedRow()).toMatch(/^Row 2 of 10, critical, tcp acme-vpn/)
+    expect(focusedRow()).toMatch(/^Row 2 of 10, critical, ctr acme-proxy/)
     nextProblem(1)
     expect(focusedRow()).toMatch(/^Row 4 of 10, critical, ctr payments-api/)
     nextProblem(-1)
@@ -466,8 +457,7 @@ describe('keyboard', () => {
 })
 
 describe('copy (y)', () => {
-  const copied =
-    'CRIT tcp acme-vpn:443 | connection refused · 9 failed probes | Acme / Athens-DC | 9m'
+  const copied = 'CRIT ctr acme-proxy | dead · on edge-gw-02 | Acme / Athens-DC | 9m'
 
   it('copies the selected row as one line and confirms in the status bar', async () => {
     const user = userEvent.setup()
@@ -738,7 +728,7 @@ describe('order lock', () => {
     set(resultOf([newCritical(), ...referenceItems()]))
     await advance(1000)
     fireEvent.keyDown(document.activeElement as HTMLElement, { key: 'r', code: 'KeyR' })
-    expect(focusedRow()).toMatch(/^Row 3 of 10, critical, tcp acme-vpn:443/)
+    expect(focusedRow()).toMatch(/^Row 3 of 10, critical, ctr acme-proxy/)
     expect(rows()[2]).toHaveAttribute('tabindex', '0')
   })
 
@@ -825,7 +815,7 @@ describe('order lock', () => {
     expect(rows()).toHaveLength(9)
 
     // The refresh the operator asked for (key r reaches the live layer) is not held back either.
-    const second = makeItem({ id: 'srv-2', name: 'second-host', kind: 'target' })
+    const second = makeItem({ id: 'srv-2', name: 'second-host', kind: 'container' })
     set(resultOf([newCritical(), second, ...referenceItems()]))
     const calls = listAttention.mock.calls.length
     fireEvent.click(screen.getByRole('button', { name: 'Refresh now' }))

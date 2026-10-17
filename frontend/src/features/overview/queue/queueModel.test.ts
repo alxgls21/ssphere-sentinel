@@ -30,9 +30,9 @@ function named(name: string): QueueItem {
   return found
 }
 const edge = named('edge-gw-02')
-const vpn = named('acme-vpn:443')
+const vpn = named('acme-proxy')
 const payments = named('payments-api')
-const gateway = named('10.20.0.1')
+const gateway = named('edge-gw-01')
 const api02 = named('api-02')
 
 /** The reference queue with one row (by name) patched. */
@@ -45,15 +45,11 @@ const snapshot = (items: QueueItem[], view = 'v'): QueueSnapshot => ({
 })
 
 describe('rows', () => {
-  it('names the kind: srv, ctr, and the probe protocol for a target', () => {
+  it('names the kind: srv for a server, ctr for a container', () => {
     expect(kindLabel(edge)).toBe('srv')
     expect(kindLabel(payments)).toBe('ctr')
-    expect(kindLabel(vpn)).toBe('tcp')
-    expect(kindLabel(gateway)).toBe('icmp')
-  })
-
-  it('reads net for a target whose protocol the view-model does not carry', () => {
-    expect(kindLabel(makeItem({ kind: 'target' }))).toBe('net')
+    expect(kindLabel(vpn)).toBe('ctr')
+    expect(kindLabel(gateway)).toBe('srv')
   })
 
   it('keys a row by kind and id, so two kinds may reuse an id', () => {
@@ -71,7 +67,7 @@ describe('rows', () => {
   })
 
   it('keeps the lead phrase of a detail line', () => {
-    expect(detailLead('connection refused · 9 failed probes')).toBe('connection refused')
+    expect(detailLead('dead · on edge-gw-02')).toBe('dead')
     expect(detailLead('degraded')).toBe('degraded')
   })
 
@@ -102,7 +98,7 @@ describe('spokenAge', () => {
 describe('rowLabel', () => {
   it('reads the whole row as the design spec words it', () => {
     expect(rowLabel(vpn, 2, 9, NOW)).toBe(
-      'Row 2 of 9, critical, tcp acme-vpn:443, connection refused, 9 failed probes, Acme Athens-DC, 9 minutes',
+      'Row 2 of 9, critical, ctr acme-proxy, dead, on edge-gw-02, Acme Athens-DC, 9 minutes',
     )
   })
 
@@ -116,7 +112,7 @@ describe('rowLabel', () => {
 describe('rowCopyText', () => {
   it('is one line: severity word, kind, name, detail, site, age', () => {
     expect(rowCopyText(vpn, NOW)).toBe(
-      'CRIT tcp acme-vpn:443 | connection refused · 9 failed probes | Acme / Athens-DC | 9m',
+      'CRIT ctr acme-proxy | dead · on edge-gw-02 | Acme / Athens-DC | 9m',
     )
   })
 
@@ -140,7 +136,7 @@ describe('entityTarget', () => {
       pathname: '/docker',
       extra: { focus: 'ctr-payments' },
     })
-    expect(entityTarget(vpn)).toEqual({ pathname: '/network', extra: { focus: 'tgt-vpn' } })
+    expect(entityTarget(vpn)).toEqual({ pathname: '/docker', extra: { focus: 'ctr-proxy' } })
   })
 
   it('leaves escaping to the router: the id is passed through untouched', () => {
@@ -160,7 +156,7 @@ describe('filter', () => {
   it('keeps the order the API gave', () => {
     expect(filterItems(all, 'critical').map((item) => item.name)).toEqual([
       'edge-gw-02',
-      'acme-vpn:443',
+      'acme-proxy',
       'payments-api',
       'redis-cache',
     ])
@@ -195,7 +191,7 @@ describe('describeUpdates', () => {
   })
 
   it('counts a row appearing, disappearing and changing state', () => {
-    const next = patched('acme-vpn:443', { severity: 'warning', stateLabel: 'DEGRADED' })
+    const next = patched('acme-proxy', { severity: 'warning', stateLabel: 'DEGRADED' })
       .filter((item) => item.name !== 'edge-gw-02')
       .concat(makeItem({ id: 'srv-new', name: 'new-host', severity: 'warning' }))
     expect(describeUpdates(base, next)).toEqual({ count: 3, arrived: 2, newCritical: 0 })

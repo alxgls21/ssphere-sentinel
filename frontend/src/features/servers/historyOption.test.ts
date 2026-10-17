@@ -26,6 +26,28 @@ const build = (hidden: string[] = [], height?: number): ChartOption =>
 const lines = (option: ChartOption) => [option.series ?? []].flat() as LineSeriesOption[]
 const list = (value: unknown) => [value ?? []].flat() as Record<string, unknown>[]
 
+describe('the warning limit it draws', () => {
+  const marks = (limit?: { warn: number; origin: 'server' | 'default' }) =>
+    lines(
+      buildHistoryOption({ series: series(), tz: 'utc', hidden: new Set(), tokens, limit }),
+    ).flatMap((s) => list((s.markLine as { data?: unknown } | undefined)?.data))
+  const labels = (limit?: { warn: number; origin: 'server' | 'default' }) =>
+    lines(
+      buildHistoryOption({ series: series(), tz: 'utc', hidden: new Set(), tokens, limit }),
+    ).map((s) => (s.markLine as { label: { formatter: string } } | undefined)?.label.formatter)
+
+  it('is the console default, said to be one, when none is given', () => {
+    expect(marks()).toEqual([{ yAxis: 80 }, { yAxis: 80 }, { yAxis: 80 }])
+    expect(labels()[0]).toBe('warn 80% (UI default)')
+  })
+
+  it('is the server limit, said to be set on the server, when it is published', () => {
+    const limit = { warn: 70, origin: 'server' } as const
+    expect(marks(limit)).toEqual([{ yAxis: 70 }, { yAxis: 70 }, { yAxis: 70 }])
+    expect(labels(limit)[0]).toBe('warn 70% (set on the server)')
+  })
+})
+
 describe('buildHistoryOption', () => {
   it('draws CPU, RAM and disk as three small multiples on one time axis', () => {
     const option = build()

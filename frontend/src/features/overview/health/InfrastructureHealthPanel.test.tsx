@@ -9,7 +9,6 @@ import type {
   SiteEntity,
   StatusCounts,
 } from '@/api/types'
-import { DATA_FEATURES } from '@/config/features'
 import { registryOverrides } from '@/config/testing'
 import { emptyCounts, type DisplayStatus } from '@/lib/status'
 import { createTestApi, renderApp } from '@/test/render'
@@ -164,21 +163,44 @@ describe('InfrastructureHealthPanel', () => {
     const rowOf = (label: string) => screen.getByText(label).closest('li') as HTMLElement
     const overHttp = (data: HealthBreakdown = breakdown()) =>
       createTestApi({ getHealthBreakdown: vi.fn(async () => data), source: 'http' })
-    const served = (id: (typeof DATA_FEATURES)[number]) =>
-      overrides.set(id, { backend: 'console-api', connected: true })
     /** Every domain counted from real figures, as a connected API answers. */
     const counted = () => breakdown({ domains: DOMAINS.map((d) => ({ ...d, planned: false })) })
 
-    it.each(DATA_FEATURES)(
-      'stays mock over http when only %s is connected, since the figures mix demo and real data',
+    it.each(['overview', 'site-links'] as const)(
+      'stays mock over http while %s is not connected, since the figures mix demo and real data',
       async (id) => {
-        served(id)
+        overrides.set(id, { connected: false })
         renderApp(<InfrastructureHealthPanel />, { api: overHttp() })
         await screen.findByText('SERVERS')
         expect(within(header()).getByText(/^mock/)).toBeInTheDocument()
         expect(within(header()).queryByText(/^live/)).toBeNull()
       },
     )
+
+    it('is tagged live over http as shipped: the counts and the site assignment come from the console API', async () => {
+      renderApp(<InfrastructureHealthPanel />, { api: overHttp(counted()) })
+      await screen.findByText('SERVERS')
+      expect(within(header()).getByText(/^live/)).toBeInTheDocument()
+    })
+
+    it('marks the rows of what the console API does not serve, with no figure in them', async () => {
+      const planned = breakdown({
+        domains: DOMAINS.map((d) =>
+          d.domain === 'targets' || d.domain === 'snmp'
+            ? { ...d, counts: counts({}), planned: true }
+            : d,
+        ),
+      })
+      renderApp(<InfrastructureHealthPanel />, { api: overHttp(planned) })
+      await screen.findByText('SERVERS')
+      for (const label of ['NET TARGETS', 'SNMP DEVS']) {
+        const row = rowOf(label)
+        expect(within(row).getByText('Not connected')).toBeInTheDocument()
+        expect(row.querySelector('svg[data-status]:not([data-status="planned"])')).toBeNull()
+      }
+      // The panel itself is not marked down for it: its counted rows are real.
+      expect(within(header()).getByText(/^live/)).toBeInTheDocument()
+    })
 
     it('is tagged live, with nothing marked as sample data, once every feature is connected over http', async () => {
       overrides.connectAll()
@@ -210,18 +232,18 @@ describe('InfrastructureHealthPanel', () => {
       overrides.set('snmp', { connected: false })
       renderApp(<InfrastructureHealthPanel />, { api: overHttp() })
       await screen.findByText('SERVERS')
-      expect(within(header()).getByText(/^mock/)).toBeInTheDocument()
+      expect(within(header()).getByText(/^live/)).toBeInTheDocument()
       expect(within(region()).getAllByText('Not connected')).toHaveLength(1)
       expect(within(rowOf('SNMP DEVS')).getByText('Not connected')).toBeInTheDocument()
       expect(within(region()).queryByText('sample data')).toBeNull()
     })
 
-    it('does not call a connected SNMP feature not connected when its row still carries no figures', async () => {
+    it('keeps the SNMP row marked while the backend only stores SNMP, whatever the registry claims', async () => {
       overrides.connectAll()
+      overrides.set('snmp', { connected: true })
       renderApp(<InfrastructureHealthPanel />, { api: overHttp() })
       await screen.findByText('SERVERS')
-      expect(within(rowOf('SNMP DEVS')).queryByText('Not connected')).toBeNull()
-      expect(within(rowOf('SNMP DEVS')).getByText('Unknown')).toBeInTheDocument()
+      expect(within(rowOf('SNMP DEVS')).getByText('Not connected')).toBeInTheDocument()
     })
   })
 
@@ -516,7 +538,7 @@ describe('InfrastructureHealthPanel', () => {
   })
 
   describe('BY SITE', () => {
-    it('is marked not connected and as sample data, with its reason available to everyone', async () => {
+    it('is marked not connected and as sample data over the sample API, with its reason available to everyone', async () => {
       renderApp(<InfrastructureHealthPanel />, { api: apiWith() })
       const list = await screen.findByRole('list', { name: 'By site' })
       const heading = screen.getByRole('heading', { name: /by site/i })
@@ -526,7 +548,7 @@ describe('InfrastructureHealthPanel', () => {
       expect(list).toHaveAccessibleDescription(
         /supports placing servers and probe targets on a site/,
       )
-      expect(list).toHaveAccessibleDescription(/not connected to it yet and show sample sites/)
+      expect(list).toHaveAccessibleDescription(/the console API filters by it/)
       expect(list).not.toHaveAccessibleDescription(/not linked to sites|setup/i)
     })
 

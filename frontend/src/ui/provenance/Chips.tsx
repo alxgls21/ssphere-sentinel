@@ -45,7 +45,7 @@ export function MockChip({
 /** Marks a feature the backend has not implemented. */
 export function PlannedChip({
   className,
-  title = 'Not implemented in the backend yet. Sample data.',
+  title = 'Not implemented in the backend yet.',
 }: ChipProps) {
   return <FeatureChip availability="planned" className={className} title={title} />
 }

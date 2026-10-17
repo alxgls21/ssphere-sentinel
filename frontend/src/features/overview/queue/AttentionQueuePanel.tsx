@@ -22,6 +22,7 @@ import { formatClock } from '@/lib/format'
 import { computeVerdict } from '@/lib/verdict'
 import { Button, Chip } from '@/ui/controls'
 import { Panel } from '@/ui/Panel'
+import { limitsOrigin, useResourceLimits } from '@/ui/meters'
 import { EmptyState } from '@/ui/states'
 import { StatusGlyph } from '@/ui/status'
 import { copyText } from './clipboard'
@@ -45,7 +46,8 @@ import { recallRow, rememberRow } from './returnFocus'
 import { useOrderLock } from './useOrderLock'
 import { useQueueNavigation, type QueueActions } from './useQueueNavigation'
 
-const FEATURES: readonly FeatureId[] = ['servers', 'docker', 'network']
+/** The queue lists the servers and containers the console API counts, and nothing else. */
+const FEATURES: readonly FeatureId[] = ['servers', 'overview']
 const NO_ITEMS: QueueItem[] = []
 
 /** A mouse click focuses a button too; only keyboard focus (a ring on screen) is worth keeping. */
@@ -59,7 +61,7 @@ function keyboardFocused(element: HTMLElement): boolean {
 
 /**
  * [1] Needs attention: the primary action surface. Non-healthy servers,
- * containers and targets, worst first, as given by the API. Keyboard first
+ * containers, worst first, as given by the API. Keyboard first
  * (j/k, Enter, y, f, r) and calm under live updates: while the operator is in
  * the table the order is locked and new snapshots wait behind a pill (see
  * useOrderLock). Demo data until the screen is connected to the console API.
@@ -67,6 +69,7 @@ function keyboardFocused(element: HTMLElement): boolean {
 export function AttentionQueuePanel({ className }: { className?: string }) {
   const api = useApi()
   const { pollMs, refreshToken } = useLive()
+  const limits = useResourceLimits()
   const { tz, singleKeyShortcuts } = usePrefs()
   const { announce, flashStatus } = useShell()
   const [scope] = useScope()
@@ -212,11 +215,9 @@ export function AttentionQueuePanel({ className }: { className?: string }) {
           {includeIdle ? 'Hide idle' : `+${snapshot.hiddenIdle} hidden (idle)`}
         </Button>
       ) : null}
-      {/* Resource, loss and latency limits are presentational: the backend has no alert rules. */}
+      {/* Whose limits the severities rest on: the console API's, or the console's own defaults. */}
       <span className="ml-auto shrink-0 text-fg-faint @max-lg:hidden">
-        thresholds: UI defaults
-        {/* The dagger in the SITE header, explained where it can be read without hovering. */}
-        {hasSite(items) ? ' · † site: sample data' : ''}
+        thresholds: {limitsOrigin(limits)}
       </span>
       {queued ? (
         <Button
@@ -255,7 +256,7 @@ export function AttentionQueuePanel({ className }: { className?: string }) {
         nothingMonitored ? (
           <EmptyState
             title="Nothing is monitored yet"
-            hint="No server, container or probe target reports to this scope."
+            hint="No server or container reports to this scope."
           />
         ) : (
           <EmptyState

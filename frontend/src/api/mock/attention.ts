@@ -4,26 +4,17 @@ import type {
   AttentionSeverity,
   DockerContainer,
   HealthStatus,
-  NetworkTarget,
   Server,
 } from '@/api/types'
-import { formatAge, formatLatency, formatPercent } from '@/lib/format'
+import { formatAge, formatPercent } from '@/lib/format'
 import { compareSeverity } from '@/lib/status'
-import {
-  LATENCY_WARN_MS,
-  RESOURCE_CRIT_PERCENT,
-  RESOURCE_WARN_PERCENT,
-  latencyExceedsWarn,
-  lossExceedsWarn,
-  resourceLevel,
-} from '@/lib/thresholds'
+import { RESOURCE_CRIT_PERCENT, RESOURCE_WARN_PERCENT, resourceLevel } from '@/lib/thresholds'
 import type { Fleet } from './fixtures'
 import {
   containerHealthOf,
   makeLookup,
   offlineFlag,
   serverHealthOf,
-  targetHealthOf,
   type Lookup,
   type Place,
 } from './lookup'
@@ -31,9 +22,8 @@ import { toIso } from './time'
 
 /**
  * The needs-attention queue. Every detail line is built only from fields the
- * backend ingests (state, health, host, last heartbeat, failure reason,
- * latency, loss, cpu/memory/disk): no exit codes, no restart counts, and no
- * "since" that no timestamp supports.
+ * backend ingests (state, health, host, last heartbeat, cpu/memory/disk): no exit
+ * codes, no restart counts, and no "since" that no timestamp supports.
  */
 
 type Described = Pick<AttentionItem, 'stateLabel' | 'detail' | 'ageIso' | 'ageBasis'>
@@ -47,7 +37,7 @@ const RESOURCES = [
 type Resource = (typeof RESOURCES)[number]
 
 /** The metric furthest over its threshold, or null while all of them are fine. */
-export function worstResource(server: Server): (Resource & { percent: number }) | null {
+function worstResource(server: Server): (Resource & { percent: number }) | null {
   const over = RESOURCES.map((resource) => ({
     ...resource,
     percent: server.telemetry?.[resource.key] ?? 0,
@@ -119,47 +109,6 @@ function describeContainer(container: DockerContainer, host: Server | undefined)
   }
 }
 
-function describeTarget(target: NetworkTarget, health: HealthStatus, now: number): Described {
-  if (target.status === 'unknown') {
-    return {
-      stateLabel: 'UNKNOWN',
-      detail:
-        target.lastProbeAt === null
-          ? 'never reported'
-          : `no recent measurement · last probe ${formatAge(target.lastProbeAt, now)} ago`,
-      ageIso: null,
-      ageBasis: null,
-    }
-  }
-  if (target.failingSince !== null) {
-    const reason = (target.failureReason || 'probe failed').replaceAll('_', ' ')
-    const probes = target.consecutiveFailures === 1 ? 'probe' : 'probes'
-    return {
-      stateLabel: health === 'critical' ? 'DOWN' : 'FAILING',
-      detail: `${reason} · ${target.consecutiveFailures} failed ${probes}`,
-      ageIso: target.failingSince,
-      ageBasis: 'failing-since',
-    }
-  }
-  // Loss and latency are thresholds on the latest probe, not a run with a start: no age.
-  const base = { stateLabel: 'DEGRADED', ageIso: null, ageBasis: null }
-  if (lossExceedsWarn(target.packetLossPercent)) {
-    const loss = formatPercent(
-      target.packetLossPercent,
-      Number.isInteger(target.packetLossPercent) ? 0 : 1,
-    )
-    const latency = target.latencyMs === null ? '' : ` · ${formatLatency(target.latencyMs)}`
-    return { ...base, detail: `loss ${loss}${latency}` }
-  }
-  if (target.latencyMs !== null && latencyExceedsWarn(target.latencyMs)) {
-    return {
-      ...base,
-      detail: `latency ${formatLatency(target.latencyMs)} · warn at ${LATENCY_WARN_MS}`,
-    }
-  }
-  return { ...base, detail: 'degraded' }
-}
-
 const withPlace = (place: Place): Pick<AttentionItem, 'customerName' | 'siteName'> => ({
   ...(place.customerName ? { customerName: place.customerName } : {}),
   ...(place.siteName ? { siteName: place.siteName } : {}),
@@ -219,18 +168,5 @@ export function listAttention(fleet: Fleet, now: number, includeIdle: boolean): 
       ...withPlace(lookup.placeOfContainer(container)),
     }))
   }
-  for (const target of fleet.targets) {
-    const health = targetHealthOf(target)
-    consider(health, (severity) => ({
-      kind: 'target',
-      id: target.id,
-      name: target.name,
-      protocol: target.protocol,
-      severity,
-      ...describeTarget(target, health, now),
-      ...withPlace(lookup.placeOfSite(target.siteId)),
-    }))
-  }
-
   return { generatedAt: toIso(now), items: items.sort(compareItems), hiddenIdle }
 }

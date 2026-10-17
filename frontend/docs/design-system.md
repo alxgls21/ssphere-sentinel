@@ -17,12 +17,13 @@ if they ever disagree.
    each with a four-letter word. The mandated palette's green, amber and red are
    only ΔE 8–9 apart under protan/deutan, so shape and word carry the meaning and
    color reinforces it.
-3. **Provenance is data, not decoration.** Everything is mock today and says so.
-   A feature with nothing real to show is drawn with a dashed frame and a chip
-   that says why: PLANNED (the backend does not implement it) or NOT CONNECTED
-   (the backend may have it, the console does not read it yet). NEEDS SETUP is
-   kept for a connected feature whose setup is confirmed missing. None feeds the
-   verdict.
+3. **Provenance is data, not decoration.** What is read from the console API says
+   `live`; the built-in sample fleet, in a development run, says `mock`. A feature
+   with nothing real to show is drawn with a dashed frame, a chip that says why
+   and one sentence, and no figure, chart or sample row: PLANNED (the backend does
+   not implement it) or NOT CONNECTED (the backend may have it, the console API
+   does not serve it). NEEDS SETUP is kept for a connected feature whose setup is
+   confirmed missing. None feeds the verdict.
 4. **A dead dashboard must never look healthy.** Freshness is explicit: STALE
    after 45 s, NO DATA after 120 s. Stale content is tagged STALE (shape + word)
    and only marks and large figures dim: 60 % opacity would take small text below
@@ -183,12 +184,12 @@ Plain SVG and DOM marks in `ui/meters`, with no chart instance.
   latest value, min, max and average, how many samples are missing and, for a
   series that went quiet, "no samples since HH:MM". `inspectable` makes it one tab
   stop whose tooltip carries the same figures, as hover does; it is off inside a
-  link or button, which already carries the numbers (the Net targets tile).
+  link or button, which already carries the numbers.
 
-A sparkline is drawn only where the backend stores the history: the Net targets
-tile (the hour's success rate) and the server detail Summary (CPU, RAM and disk
-beside each meter, from the same per-server series as the history chart). The
-Servers list, Fleet load and the Servers and Containers tiles have none. The
+A sparkline is drawn only where the console API serves the history: the server
+detail Summary (CPU, RAM and disk beside each meter, from the same per-server
+series as the history chart). The Servers list, Fleet load and the Servers and
+Containers tiles have none. The
 console API serves history per server, not for the fleet or for containers, and a
 sparkline per row would cost one series request each, so those show a bar or a
 number and nothing is drawn that the data does not contain.
@@ -259,13 +260,14 @@ Adding a chart, in order:
 
 ## Incident timeline
 
-The Overview's Recent events panel [6] has two views of one request, switched by
-Log | Timeline tabs in its header: the log, a terminal tail of the events, and
-the timeline, the incidents among the same events, one lane each on a shared time
-axis. The timeline is a second view of the events, not a second source: it knows
-nothing the log does not show, and it inherits the panel's PLANNED chrome (dashed
-frame, PLANNED chip, "Sample data. Event log not implemented.") because the
-backend has no event log.
+The incident timeline and the event log are components for an event log the backend does
+not have. The Overview's Recent events panel [6] therefore mounts neither: it is a PLANNED
+panel with no rows (dashed frame, PLANNED chip, one sentence). The components are kept,
+and shown in the gallery as labelled sample content, for the day an events API exists.
+Together they would give two views of one request, switched by Log | Timeline tabs: the
+log, a terminal tail of the events, and the timeline, the incidents among the same
+events, one lane each on a shared time axis. The timeline is a second view of the
+events, not a second source: it knows nothing the log does not show.
 
 - **What an incident is.** Derived in the console from `SentinelEvent[]`
   (`features/overview/events/incidentModel.ts`): a warning or critical event that
@@ -366,4 +368,6 @@ keyboard opens it too.
    only the marks that describe an entity or a composition show the layer.
 3. New panel: wrap it in `Panel` and pass its backend `features`, so provenance
    markers are derived, not hand-placed.
-4. New data: add a method to `SentinelApi` and its mock; never fetch in a component.
+4. New data: add a method to `SentinelApi` and answer it in `createConsoleApi` (the sample
+   fleet too, for development); never fetch in a component. Data the console API does not
+   serve gets no method and no figure.

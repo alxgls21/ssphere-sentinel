@@ -1,1 +1,0 @@
-export { RecentEventsPanel } from './RecentEventsPanel'

@@ -7,7 +7,6 @@ describe('navBadge', () => {
     const summary = makeSummary({
       servers: { critical: 1, warning: 2 },
       containers: { warning: 3 },
-      targets: { unknown: 2 },
     })
     expect(navBadge('servers', summary)).toEqual({
       status: 'critical',
@@ -15,11 +14,6 @@ describe('navBadge', () => {
       label: '1 critical',
     })
     expect(navBadge('docker', summary)).toEqual({ status: 'warning', count: 3, label: '3 warning' })
-    expect(navBadge('network', summary)).toEqual({
-      status: 'unknown',
-      count: 2,
-      label: '2 unknown',
-    })
   })
 
   it('shows nothing when the domain is healthy (idle does not count)', () => {
@@ -30,7 +24,7 @@ describe('navBadge', () => {
 
   it('never counts screens whose backend does not collect anything', () => {
     const summary = makeSummary({ servers: { critical: 4 } })
-    for (const id of ['snmp', 'topology', 'alerts', 'overview', 'customers'] as const) {
+    for (const id of ['network', 'snmp', 'topology', 'alerts', 'overview', 'customers'] as const) {
       expect(navBadge(id, summary), id).toBeNull()
     }
   })

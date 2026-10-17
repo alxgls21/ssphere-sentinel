@@ -217,6 +217,26 @@ describe('SummaryPanel history of a server that never reported', () => {
   })
 })
 
+describe('SummaryPanel without a resource reading', () => {
+  it('says the agent reports but no reading has arrived, for a server whose heartbeats arrive', async () => {
+    const item = await itemOf('srv-ath-db-01')
+    const quiet = { ...item, server: { ...item.server, telemetry: null } }
+    expect(quiet.server.lastSeenAt).not.toBeNull()
+    renderApp(<SummaryPanel item={quiet} nowMs={NOW} series={undefined} status="success" />)
+    expect(
+      screen.getByText(/The agent reports, but no resource reading has arrived yet/),
+    ).toBeVisible()
+    expect(screen.queryByText(/has not sent a heartbeat yet/)).toBeNull()
+    expect(screen.queryAllByRole('meter')).toHaveLength(0)
+  })
+
+  it('says it has not sent a heartbeat only for a server that never reported', async () => {
+    await panel('srv-core-ci-01', series())
+    expect(screen.getByText(/enrolled but its agent has not sent a heartbeat yet/)).toBeVisible()
+    expect(screen.queryByText(/The agent reports/)).toBeNull()
+  })
+})
+
 describe('SummaryPanel history and provenance', () => {
   it('sits in a panel tagged mock while the screen shows demo data, and claims nothing of its own', async () => {
     await panel('srv-ath-db-01', series())
@@ -243,6 +263,7 @@ describe('SummaryPanel history and provenance', () => {
   })
 
   it('stays tagged mock over http while the servers are not connected', async () => {
+    overrides.set('servers', { connected: false })
     const item = await itemOf('srv-ath-db-01')
     renderApp(<SummaryPanel item={item} nowMs={NOW} series={series()} status="success" />, {
       api: { ...api, source: 'http' },

@@ -2,7 +2,7 @@ import type { OverviewSummary, StatusCounts } from '@/api/types'
 import type { FeatureId } from '@/config/features'
 import type { NavItem } from '@/config/nav'
 import { formatInteger } from '@/lib/format'
-import { SegmentedBar, Sparkline } from '@/ui/meters'
+import { SegmentedBar } from '@/ui/meters'
 import { CountList } from './CountList'
 import { useSummaryState } from './fleetStatus'
 import { StatTile, type TileContent } from './StatTile'
@@ -21,13 +21,11 @@ interface TileProps {
 
 interface DomainTileConfig {
   label: string
-  features: FeatureId
+  features: FeatureId | readonly FeatureId[]
   route: NavItem['id']
-  /** What "up" means for this domain: online, running, up. */
+  /** What the headline counts: the healthy ones, "ok". */
   word: string
   pick: (summary: OverviewSummary) => DomainFigures
-  /** A sparkline of the domain's history, where the backend stores one. */
-  trend?: { label: string; values: (summary: OverviewSummary) => readonly number[] }
 }
 
 /**
@@ -58,7 +56,6 @@ function DomainTile({
   route,
   word,
   pick,
-  trend,
   className,
 }: DomainTileConfig & TileProps) {
   const { summary, stale } = useSummaryState()
@@ -73,7 +70,6 @@ function DomainTile({
       unit: `/${formatInteger(figures.total)} ${word}`,
       detail: <DomainCounts counts={figures.counts} />,
       bar: <SegmentedBar counts={figures.counts} height={6} label={label} className="w-full" />,
-      trend: trend ? <Sparkline values={trend.values(data)} label={trend.label} /> : undefined,
     }
   }
 
@@ -95,11 +91,11 @@ export function ServersTile({ className }: TileProps) {
   return (
     <DomainTile
       label="Servers"
-      features="servers"
+      features={['servers', 'overview']}
       route="servers"
-      word="online"
+      word="ok"
       pick={({ servers }) => ({
-        value: servers.online,
+        value: servers.counts.healthy,
         total: servers.total,
         counts: servers.counts,
       })}
@@ -112,29 +108,14 @@ export function ContainersTile({ className }: TileProps) {
   return (
     <DomainTile
       label="Containers"
-      features="docker"
+      features="overview"
       route="docker"
-      word="running"
+      word="ok"
       pick={({ containers }) => ({
-        value: containers.running,
+        value: containers.counts.healthy,
         total: containers.total,
         counts: containers.counts,
       })}
-      className={className}
-    />
-  )
-}
-
-/** The only tile with a trend: probe history exists, so the hour's success rate is real. */
-export function TargetsTile({ className }: TileProps) {
-  return (
-    <DomainTile
-      label="Net targets"
-      features="network"
-      route="network"
-      word="up"
-      pick={({ targets }) => ({ value: targets.up, total: targets.total, counts: targets.counts })}
-      trend={{ label: 'Success rate, last hour', values: ({ targets }) => targets.successTrend }}
       className={className}
     />
   )

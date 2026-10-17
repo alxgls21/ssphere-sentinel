@@ -1,17 +1,20 @@
 # Frontend architecture
 
 SSphere Sentinel's web console is a React single-page app in `frontend/`. It is
-**independent of the Django backend**: it shares no code with it, and today it
-runs entirely on mock data behind an API port.
+**independent of the Django backend**: it shares no code with it, and reads it only
+through the console API behind an API port.
 
 ## Hard boundaries
 
 - Everything lives under `frontend/`. Nothing outside it is touched (no Django
   models, migrations, agent code, Docker files or CI).
 - The console API serves the session and the scope (`/api/v1/console/session/`,
-  `scope/`, `auth/login/`, `auth/logout/`). Every other screen still reads
-  **demo data**, and the UI says so (see _Honest labelling_ below).
-- No unfinished feature may look operational.
+  `scope/`, `auth/login/`, `auth/logout/`), the servers (`servers/`, `servers/<id>/`,
+  `servers/<id>/series/`) and the containers (`containers/`). The Servers screens, Fleet
+  load and the Overview read them. It serves no probe targets, SNMP devices, alerts,
+  incidents or events: wherever one of those would be drawn, the UI says it is not
+  served and shows no figure (see _Honest labelling_ below).
+- No unfinished feature may look operational, and no figure may be made up for one.
 
 ## Stack
 
@@ -40,14 +43,15 @@ frontend/
   docs/                   this file, the design system, the full design spec
   src/
     main.tsx  fonts.ts    entry; self-hosted font imports
-    api/                  THE DATA CONTRACT (and demo.ts, which composes the port)
+    api/                  THE DATA CONTRACT
       types.ts              domain view-models
       client.ts             SentinelApi: the port (one method per panel resource)
       context.ts errors.ts
-      http/                 the console API adapter (transport, session, scope)
-      mock/                 the sample fleet (fixtures, series, scenarios)
+      http/                 the console API adapter (transport, session, scope, servers, containers)
+      mock/                 the sample fleet of servers and containers (development and tests only)
     app/                  providers and cross-cutting state
       providers.tsx         router > data source > prefs > live layer > summary
+      consoleApi.ts         composes the console API requests into the whole SentinelApi
       live.ts               pause, refresh-now, freshness store
       viewState.ts          range and scope, in the URL
       viewSearch.ts         carries the view to another screen (useViewTo)
@@ -62,7 +66,8 @@ frontend/
     charts/               ECharts setup, theme from the tokens, ChartFrame, shared time-series pieces
     shell/                app frame: sidebar, top bar, status bar, command palette, sheets
     features/
-      overview/           hero/ queue/ latency/ load/ health/ alerts/ events/
+      overview/           hero/ queue/ load/ health/ (latency/ and events/ hold components for
+                          data the console API does not serve yet; the Overview does not mount them)
       servers/            list (table, cards, search/filter/sort) and detail (summary with sparklines, history chart, containers)
       placeholder/        honest "not designed yet" screens
       design-system/      dev-only gallery at /_ds
@@ -96,11 +101,12 @@ Enforced by `src/architecture.test.ts` (a rule nothing enforces drifts):
 ## Data flow
 
 ```
-panel --useLiveResource(id, key, fetch)--> useApi() --> SentinelApi --> mock | (future) HTTP
+panel --useLiveResource(id, key, fetch)--> useApi() --> SentinelApi --> console API (HTTP) | sample fleet (dev)
 ```
 
 - `SentinelApi` is the only door to data. Each Overview panel has its own method,
-  so each panel loads, refreshes and fails independently.
+  so each panel loads, refreshes and fails independently. A panel with nothing behind it
+  has no method at all.
 - `useResource` owns loading / success / error, polling, abort, pause, and
   stale-while-revalidate: a failed refresh keeps the last good data, a reload
   keeps the previous render, an explicit retry of a failed first load shows the
@@ -120,15 +126,22 @@ panel --useLiveResource(id, key, fetch)--> useApi() --> SentinelApi --> mock | (
   Offline is critical to anything that decides (verdict, ranking, filters, badges,
   tab title, favicon, severity edge), which reads `HealthStatus`; only marks that
   describe an entity or a composition show it apart (`design-system.md`).
-- **Incidents** are not a resource. The Recent events panel makes one request and
-  draws two views of it, the log and the incident timeline; the incidents are
-  derived in the console from those events (`features/overview/events/incidentModel.ts`).
+- **The Overview** is servers and containers. `app/consoleApi.ts` asks the console API for the
+  worst first of each (one page of 200, sorted by status) and derives the summary, the
+  attention queue and the health breakdown from those two answers (`lib/overview.ts`, pure).
+  The verdict, the queue and the health panel ask at the same moment and share one pair of
+  requests. Totals and per-status counts are the API's own; the console never recounts a
+  page as if it were the fleet. A failed request rejects: it is that panel's error, and
+  nothing stands in for it.
+- **Incidents** would not be a resource either: an incident timeline is derived in the console
+  from an event log (`features/overview/events/incidentModel.ts`). The backend has no event
+  log, so no screen mounts it; the components are kept for when one exists.
 - Types in `api/types.ts` are the UI's own view-models. When the backend ships
   read endpoints, write an HTTP client that maps their payloads onto them; no
   screen changes.
-- The mock is deterministic (seeded, time-keyed): charts are stable across
-  refreshes and screenshots are reproducible, yet values drift so the console
-  feels live.
+- The sample fleet is deterministic (seeded, time-keyed): values are stable across
+  refreshes and screenshots are reproducible, yet drift so the console feels live. It holds
+  servers and containers only: it invents no targets, devices, alerts or events.
 
 ### State that lives in the URL
 
@@ -150,7 +163,7 @@ can be seen and tested without a backend.
 - `backend`: what the backend offers (`console-api`: the console API serves it;
   `stored`: stored but not served to the console; `unsupported`; `unknown`).
 - `connected`: whether the console reads it yet. False while a screen shows demo
-  data, even where the backend is ready.
+  data or nothing, even where the backend is ready.
 - `requires`: what an operator must set up for the backend to have data. It is
   information. It says nothing about whether that was done, and setting it up does
   not make data appear in a console that is not connected.
@@ -169,7 +182,7 @@ missing data source, is not live):
 | `live`                | served, read by the screen, real data                             | the quiet source tag only                                |
 | `not-connected`       | the console API does not serve it, or the screen does not read it | `mock` tag (demo figures) or a dashed NOT CONNECTED chip |
 | `needs-configuration` | otherwise live, and its setup is confirmed missing                | dashed frame, NEEDS SETUP chip                           |
-| `planned`             | the backend does not implement it                                 | dashed frame, PLANNED chip, a "not implemented" footer   |
+| `planned`             | the backend does not implement it                                 | dashed frame, PLANNED chip, a sentence, no figure        |
 | `unknown`             | no entry, or not detected                                         | no claim either way (never shown as unsupported)         |
 
 **One provenance contract.** What rendered content may call itself comes from
@@ -189,38 +202,51 @@ The visual tag (`live`, `mock`, `unverified`) and the spoken text (nothing for l
 "mock data", "source not verified") come from the same value, so a screen reader hears
 what a sighted user sees. Entity cells are judged by their own kind's feature. The
 app-wide indicators (top bar chip, notice strip, status bar, tab title) read
-`useShowsDemoData()`: they stay until every feature the screens show is live.
+`useShowsDemoData()`: they stay until every feature that shows figures is live
+(`DATA_FEATURES`: the overview counts, the servers and the site assignment; features with no
+figure on any screen are not in the list).
 
 `Panel` takes the backing features as a required prop and derives its markers:
-a quiet `mock · 15s` tag always, plus the dashed frame, chip and footer sentence
-when nothing real is shown behind it (unsupported, or an empty placeholder such as
-the SNMP tile). PLANNED is reserved for what the backend does not implement. SNMP
-is `not-connected`: the agent can collect it and the backend stores it, but the
-console API does not serve it, so configuring it does not make data appear here.
-Placeholder and sample data never feed the verdict, the sidebar badges, the tab
-title or the palette's PROBLEMS list. A screen built on demo data is not called
-unsupported: the registry note says what the console API serves and that the
-screen is not connected to it yet.
+a quiet source tag (`live`, `mock`, `unverified`) always, and, when nothing real exists
+behind it (unsupported, or a placeholder feature such as probe targets or SNMP), a dashed
+frame, a chip and one sentence in place of the body. Such a panel renders no children, no
+footer and no loading or error state: it has nothing to load, so it holds no figure, chart,
+sample row or zero. PLANNED is reserved for what the backend does not implement. Probe
+targets and SNMP are `not-connected`: the backend stores them, but the console API does not
+serve them, so configuring them does not make data appear here. Stat tiles follow the same
+rule. Placeholder panels never feed the verdict, the sidebar badges, the tab title or the
+palette's PROBLEMS list. The design-system gallery is the one place that draws sample
+content for such a feature; it does so in a panel labelled `mock` whose footer says
+"Sample data".
 Presentational thresholds (80/95 %, 2 % loss, 150 ms) live in
 `lib/thresholds.ts`, are judged on the value as displayed, and are labelled
-"UI defaults". When the backend gains a capability, or a screen is connected to it,
+"UI defaults"; where the console API publishes the resource limits with the session, those are
+used instead and labelled "set on the server". When the backend gains a capability, or a screen is connected to it,
 change one registry entry.
 
 ## Servers screen
 
-`SentinelApi` gains three methods: `listServers` (the whole fleet in scope),
-`getServer` (one server and its containers, 404 for an unknown id) and
-`getServerSeries` (CPU, RAM and disk history). The list is searched, filtered and
-sorted in the UI (`features/servers/serversModel.ts`, pure and tested) and the
-query lives in the URL (`?q=&status=&sort=&dir=`), like the range and scope.
+`SentinelApi` gains three methods: `listServers` (one page of the servers in scope that match
+a query: `q`, `status`, `sort`, `dir`, `page`, `pageSize`), `getServer` (one server and its
+containers, 404 for an unknown id) and `getServerSeries` (CPU, RAM and disk history). The
+console API searches, filters, sorts and pages (50 a page, 200 at most); the list asks for a
+page and never treats it as the fleet: its `counts` (per status over the scope and the
+search) and `scopeTotal` are what the chips and the header say, a page past the last goes
+to the last, and the search is asked for once it has held still. The sample data answers the
+same query by the same rules (`lib/serverList.ts`, pure and tested). The query lives in
+the URL (`?q=&status=&sort=&dir=&page=`), like the range and scope; changing what the list
+shows starts again from the first page. A reading marked `stale` by the server is never shown
+as a load: the rows say there is no current reading, and the detail page shows the last one
+labelled as such.
 Below `md` the table becomes cards (`useMediaQuery`: the DOM differs, so one of
 the two is mounted, never both). The detail page requests the series once, over the
 range in the top bar, and shares it between the Summary's sparklines and the history
 chart, so one request serves both and they cannot disagree. The chart is the third
 consumer of `ChartFrame` and is in the chart contract test.
 
-What the console API serves for this screen (the screen reads demo data until it is
-connected to it):
+What the console API serves for this screen, all of which it reads (the Containers panel
+of a server is part of its detail, so it is `servers`, not the Docker screen's `docker`;
+a failed request is that panel's error, and no sample data stands in for it):
 
 | Need                       | In the console API                                                                           |
 | -------------------------- | -------------------------------------------------------------------------------------------- |
@@ -246,7 +272,7 @@ reported has empty series arrays, and the panel says "No history".
   direction). `?mock=` only means something in this mode.
 
 ```
-BrowserRouter > ModeContext > AuthProvider > ApiProvider > PrefsProvider
+BrowserRouter > ModeContext > AuthProvider > ApiProvider > LimitsProvider > PrefsProvider
   > SessionScope (signed in only: live layer, shared summary, frame state) > routes
 ```
 
@@ -269,11 +295,20 @@ BrowserRouter > ModeContext > AuthProvider > ApiProvider > PrefsProvider
   (`app/auth/safeNext.ts`): absolute and protocol-relative URLs, other schemes,
   backslashes and control characters are ignored, and the sign-in page is never
   its own destination.
-- **Demo data and real scope stay apart.** `api/demo.ts` composes the port: the
-  scope options come from the console API; every other method is the sample
-  fleet, which is never given the real scope (its ids mean nothing there), is
-  not offered to search, and is announced by a `DEMO DATA` strip above every
-  designed screen. Moving a method to the real side is how a screen goes live.
+- **Demo data and real data stay apart.** `app/consoleApi.ts` composes the port from the
+  console API alone (`api/http`, with every answer validated: one that does not fit is a
+  `bad_response` error). The sample fleet is a separate `SentinelApi` that only a development
+  run with `VITE_SENTINEL_API=mock` loads, through a dynamic import behind that build-time
+  setting, so a production bundle holds no import of it and none of its names. It is
+  announced by a `DEMO DATA` strip above every designed screen. The composed port is an
+  `http` source, which makes nothing live by itself: the registry says which features the
+  console reads (`overview`, `servers`, `site-links`). Adding a method and marking its
+  feature connected is how a screen goes live, together.
+- **Limits.** The health limits the console API publishes with the session
+  (`thresholds`) are what the meters, the history chart and the footers use
+  (`app/LimitsProvider`, read through `useResourceLimits`); without them (mock mode)
+  the console's own defaults apply and are labelled as such. The health verdicts are the
+  server's: the console does not recompute them.
 
 ## Routing and navigation
 
@@ -311,7 +346,8 @@ STALE tag, and only marks and large figures dim.
 - `lib/`, `api/mock/`, `hooks/`: unit tests (pure logic, state machines).
 - `ui/`, `shell/`, `features/`: Testing Library tests for behavior that matters
   (keyboard, states, accessibility roles), not for pixels.
-- `features/overview/OverviewPage.test.tsx`: the page against the real mock API.
+- `features/overview/OverviewPage.test.tsx`: the page against the sample API.
+- `lib/overview.test.ts`, `app/consoleApi.test.ts`: the Overview derived from the console API's two lists, shared requests, aborts, and that a failure is never replaced.
 - `styles/tokens.test.ts`: WCAG contrast of every text and mark token, no color
   literal outside `tokens.css`, status-color utilities (healthy, warning, critical and
   offline, with their tint and line) only in `ui/status`, `ui/meters` and `charts`,
@@ -328,7 +364,7 @@ STALE tag, and only marks and large figures dim.
 ## Commands
 
 ```bash
-npm run dev          # Vite dev server (mock data)
+npm run dev          # Vite dev server (the console API through the proxy)
 npm run check        # lint + typecheck + tests + production build + format check
 ```
 
@@ -349,4 +385,10 @@ from it on purpose:
   with a contract test rather than per-chart wiring.
 - **Not built (deferred in the spec)**: wall mode, density modes, the inspector
   drawer, "NEW" tags.
+- **The Overview counts servers and containers only.** The spec's queue, verdict, tiles and
+  health also cover ICMP/TCP targets, SNMP devices and alerts, and its panels [2], [5] and [6]
+  draw a latency chart, active alerts and recent events. The console API serves none of those,
+  so their tiles and panels carry a statement and no figure, and the verdict is "of the servers
+  and containers counted". Tiles show the ok count of the total (`13/16 ok`), not online or
+  running, because that is what the API's counts say.
 - **Not installed yet**: Cytoscape (Topology screen).

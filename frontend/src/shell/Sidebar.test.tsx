@@ -12,7 +12,6 @@ afterEach(() => vi.restoreAllMocks())
 const SUMMARY = makeSummary({
   servers: { critical: 1, warning: 2 },
   containers: { critical: 2 },
-  targets: { warning: 2 },
 })
 
 /** The sidebar the way AppShell mounts it: its width follows the shell's collapsed state. */
@@ -44,7 +43,8 @@ describe('Sidebar: items', () => {
     await setup()
     expect(screen.getByRole('link', { name: 'Servers, 1 critical' })).toBeInTheDocument()
     expect(screen.getByRole('link', { name: 'Docker, 2 critical' })).toBeInTheDocument()
-    expect(screen.getByRole('link', { name: 'Network, 2 warning' })).toBeInTheDocument()
+    // Network has no badge: the console API counts no probe targets.
+    expect(screen.getByRole('link', { name: 'Network' })).toBeInTheDocument()
   })
 
   it('draws the badge as the status glyph plus the count, never color alone', async () => {
@@ -52,8 +52,8 @@ describe('Sidebar: items', () => {
     const servers = screen.getByRole('link', { name: 'Servers, 1 critical' })
     expect(servers.querySelector('[data-status="critical"]')).not.toBeNull()
     expect(servers).toHaveTextContent('1')
-    const network = screen.getByRole('link', { name: 'Network, 2 warning' })
-    expect(network.querySelector('[data-status="warning"]')).not.toBeNull()
+    const docker = screen.getByRole('link', { name: 'Docker, 2 critical' })
+    expect(docker.querySelector('[data-status="critical"]')).not.toBeNull()
   })
 
   it('gives Overview and Customers no badge', async () => {

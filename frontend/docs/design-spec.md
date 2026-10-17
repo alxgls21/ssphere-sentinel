@@ -9,7 +9,9 @@
 > everything); thresholds are judged on the displayed value; wall mode, density
 > modes, the inspector drawer and "NEW" tags are deferred and not built; the mock
 > scenarios are `normal`, `healthy`, `partial`, `stale`, `slow`, `loading`,
-> `empty`, `error`.
+> `empty`, `error`; the Overview counts servers and containers only, and its probe
+> target, SNMP, alert, event and latency figures are not drawn because the console API
+> serves none of them.
 
 **Night Watch Console: SSphere Sentinel terminal-grade NOC design system (dark-first)**
 

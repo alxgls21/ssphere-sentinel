@@ -1,11 +1,8 @@
 import { useMediaQuery } from '@/hooks/useMediaQuery'
+import { Panel } from '@/ui/Panel'
 import { PanelBoundary } from '@/ui/PanelBoundary'
-import { ActiveAlertsPanel } from './alerts'
-import { AlertsProvider } from './AlertsProvider'
-import { RecentEventsPanel } from './events'
 import { HeroStrip, VerdictBar } from './hero'
 import { InfrastructureHealthPanel } from './health'
-import { NetworkLatencyPanel } from './latency/NetworkLatencyPanel'
 import { FleetLoadPanel } from './load'
 import { PlannedAccordion } from './PlannedAccordion'
 import { AttentionQueuePanel } from './queue/AttentionQueuePanel'
@@ -49,19 +46,16 @@ const PLACE = {
 export default function OverviewPage() {
   const lgUp = useMediaQuery('(min-width: 64rem)')
 
+  // Nothing real exists behind these: the panel says so and holds no figure (see Panel).
   const alerts = (
-    <PanelBoundary title="Active alerts" index={5} features="alerts" className={PLACE.alerts}>
-      <ActiveAlertsPanel className={PLACE.alerts} />
-    </PanelBoundary>
+    <Panel title="Active alerts" index={5} features="alerts" className={PLACE.alerts} />
   )
   const events = (
-    <PanelBoundary title="Recent events" index={6} features="events" className={PLACE.events}>
-      <RecentEventsPanel className={PLACE.events} />
-    </PanelBoundary>
+    <Panel title="Recent events" index={6} features="events" className={PLACE.events} />
   )
 
   return (
-    <AlertsProvider>
+    <>
       <div className="flex min-h-full flex-col gap-3 xl:h-full xl:min-h-[50.5rem]">
         <h1 className="sr-only">Overview</h1>
 
@@ -79,20 +73,19 @@ export default function OverviewPage() {
             <PanelBoundary
               title="Needs attention"
               index={1}
-              features={['servers', 'docker', 'network']}
+              features={['servers', 'overview']}
               className={PLACE.queue}
             >
               <AttentionQueuePanel className={PLACE.queue} />
             </PanelBoundary>
             <div className="contents xl:grid xl:min-h-0 xl:grid-cols-2 xl:gap-3">
-              <PanelBoundary
+              <Panel
                 title="Network latency"
                 index={2}
                 features="network"
+                scope="1h"
                 className={PLACE.latency}
-              >
-                <NetworkLatencyPanel className={PLACE.latency} />
-              </PanelBoundary>
+              />
               <PanelBoundary title="Fleet load" index={3} features="servers" className={PLACE.load}>
                 <FleetLoadPanel className={PLACE.load} />
               </PanelBoundary>
@@ -103,7 +96,7 @@ export default function OverviewPage() {
             <PanelBoundary
               title="Infrastructure health"
               index={4}
-              features={['servers', 'docker', 'network', 'snmp', 'site-links']}
+              features={['overview', 'site-links']}
               className={PLACE.health}
             >
               <InfrastructureHealthPanel className={PLACE.health} />
@@ -122,6 +115,6 @@ export default function OverviewPage() {
           </div>
         </div>
       </div>
-    </AlertsProvider>
+    </>
   )
 }

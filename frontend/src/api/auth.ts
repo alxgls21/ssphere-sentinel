@@ -9,6 +9,15 @@ export interface ConsoleUser {
   displayName: string
 }
 
+/** The health limits the console API judges by, published with an authenticated session. */
+export interface PublishedThresholds {
+  resourceWarnPercent: number
+  resourceCritPercent: number
+  probeLossWarnPercent: number
+  probeLatencyWarnMs: number
+  targetCritFailures: number
+}
+
 /**
  * `reason` is only ever set on an anonymous answer: `no_console_access` means
  * the session is valid but the account may not use the console.
@@ -19,6 +28,8 @@ export interface ConsoleSession {
   user: ConsoleUser | null
   /** True when the account sees every customer (not only the ones it was granted). */
   allCustomers: boolean
+  /** The limits behind the server's health verdicts. Absent for an anonymous session. */
+  thresholds?: PublishedThresholds
 }
 
 export interface AuthClient {

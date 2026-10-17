@@ -6,6 +6,7 @@ import type { LegendEntry } from '@/charts/ChartLegend'
 import { cssColor } from '@/charts/theme'
 import type { ChartEnv } from '@/charts/useECharts'
 import { useSeriesVisibility } from '@/charts/useSeriesVisibility'
+import { useResourceLimits } from '@/ui/meters'
 import {
   HISTORY_IDS,
   HISTORY_SERIES,
@@ -37,10 +38,12 @@ export default function ServerHistoryChart({ name, series, range }: ServerHistor
   const { tz } = usePrefs()
   const visibility = useSeriesVisibility(HISTORY_IDS)
   const { hidden } = visibility
+  const { warn, origin } = useResourceLimits()
 
   const build = useCallback(
-    ({ tokens, height }: ChartEnv) => buildHistoryOption({ series, tz, hidden, tokens, height }),
-    [series, tz, hidden],
+    ({ tokens, height }: ChartEnv) =>
+      buildHistoryOption({ series, tz, hidden, tokens, height, limit: { warn, origin } }),
+    [series, tz, hidden, warn, origin],
   )
   const navigation = useMemo<ChartNavigation>(
     () => ({

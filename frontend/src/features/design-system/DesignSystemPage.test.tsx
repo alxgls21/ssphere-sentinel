@@ -294,6 +294,11 @@ describe('panel states', () => {
     expect(region('Active alerts')).toHaveAttribute('data-planned', 'true')
     expect(within(region('Active alerts')).getByText('Planned')).toBeInTheDocument()
     expect(within(region('Active alerts')).queryByText(/^mock/)).not.toBeInTheDocument()
+    // Nothing is behind it, so it holds no sample row either.
+    expect(within(region('Active alerts')).queryByText('edge-gw-02')).not.toBeInTheDocument()
+    expect(
+      within(region('Active alerts')).getByText('Not implemented in the backend'),
+    ).toBeVisible()
   })
 
   it('shows the skeleton for a loading panel after its delay, with the header in place', async () => {
@@ -345,19 +350,20 @@ describe('hero', () => {
     expect(stale.querySelector('.opacity-60')).not.toBeNull()
   })
 
-  it('draws the tiles: implemented ones are links, planned ones are not', async () => {
+  it('draws the tiles: the counted domains are links, the others hold no figure and no link', () => {
     renderPage()
     const hero = within(section('Hero'))
     expect(
       hero.getByRole('link', {
-        name: 'Servers: 15 of 16 online, 1 critical, 2 warning, mock data',
+        name: 'Servers: 13 of 16 ok, 1 critical, 2 warning, mock data',
       }),
     ).toHaveAttribute('href', '/servers')
-    expect(hero.getByRole('link', { name: /^Containers: 65 of 68 running/ })).toBeInTheDocument()
-    expect(hero.getByRole('link', { name: /^Net targets: 39 of 40 up/ })).toBeInTheDocument()
-    expect(hero.queryByRole('link', { name: /^(Devices|Alerts)/ })).not.toBeInTheDocument()
-    // The alerts tile loads its sample: three alerts, never a link.
-    expect(await hero.findByText('sample')).toBeInTheDocument()
+    expect(hero.getByRole('link', { name: /^Containers: 62 of 68 ok/ })).toBeInTheDocument()
+    expect(
+      hero.queryByRole('link', { name: /^(Net targets|Devices|Alerts)/ }),
+    ).not.toBeInTheDocument()
+    expect(hero.getAllByText('Not served by the console API')).toHaveLength(2)
+    expect(hero.getAllByText('Not implemented in the backend')).toHaveLength(1)
   })
 
   it('shows a tile loading, failed and stale', () => {
@@ -370,7 +376,7 @@ describe('hero', () => {
     expect(hero.getByRole('alert')).toHaveTextContent('Could not load')
     expect(
       hero.getByRole('link', {
-        name: 'Servers: 15 of 16 online, 1 critical, 2 warning, mock data, stale',
+        name: 'Servers: 13 of 16 ok, 1 critical, 2 warning, mock data, stale',
       }),
     ).toBeInTheDocument()
   })

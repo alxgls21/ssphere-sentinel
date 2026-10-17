@@ -8,19 +8,18 @@ const verdict = (summary: Parameters<typeof makeSummary>[0], freshness: Freshnes
   computeVerdict(makeSummary(summary), freshness)
 
 describe('documentTitle', () => {
-  it('leads with the verdict, so a background tab can be read: "[MOCK] ◆ 4 CRIT - Overview - Sentinel"', () => {
+  it('leads with the verdict, so a background tab can be read: "[MOCK] ◆ 3 CRIT - Overview - Sentinel"', () => {
     const critical = verdict({
       servers: { critical: 1 },
       containers: { critical: 2 },
-      targets: { critical: 1 },
     })
     expect(documentTitle({ mock: true, verdict: critical, screen: 'Overview' })).toBe(
-      '[MOCK] ◆ 4 CRIT - Overview - Sentinel',
+      '[MOCK] ◆ 3 CRIT - Overview - Sentinel',
     )
   })
 
   it('counts the verdict’s own status: warnings when degraded, unknowns when partial', () => {
-    const degraded = verdict({ servers: { warning: 2 }, targets: { warning: 3 } })
+    const degraded = verdict({ servers: { warning: 2 }, containers: { warning: 3 } })
     expect(documentTitle({ mock: true, verdict: degraded, screen: 'Servers' })).toBe(
       '[MOCK] ▲ 5 WARN - Servers - Sentinel',
     )
@@ -33,7 +32,7 @@ describe('documentTitle', () => {
   it('counts what is fine when nominal', () => {
     const nominal = verdict({})
     expect(documentTitle({ mock: true, verdict: nominal, screen: 'Overview' })).toBe(
-      '[MOCK] ● 38 OK - Overview - Sentinel',
+      '[MOCK] ● 30 OK - Overview - Sentinel',
     )
   })
 
@@ -63,8 +62,8 @@ describe('documentTitle', () => {
 
 describe('verdictSentence', () => {
   it('says the verdict and how many need attention', () => {
-    const critical = verdict({ servers: { critical: 1, warning: 2 }, targets: { unknown: 1 } })
-    expect(verdictSentence(critical)).toBe('Verdict CRITICAL. 4 of 42 need attention.')
+    const critical = verdict({ servers: { critical: 1, warning: 2 }, containers: { unknown: 1 } })
+    expect(verdictSentence(critical)).toBe('Verdict CRITICAL. 4 of 34 need attention.')
   })
 
   it('says only the verdict when there is no data', () => {
@@ -76,17 +75,15 @@ describe('an offline server in the verdict', () => {
   const flagged = verdict({
     servers: { critical: 1, offline: 1 },
     containers: { critical: 2 },
-    targets: { critical: 1 },
   })
   const plain = verdict({
     servers: { critical: 1 },
     containers: { critical: 2 },
-    targets: { critical: 1 },
   })
 
   it('counts an offline server as critical in the tab title', () => {
     expect(documentTitle({ mock: true, verdict: flagged, screen: 'Overview' })).toBe(
-      '[MOCK] ◆ 4 CRIT - Overview - Sentinel',
+      '[MOCK] ◆ 3 CRIT - Overview - Sentinel',
     )
     expect(documentTitle({ mock: true, verdict: flagged, screen: 'Overview' })).toBe(
       documentTitle({ mock: true, verdict: plain, screen: 'Overview' }),
@@ -95,6 +92,6 @@ describe('an offline server in the verdict', () => {
 
   it('counts an offline server as critical in the spoken verdict', () => {
     expect(verdictSentence(flagged)).toBe(verdictSentence(plain))
-    expect(verdictSentence(flagged)).toBe('Verdict CRITICAL. 4 of 42 need attention.')
+    expect(verdictSentence(flagged)).toBe('Verdict CRITICAL. 3 of 33 need attention.')
   })
 })

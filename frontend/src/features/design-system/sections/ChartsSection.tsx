@@ -6,9 +6,9 @@ import { ChartSkeleton } from '@/features/overview/latency/ChartSkeleton'
 import { LATENCY_CHART_HEIGHT_PX } from '@/features/overview/latency/latencyGeometry'
 import { latencyTable } from '@/features/overview/latency/latencyModel'
 import { POLL_MS } from '@/lib/thresholds'
-import { Panel } from '@/ui/Panel'
 import { Skeleton } from '@/ui/states'
 import { SAMPLE_SPIKE_SERIES } from '../sample/latency'
+import { SamplePanel } from '../sample/SamplePanel'
 import { Specimen } from '../Specimen'
 
 // The chart runtime is its own chunk, as it is on the Overview: the rest of the gallery paints first.
@@ -28,19 +28,18 @@ export function ChartsSection() {
         bare
         note="Two linked grids on one time axis, never a dual axis. Each grid draws its warn limit, a warning triangle marks every sample over it and the worst latency spike is labelled. The legend toggles series (Shift-click isolates). The plot takes focus: Left, Right, Home and End move the crosshair. The Table button shows the same values."
       >
-        <Panel
+        <SamplePanel
           title="Network latency"
-          features="network"
+          note="The console API serves no probe measurements."
           scope="1h"
           refreshMs={POLL_MS}
           flush
           bodyClassName="px-3 py-2"
-          footer={<span className="truncate">p95 and p50 across 40 targets, loss = mean</span>}
         >
           <Suspense fallback={<ChartSkeleton />}>
             <LatencyChart series={SAMPLE_SPIKE_SERIES} range="1h" />
           </Suspense>
-        </Panel>
+        </SamplePanel>
       </Specimen>
 
       <div className="flex flex-col gap-4">
@@ -55,9 +54,9 @@ export function ChartsSection() {
           bare
           note="Ghost axes at the real grid positions and one skeleton line, so the frame never moves."
         >
-          <Panel
+          <SamplePanel
             title="Network latency, loading"
-            features="network"
+            note="The console API serves no probe measurements."
             scope="1h"
             refreshMs={POLL_MS}
             status="loading"
@@ -73,15 +72,13 @@ export function ChartsSection() {
         bare
         note="A new monitoring chart supplies only its series and axes. The legend, the shared crosshair and tooltip, the keyboard cursor, the Table twin and the v key all come from the frame, so every chart answers the same hands the same way. One grid here, two measures of one unit; the plot grows with its panel."
       >
-        <Panel
+        <SamplePanel
           title="Interface traffic"
-          features="snmp"
-          plannedNote="The console does not read interface counters yet."
+          note="The console API serves no SNMP interface counters."
           scope="30m"
           refreshMs={POLL_MS}
           flush
           bodyClassName="flex flex-col px-3 py-2"
-          footer={<span className="truncate">in and out of one interface, 1-minute samples</span>}
         >
           <Suspense
             fallback={
@@ -92,7 +89,7 @@ export function ChartsSection() {
           >
             <BandwidthChart />
           </Suspense>
-        </Panel>
+        </SamplePanel>
       </Specimen>
     </div>
   )

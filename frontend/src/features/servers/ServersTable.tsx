@@ -6,6 +6,7 @@ import { cn } from '@/lib/cn'
 import { EMPTY, formatClock, type Timezone } from '@/lib/format'
 import { PlaceName } from '@/ui/PlaceName'
 import { Tooltip } from '@/ui/controls'
+import { useResourceLimits } from '@/ui/meters'
 import { STATUS_EDGE, StatusTag } from '@/ui/status'
 import { LoadCell } from './LoadCell'
 import {
@@ -13,6 +14,7 @@ import {
   heartbeatText,
   nextSort,
   noLoadReason,
+  noLoadSentence,
   reportsLoad,
   serverPath,
   seenAtOf,
@@ -79,6 +81,7 @@ export function ServersTable({ rows, query, onSort, nowMs, tz }: ServersTablePro
   const viewTo = useViewTo()
   const navigate = useNavigate()
   const location = useLocation()
+  const limits = useResourceLimits()
 
   return (
     <div className="min-h-0 flex-1 overflow-auto">
@@ -88,7 +91,7 @@ export function ServersTable({ rows, query, onSort, nowMs, tz }: ServersTablePro
             <SortHead sortKey="status" query={query} onSort={onSort} className="pl-4" />
             <SortHead sortKey="name" query={query} onSort={onSort} />
             <th scope="col" className={cn(HEAD, 'hidden px-3 @4xl:table-cell')}>
-              SITE <span className="font-normal">†</span>
+              SITE
             </th>
             <SortHead sortKey="cpu" query={query} onSort={onSort} className="w-36 @4xl:w-44" />
             <SortHead sortKey="memory" query={query} onSort={onSort} className="w-36 @4xl:w-44" />
@@ -122,7 +125,11 @@ export function ServersTable({ rows, query, onSort, nowMs, tz }: ServersTablePro
                     aria-hidden="true"
                     className={cn('absolute inset-y-0 left-0 w-0.5', STATUS_EDGE[item.health])}
                   />
-                  <StatusTag status={serverDisplay(item)} word={stateWord(item)} variant="tag" />
+                  <StatusTag
+                    status={serverDisplay(item)}
+                    word={stateWord(item, limits)}
+                    variant="tag"
+                  />
                 </td>
                 {/* oxlint-disable-next-line jsx-a11y/control-has-associated-label -- the link inside carries the text */}
                 <td className={cn(CELL, 'min-w-36 px-1')}>
@@ -162,11 +169,7 @@ export function ServersTable({ rows, query, onSort, nowMs, tz }: ServersTablePro
                   // oxlint-disable-next-line jsx-a11y/control-has-associated-label -- the sentence inside is the text
                   <td colSpan={3} className={cn(CELL, 'px-3')}>
                     <Tooltip content={reason ?? ''}>
-                      <span className="type-body text-fg-muted">
-                        {server.status === 'offline'
-                          ? 'No current reading: the agent stopped reporting'
-                          : 'No reading: never reported'}
-                      </span>
+                      <span className="type-body text-fg-muted">{noLoadSentence(item)}</span>
                     </Tooltip>
                   </td>
                 )}

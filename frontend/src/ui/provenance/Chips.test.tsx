@@ -36,7 +36,7 @@ describe('FeatureChip', () => {
     render(<PlannedChip />)
     expect(screen.getByText('Planned')).toHaveAttribute(
       'title',
-      'Not implemented in the backend yet. Sample data.',
+      'Not implemented in the backend yet.',
     )
   })
 })

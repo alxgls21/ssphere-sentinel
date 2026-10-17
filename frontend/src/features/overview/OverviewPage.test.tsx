@@ -6,13 +6,6 @@ import { ApiError } from '@/api/errors'
 import { renderApp } from '@/test/render'
 import OverviewPage from './OverviewPage'
 
-// The chart needs a canvas, which jsdom does not have: the panel's own tests cover it.
-vi.mock('./latency/NetworkLatencyPanel', () => ({
-  NetworkLatencyPanel: ({ className }: { className?: string }) => (
-    <section aria-label="Network latency" data-panel="2" className={className} />
-  ),
-}))
-
 const NOW = Date.parse('2026-10-12T14:05:12Z')
 
 function stubViewport(wide: boolean) {
@@ -60,7 +53,7 @@ describe('OverviewPage', () => {
   it('says the same thing everywhere: the verdict, the queue and the tiles agree', async () => {
     const { api } = setup()
     const summary = await api.getOverviewSummary({})
-    const attention = (['servers', 'containers', 'targets'] as const).reduce(
+    const attention = (['servers', 'containers'] as const).reduce(
       (sum, domain) =>
         sum +
         summary[domain].counts.critical +
@@ -76,10 +69,10 @@ describe('OverviewPage', () => {
     expect(within(queue).getByText(String(attention))).toBeInTheDocument()
   })
 
-  it('marks only the backend-less panels as PLANNED, and every panel as mock', async () => {
+  it('marks the panels with no backend data as unavailable, and the real ones as mock over the sample API', async () => {
     setup()
     await loaded()
-    for (const name of ['Active alerts', 'Recent events']) {
+    for (const name of ['Network latency', 'Active alerts', 'Recent events']) {
       expect(screen.getByRole('region', { name })).toHaveAttribute('data-planned', 'true')
     }
     for (const name of ['Needs attention', 'Fleet load']) {
@@ -89,13 +82,36 @@ describe('OverviewPage', () => {
     }
   })
 
-  it('asks the API for the alerts once: the tile and the panel share one resource', async () => {
+  it('holds no figure, chart or sample row in the panels the console API cannot fill', async () => {
+    setup()
+    await loaded()
+    for (const name of ['Network latency', 'Active alerts', 'Recent events']) {
+      const region = screen.getByRole('region', { name })
+      expect(region.querySelector('canvas, svg[role="img"], table, [role="row"]')).toBeNull()
+      expect(
+        within(region).getAllByText(/^(Not implemented|Not connected)/).length,
+      ).toBeGreaterThan(0)
+    }
+  })
+
+  it('reads only what the console API serves: no request for alerts, events or network series', async () => {
     const api = createMockApi({ delayMs: 0, now: () => NOW })
-    const listAlerts = vi.spyOn(api, 'listAlerts')
+    expect(Object.keys(api).sort()).toEqual(
+      [
+        'getEntityIndex',
+        'getFleetLoad',
+        'getHealthBreakdown',
+        'getOverviewSummary',
+        'getScopeOptions',
+        'getServer',
+        'getServerSeries',
+        'listAttention',
+        'listServers',
+        'source',
+      ].sort(),
+    )
     setup(true, api)
     await loaded()
-    await waitFor(() => expect(listAlerts).toHaveBeenCalled())
-    expect(listAlerts).toHaveBeenCalledTimes(1)
   })
 
   it('keeps the page alive when one panel fails: it errors alone, with its own Retry', async () => {

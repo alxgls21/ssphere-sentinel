@@ -17,11 +17,8 @@ const CALLS: Record<string, Call> = {
   getScopeOptions: (api, signal) => api.getScopeOptions({ signal }),
   getOverviewSummary: (api, signal) => api.getOverviewSummary({ signal }),
   listAttention: (api, signal) => api.listAttention({ signal }),
-  getNetworkSeries: (api, signal) => api.getNetworkSeries({ range: '1h', signal }),
   getFleetLoad: (api, signal) => api.getFleetLoad({ metric: 'cpu', signal }),
   getHealthBreakdown: (api, signal) => api.getHealthBreakdown({ signal }),
-  listAlerts: (api, signal) => api.listAlerts({ signal }),
-  listEvents: (api, signal) => api.listEvents({ signal }),
   getEntityIndex: (api, signal) => api.getEntityIndex({ signal }),
 }
 const METHODS = Object.keys(CALLS)
@@ -57,14 +54,13 @@ describe('scenarios', () => {
 
   it('normal tells the outage story: critical', async () => {
     expect(await verdictOf('normal')).toBe('critical')
-    const alerts = await apiFor('normal').listAlerts()
-    expect(alerts.some((alert) => alert.severity === 'critical')).toBe(true)
+    const { items } = await apiFor('normal').listAttention()
+    expect(items.some((item) => item.severity === 'critical')).toBe(true)
   })
 
-  it('healthy is nominal, with no alerts and nothing to attend to', async () => {
+  it('healthy is nominal, with nothing to attend to', async () => {
     const api = apiFor('healthy')
     expect(await verdictOf('healthy')).toBe('nominal')
-    expect(await api.listAlerts()).toEqual([])
     const attention = await api.listAttention()
     expect(attention.items).toEqual([])
     expect(attention.hiddenIdle).toBeGreaterThan(0)
@@ -76,7 +72,6 @@ describe('scenarios', () => {
     const { items } = await api.listAttention()
     expect(items.length).toBeGreaterThan(0)
     expect(items.every((item) => item.severity === 'unknown')).toBe(true)
-    expect(await api.listAlerts()).toEqual([])
   })
 
   it('stale, slow and loading serve the same story as normal', async () => {
@@ -89,37 +84,20 @@ describe('scenarios', () => {
     const summary = await api.getOverviewSummary()
     expect(summary.servers).toEqual({
       total: 0,
-      online: 0,
       counts: { healthy: 0, warning: 0, critical: 0, unknown: 0, idle: 0 },
     })
     expect(summary.containers.total).toBe(0)
-    expect(summary.targets).toMatchObject({ total: 0, up: 0, successTrend: [] })
-    expect(summary.devices).toEqual({
-      inInventory: 0,
-      byType: { router: 0, switch: 0, firewall: 0, other: 0 },
-    })
     expect(computeVerdict(summary, 'live').state).toBe('nodata')
     expect(await api.listAttention({ includeIdle: true })).toMatchObject({
       items: [],
       hiddenIdle: 0,
     })
     expect(await api.getFleetLoad({ metric: 'cpu' })).toMatchObject({ rows: [], excluded: [] })
-    expect(await api.getNetworkSeries({ range: '1h' })).toMatchObject({
-      t: [],
-      p50: [],
-      p95: [],
-      lossMean: [],
-      failedProbes: [],
-      probeCount: [],
-      targetCount: 0,
-    })
     const breakdown = await api.getHealthBreakdown()
     expect(breakdown.sites).toEqual([])
     expect(
       breakdown.domains.map((d) => Object.values(d.counts).reduce((a, b) => a + b, 0)),
     ).toEqual([0, 0, 0, 0])
-    expect(await api.listAlerts()).toEqual([])
-    expect(await api.listEvents()).toEqual([])
     expect((await api.getEntityIndex()).items).toEqual([])
     expect(await api.getScopeOptions()).toEqual({ customers: [], sites: [] })
   })
@@ -144,7 +122,7 @@ describe('scenarios', () => {
     const api = apiFor('stale')
     await api.getOverviewSummary()
     expect(await outcome(api.getOverviewSummary())).toBeInstanceOf(ApiError)
-    expect(await outcome(api.listAlerts())).toBe('resolved')
+    expect(await outcome(api.listAttention())).toBe('resolved')
   })
 
   it('stale does not spend its good answer on a request that was abandoned', async () => {
@@ -281,7 +259,6 @@ describe('determinism and the clock', () => {
     const iso = new Date(NOW).toISOString()
     expect((await api.getOverviewSummary()).generatedAt).toBe(iso)
     expect((await api.listAttention()).generatedAt).toBe(iso)
-    expect((await api.getNetworkSeries({ range: '1h' })).generatedAt).toBe(iso)
     expect((await api.getFleetLoad({ metric: 'cpu' })).generatedAt).toBe(iso)
     expect((await api.getHealthBreakdown()).generatedAt).toBe(iso)
     expect((await api.getEntityIndex()).generatedAt).toBe(iso)
@@ -300,9 +277,9 @@ describe('determinism and the clock', () => {
     const key = (item: { id: string; severity: string; stateLabel: string }) =>
       `${item.id}|${item.severity}|${item.stateLabel}`
     expect(after.items.map(key).sort()).toEqual(before.items.map(key).sort())
-    const gateway = (result: typeof before) => result.items.find((i) => i.name === 'pir-gateway')
-    expect(gateway(after)?.ageIso).toBe(gateway(before)?.ageIso)
-    expect(gateway(after)?.detail).not.toBe(gateway(before)?.detail)
+    const offline = (result: typeof before) => result.items.find((i) => i.name === 'pir-fs-01')
+    expect(offline(after)?.ageIso).toBe(offline(before)?.ageIso)
+    expect(offline(after)?.detail).not.toBe(offline(before)?.detail)
   })
 
   it('returns fresh objects: mutating a result never corrupts the next one', async () => {

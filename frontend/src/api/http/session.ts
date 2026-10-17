@@ -1,4 +1,4 @@
-import type { AuthClient, ConsoleSession } from '../auth'
+import type { AuthClient, ConsoleSession, PublishedThresholds } from '../auth'
 import { ApiError } from '../errors'
 import type { ScopeOptions } from '../types'
 import type { Transport } from './transport'
@@ -31,6 +31,25 @@ export function parseSession(raw: unknown): ConsoleSession {
     reason: null,
     user: { username: user.username, displayName: user.displayName },
     allCustomers: access.allCustomers,
+    // The thresholds only matter to the screens that judge; a session without them signs in all the same.
+    ...(raw.thresholds === null || raw.thresholds === undefined
+      ? {}
+      : { thresholds: parseThresholds(raw.thresholds) }),
+  }
+}
+
+function parseThresholds(raw: unknown): PublishedThresholds {
+  if (!isRecord(raw)) throw bad()
+  const limit = (value: unknown): number => {
+    if (typeof value !== 'number' || !Number.isFinite(value) || value < 0) throw bad()
+    return value
+  }
+  return {
+    resourceWarnPercent: limit(raw.resourceWarnPercent),
+    resourceCritPercent: limit(raw.resourceCritPercent),
+    probeLossWarnPercent: limit(raw.probeLossWarnPercent),
+    probeLatencyWarnMs: limit(raw.probeLatencyWarnMs),
+    targetCritFailures: limit(raw.targetCritFailures),
   }
 }
 

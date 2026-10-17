@@ -45,10 +45,10 @@ function SiteRow({ site }: { site: SiteBreakdown }) {
 }
 
 /**
- * BY SITE: the worst sites first. While the console does not read the site
- * assignment of servers, containers and targets from the backend, this whole
- * section is sample data and says so; the panel frame stays solid because the
- * domain rows above it are real.
+ * BY SITE: the worst sites first, each with the servers and containers placed on it.
+ * While the site assignment is not read from the console API (the sample API, or a
+ * registry that says it is not connected), the section is marked as sample data;
+ * the panel frame stays solid because the domain rows above it are counted.
  */
 export function SiteSection({ sites }: { sites: readonly SiteBreakdown[] }) {
   const { source } = useApi()

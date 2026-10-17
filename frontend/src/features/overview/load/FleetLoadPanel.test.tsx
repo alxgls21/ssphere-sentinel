@@ -2,6 +2,7 @@ import { act, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { FleetLoad, FleetLoadOptions, LoadMetric } from '@/api/types'
+import { registryOverrides } from '@/config/testing'
 import { createTestApi, renderApp } from '@/test/render'
 import { stubFocusVisible } from '@/ui/controls/testing'
 import { FleetLoadPanel } from './FleetLoadPanel'
@@ -41,7 +42,51 @@ const deferred = <T,>() => {
 
 const tabNames = () => screen.getAllByRole('tab').map((tab) => tab.textContent)
 
-afterEach(() => vi.restoreAllMocks())
+const overrides = registryOverrides()
+afterEach(() => {
+  overrides.restore()
+  vi.restoreAllMocks()
+})
+
+describe('FleetLoadPanel provenance', () => {
+  const over = (source: 'http' | 'mock') =>
+    createTestApi({ source, getFleetLoad: vi.fn(async (o) => loadOf(o.metric)) })
+
+  it('is live when the console API serves it and the Servers screens read it', async () => {
+    renderApp(<FleetLoadPanel />, { api: over('http') })
+    const region = screen.getByRole('region', { name: 'Fleet load' })
+    expect(within(region).getByText(/^live/)).toBeInTheDocument()
+    expect(within(region).queryByText(/^mock/)).toBeNull()
+    await screen.findByRole('tabpanel')
+  })
+
+  it('says mock the moment the servers are not read from the console API', async () => {
+    overrides.set('servers', { connected: false })
+    renderApp(<FleetLoadPanel />, { api: over('http') })
+    const region = screen.getByRole('region', { name: 'Fleet load' })
+    expect(within(region).getByText(/^mock/)).toBeInTheDocument()
+    await screen.findByRole('tabpanel')
+  })
+
+  it('is never live over demo data, whatever the registry says', async () => {
+    renderApp(<FleetLoadPanel />, { api: over('mock') })
+    const region = screen.getByRole('region', { name: 'Fleet load' })
+    expect(within(region).getByText(/^mock/)).toBeInTheDocument()
+    await screen.findByRole('tabpanel')
+  })
+
+  it('shows the failure, never other servers, when the request fails', async () => {
+    const api = createTestApi({
+      source: 'http',
+      getFleetLoad: vi.fn(async () => {
+        throw new Error('Cannot reach the server.')
+      }),
+    })
+    renderApp(<FleetLoadPanel />, { api })
+    expect(await screen.findByText('Cannot reach the server.')).toBeInTheDocument()
+    expect(screen.queryByRole('tabpanel')).toBeNull()
+  })
+})
 
 describe('FleetLoadPanel', () => {
   it('is panel [3]: a solid, labelled region marked NOW and mock, with the metric tabs in its header', async () => {

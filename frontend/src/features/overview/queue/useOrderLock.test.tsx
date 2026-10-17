@@ -190,7 +190,7 @@ describe('useOrderLock', () => {
     expect(result.current.snapshot).toBe(next)
     expect(result.current.queued).toBeNull()
 
-    receive(snap([...next.items, makeItem({ id: 'y', name: 'y', kind: 'target' })]))
+    receive(snap([...next.items, makeItem({ id: 'y', name: 'y', kind: 'container' })]))
     expect(result.current.snapshot).toBe(next)
     expect(result.current.queued).not.toBeNull()
   })

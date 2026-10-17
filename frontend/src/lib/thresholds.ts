@@ -13,9 +13,6 @@ export const LOSS_WARN_PERCENT = 2
 /** ...or when its latency is above this (milliseconds). */
 export const LATENCY_WARN_MS = 150
 
-/** A target is critical after this many consecutive failed measurements. */
-export const TARGET_CRIT_FAILURES = 3
-
 /** Data older than this reads STALE; older than NO_DATA reads NO DATA (seconds). */
 export const STALE_AFTER_SECONDS = 45
 export const NO_DATA_AFTER_SECONDS = 120
@@ -38,10 +35,24 @@ export type ResourceLevel = 'ok' | 'warn' | 'crit'
  * or "150 ms" beside a degraded probe because it was 150.4.
  */
 
-export function resourceLevel(percent: number): ResourceLevel {
+/** The resource limits in force: the console API's, or these defaults. */
+export interface ResourceLimits {
+  warn: number
+  crit: number
+}
+
+export const DEFAULT_RESOURCE_LIMITS: ResourceLimits = {
+  warn: RESOURCE_WARN_PERCENT,
+  crit: RESOURCE_CRIT_PERCENT,
+}
+
+export function resourceLevel(
+  percent: number,
+  limits: ResourceLimits = DEFAULT_RESOURCE_LIMITS,
+): ResourceLevel {
   const shown = Math.round(percent)
-  if (shown >= RESOURCE_CRIT_PERCENT) return 'crit'
-  return shown >= RESOURCE_WARN_PERCENT ? 'warn' : 'ok'
+  if (shown >= limits.crit) return 'crit'
+  return shown >= limits.warn ? 'warn' : 'ok'
 }
 
 /** Packet loss at or above the warning level, judged to one decimal like it is shown. */

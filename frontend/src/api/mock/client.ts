@@ -1,15 +1,12 @@
 import type { SentinelApi } from '../client'
 import { ApiError } from '../errors'
 import type { RequestOptions, Scope } from '../types'
-import { RANGE_MS } from '@/lib/range'
-import { deriveActivity } from './activity'
 import { listAttention } from './attention'
 import { entityIndex, fleetLoad, healthBreakdown, scopeOptions, summarize } from './derive'
 import { buildServerSeries, listServers, serverDetail } from './servers'
 import { buildEstate, scopeEstate, type Estate, type FleetProfile } from './fixtures'
 import { hash01, hashString } from './random'
 import type { MockScenario } from './scenario'
-import { buildNetworkSeries } from './series'
 import type { Clock } from './time'
 
 export interface MockApiOptions {
@@ -122,11 +119,6 @@ export function createMockApi(options: MockApiOptions = {}): SentinelApi {
         listAttention(fleet, now, request?.includeIdle ?? false),
       ),
 
-    getNetworkSeries: (request) =>
-      scoped('getNetworkSeries', request, ({ probes }, { now }) =>
-        buildNetworkSeries(probes, request.range, now),
-      ),
-
     getFleetLoad: (request) =>
       scoped('getFleetLoad', request, ({ fleet }, { now }) =>
         fleetLoad(fleet, request.metric, request.limit, now),
@@ -135,28 +127,11 @@ export function createMockApi(options: MockApiOptions = {}): SentinelApi {
     getHealthBreakdown: (request) =>
       scoped('getHealthBreakdown', request, (estate, { now }) => healthBreakdown(estate, now)),
 
-    listAlerts: (request) =>
-      scoped('listAlerts', request, (estate, clock) => {
-        const { alerts } = deriveActivity(estate, clock)
-        const wanted = request?.state
-          ? alerts.filter((alert) => alert.state === request.state)
-          : alerts
-        return request?.limit === undefined ? wanted : wanted.slice(0, request.limit)
-      }),
-
-    listEvents: (request) =>
-      scoped('listEvents', request, (estate, clock) => {
-        const { events } = deriveActivity(estate, clock)
-        const since = request?.range ? clock.now - RANGE_MS[request.range] : -Infinity
-        const wanted = events.filter((event) => Date.parse(event.at) >= since)
-        return request?.limit === undefined ? wanted : wanted.slice(0, request.limit)
-      }),
-
     getEntityIndex: (request) =>
       scoped('getEntityIndex', request, (estate, { now }) => entityIndex(estate, now)),
 
     listServers: (request) =>
-      scoped('listServers', request, ({ fleet }, { now }) => listServers(fleet, now)),
+      scoped('listServers', request, ({ fleet }, { now }) => listServers(fleet, now, request)),
 
     getServer: (id, request) =>
       respond('getServer', request?.signal, (clock) =>

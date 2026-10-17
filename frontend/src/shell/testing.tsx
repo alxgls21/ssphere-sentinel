@@ -51,21 +51,17 @@ export function counts(partial: Partial<StatusCounts> = {}): StatusCounts {
 interface SummaryInput {
   servers?: Partial<StatusCounts>
   containers?: Partial<StatusCounts>
-  targets?: Partial<StatusCounts>
 }
 
 /** A summary built from just the counts a test cares about. */
-export function makeSummary({ servers, containers, targets }: SummaryInput = {}): OverviewSummary {
+export function makeSummary({ servers, containers }: SummaryInput = {}): OverviewSummary {
   const total = (c: StatusCounts) => c.healthy + c.warning + c.critical + c.unknown + c.idle
   const s = counts({ healthy: 10, ...servers })
   const c = counts({ healthy: 20, ...containers })
-  const t = counts({ healthy: 8, ...targets })
   return {
     generatedAt: '2026-01-01T00:00:00.000Z',
-    servers: { total: total(s), online: s.healthy, counts: s },
-    containers: { total: total(c), running: c.healthy, counts: c },
-    targets: { total: total(t), up: t.healthy, counts: t, successTrend: [] },
-    devices: { inInventory: 3, byType: { router: 1, switch: 1, firewall: 1, other: 0 } },
+    servers: { total: total(s), counts: s },
+    containers: { total: total(c), counts: c },
   }
 }
 

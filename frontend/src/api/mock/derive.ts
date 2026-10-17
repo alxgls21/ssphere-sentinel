@@ -1,5 +1,4 @@
 import type {
-  DeviceType,
   EntityIndex,
   EntityIndexItem,
   FleetLoad,
@@ -19,10 +18,8 @@ import {
   offlineFlag,
   serverCounts,
   serverHealthOf,
-  targetHealthOf,
   type Lookup,
 } from './lookup'
-import { successTrend } from './series'
 import { toIso } from './time'
 
 /** Everything the Overview shows, derived from one fleet so the panels cannot disagree. */
@@ -34,28 +31,14 @@ export function scopeOptions(fleet: Fleet): ScopeOptions {
   }
 }
 
-export function summarize({ fleet, probes }: Estate, now: number): OverviewSummary {
-  const byType: Record<DeviceType, number> = { router: 0, switch: 0, firewall: 0, other: 0 }
-  for (const device of fleet.devices) byType[device.deviceType] += 1
+export function summarize({ fleet }: Estate, now: number): OverviewSummary {
   return {
     generatedAt: toIso(now),
-    servers: {
-      total: fleet.servers.length,
-      online: fleet.servers.filter((server) => server.status === 'online').length,
-      counts: serverCounts(fleet.servers),
-    },
+    servers: { total: fleet.servers.length, counts: serverCounts(fleet.servers) },
     containers: {
       total: fleet.containers.length,
-      running: fleet.containers.filter((container) => container.state === 'running').length,
       counts: countStatuses(fleet.containers.map(containerHealthOf)),
     },
-    targets: {
-      total: fleet.targets.length,
-      up: fleet.targets.filter((target) => target.status === 'up').length,
-      counts: countStatuses(fleet.targets.map(targetHealthOf)),
-      successTrend: successTrend(probes, now),
-    },
-    devices: { inInventory: fleet.devices.length, byType },
   }
 }
 
@@ -91,12 +74,7 @@ export function fleetLoad(
   }
 }
 
-const KIND_ORDER: Record<SiteEntity['kind'], number> = {
-  server: 0,
-  container: 1,
-  target: 2,
-  device: 3,
-}
+const KIND_ORDER: Record<'server' | 'container', number> = { server: 0, container: 1 }
 
 function siteEntities(fleet: Fleet, lookup: Lookup, siteId: string): SiteEntity[] {
   const entities: SiteEntity[] = []
@@ -123,20 +101,10 @@ function siteEntities(fleet: Fleet, lookup: Lookup, siteId: string): SiteEntity[
       })
     }
   }
-  for (const target of fleet.targets) {
-    if (target.siteId === siteId) {
-      entities.push({
-        id: target.id,
-        kind: 'target',
-        name: target.name,
-        status: targetHealthOf(target),
-      })
-    }
-  }
   return entities.sort(
     (a, b) =>
       compareSeverity(a.status, b.status) ||
-      KIND_ORDER[a.kind] - KIND_ORDER[b.kind] ||
+      KIND_ORDER[a.kind as 'server' | 'container'] - KIND_ORDER[b.kind as 'server' | 'container'] ||
       a.name.localeCompare(b.name),
   )
 }
@@ -172,18 +140,8 @@ export function healthBreakdown({ fleet }: Estate, now: number): HealthBreakdown
         label: 'CONTAINERS',
         counts: countStatuses(fleet.containers.map(containerHealthOf)),
       },
-      {
-        domain: 'targets',
-        label: 'NET TARGETS',
-        counts: countStatuses(fleet.targets.map(targetHealthOf)),
-      },
-      {
-        // The console does not read SNMP yet, so every device is "no data".
-        domain: 'snmp',
-        label: 'SNMP DEVS',
-        counts: { ...emptyCounts(), unknown: fleet.devices.length },
-        planned: true,
-      },
+      { domain: 'targets', label: 'NET TARGETS', counts: emptyCounts(), planned: true },
+      { domain: 'snmp', label: 'SNMP DEVS', counts: emptyCounts(), planned: true },
     ],
     sites,
   }
@@ -216,24 +174,6 @@ export function entityIndex({ fleet }: Estate, now: number): EntityIndex {
     status: containerHealthOf(container),
     ...named(lookup.placeOfContainer(container)),
   }))
-  const targets: EntityIndexItem[] = fleet.targets.map((target) => ({
-    id: target.id,
-    kind: 'target',
-    name: target.name,
-    detail: target.port === null ? target.address : `${target.address}:${target.port}`,
-    status: targetHealthOf(target),
-    ...named(lookup.placeOfSite(target.siteId)),
-  }))
-  const devices: EntityIndexItem[] = fleet.devices.map((device) => ({
-    id: device.id,
-    kind: 'device',
-    name: device.name,
-    detail: device.managementAddress,
-    // SNMP is PLANNED: nothing is collected, so a device asserts no health.
-    status: 'unknown',
-    ...named(lookup.placeOfSite(device.siteId)),
-  }))
-
   const siteStatus = new Map<string, HealthStatus>()
   const sites: EntityIndexItem[] = fleet.sites.map((site) => {
     const entities = siteEntities(fleet, lookup, site.id)
@@ -245,7 +185,7 @@ export function entityIndex({ fleet }: Estate, now: number): EntityIndex {
       id: site.id,
       kind: 'site',
       name: site.name,
-      detail: `${kinds('server')} servers, ${kinds('target')} targets`,
+      detail: `${kinds('server')} servers, ${kinds('container')} containers`,
       status,
       ...named(lookup.placeOfSite(site.id)),
     }
@@ -267,8 +207,6 @@ export function entityIndex({ fleet }: Estate, now: number): EntityIndex {
     items: [
       ...servers.sort(byName),
       ...containers.sort(byName),
-      ...targets.sort(byName),
-      ...devices.sort(byName),
       ...sites.sort(byName),
       ...customers.sort(byName),
     ],

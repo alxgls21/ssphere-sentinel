@@ -17,7 +17,7 @@ const entity = (
   item: Pick<EntityIndexItem, 'id' | 'kind' | 'name' | 'status'> & Partial<EntityIndexItem>,
 ): EntityIndexItem => ({ detail: '', ...item })
 
-/** Six problems in implemented domains (one too many for the list), a stopped container, a device and roll-ups. */
+/** Six problems among servers and containers (one too many for the list), a stopped container, probe targets and a device the console API does not serve, and roll-ups. */
 const INDEX: EntityIndex = {
   generatedAt: '2026-10-12T10:00:00.000Z',
   items: [
@@ -71,6 +71,20 @@ const INDEX: EntityIndex = {
       name: 'batch-nightly',
       detail: 'ghcr.io/acme/batch:1 on db-primary',
       status: 'idle',
+    }),
+    entity({
+      id: 'c3',
+      kind: 'container',
+      name: 'queue-stuck',
+      detail: 'ghcr.io/acme/queue:2 on db-primary',
+      status: 'warning',
+    }),
+    entity({
+      id: 'c4',
+      kind: 'container',
+      name: 'proxy-slow',
+      detail: 'ghcr.io/acme/proxy:7 on edge-gw-02',
+      status: 'warning',
     }),
     entity({
       id: 't1',
@@ -309,17 +323,17 @@ describe('empty query', () => {
     expect(groupNames()).toEqual(['Problems', 'Go to', 'Actions', 'Mock scenario', 'Planned'])
   })
 
-  it('shows the top five problems worst first, from implemented domains only', async () => {
+  it('shows the top five problems worst first, from servers and containers only', async () => {
     const { user } = setup()
     await openLoaded(user)
     // Critical, then warning, then unknown (cut off by the limit of five). The stopped container,
-    // the SNMP device, the site and the customer never appear.
+    // the probe targets, the SNMP device, the site and the customer never appear.
     expect(titles(group('Problems'))).toEqual([
       'edge-gw-02',
       'worker-restart',
       'db-primary',
-      'wan-uplink',
-      'lb-health',
+      'queue-stuck',
+      'proxy-slow',
     ])
     const first = within(group('Problems')).getAllByRole('option')[0]
     expect(first).toHaveTextContent('CRIT')
@@ -356,7 +370,7 @@ describe('empty query', () => {
         'edge-gw-02',
         'worker-restart',
         'db-primary',
-        'wan-uplink',
+        'queue-stuck',
       ])
       expect(critical?.querySelector('[data-status]')).toHaveAttribute('data-status', 'critical')
       expect(critical).toHaveTextContent('CRIT')

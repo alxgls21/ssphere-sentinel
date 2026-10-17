@@ -11,8 +11,15 @@ import { FeatureChip } from '@/ui/provenance/Chips'
 import { DomainTip } from './DomainTip'
 import { DOMAIN_NAME, isUncounted } from './healthModel'
 
+/** The feature each planned row stands for, and the words its dashed bar carries. */
+const PLANNED_ROW = {
+  targets: { feature: 'network', text: 'no probe data' },
+  snmp: { feature: 'snmp', text: 'no SNMP data' },
+} as const
+
 function DomainRow({ domain }: { domain: DomainBreakdown }) {
   const { source } = useApi()
+  const planned = PLANNED_ROW[domain.domain === 'targets' ? 'targets' : 'snmp']
   // A planned row holds no figures and an uncounted one has nothing to break down: neither claims numbers.
   const detail =
     domain.planned || isUncounted(domain.counts) ? null : (
@@ -30,14 +37,14 @@ function DomainRow({ domain }: { domain: DomainBreakdown }) {
           height={8}
           label={DOMAIN_NAME[domain.domain]}
           planned={domain.planned}
-          plannedText="no SNMP data"
+          plannedText={planned.text}
           segmentTitles={false}
           className="min-w-0 @max-sm:col-span-2 @max-sm:row-start-2"
         />
         {domain.planned ? (
           <FeatureChip
-            availability={shortfallOf('snmp', source) ?? 'unknown'}
-            title={FEATURES.snmp.note}
+            availability={shortfallOf(planned.feature, source) ?? 'unknown'}
+            title={FEATURES[planned.feature].note}
             className="@max-sm:col-start-2 @max-sm:row-start-1"
           />
         ) : (
