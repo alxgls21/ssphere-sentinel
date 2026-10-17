@@ -11,12 +11,13 @@ from __future__ import annotations
 
 import os
 import shutil
-import stat
 import subprocess
 import sys
 import tempfile
 import unittest
 from pathlib import Path
+
+from tests.deployment.helpers import write_executable
 
 ROOT = Path(__file__).resolve().parents[2]
 ENTRYPOINT = ROOT / "entrypoint.sh"
@@ -55,9 +56,7 @@ class EntrypointTests(unittest.TestCase):
         self.bin.mkdir()
         self.calls = base / "calls"
         for name, text in (("python", PYTHON_STUB), ("gunicorn", COMMAND_STUB)):
-            path = self.bin / name
-            path.write_text(text)
-            path.chmod(path.stat().st_mode | stat.S_IXUSR)
+            write_executable(self.bin / name, text)
 
     def run_entrypoint(self, *command: str, fail: str = "", **environment: str) -> subprocess.CompletedProcess:
         self.calls.unlink(missing_ok=True)

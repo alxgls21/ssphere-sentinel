@@ -15,6 +15,8 @@ import re
 import unittest
 from pathlib import Path
 
+from tests.deployment.helpers import load_workflow
+
 ROOT = Path(__file__).resolve().parents[2]
 
 
@@ -29,11 +31,7 @@ def server_tests_that_import_the_agent() -> list[str]:
 
 class ServerJobTests(unittest.TestCase):
     def setUp(self):
-        try:
-            import yaml
-        except ImportError:  # pragma: no cover - CI installs PyYAML
-            self.skipTest("PyYAML is not installed")
-        workflow = yaml.safe_load((ROOT / ".github" / "workflows" / "ci.yml").read_text())
+        workflow = load_workflow(self)
         self.job = workflow["jobs"]["server"]
         self.steps = self.job["steps"]
 
@@ -81,11 +79,7 @@ class ComposeCompatibilityJobTests(unittest.TestCase):
     SCRIPTS = sorted([*(ROOT / ".github" / "scripts").glob("*.sh"), *(ROOT / "scripts").glob("*.sh")])
 
     def setUp(self):
-        try:
-            import yaml
-        except ImportError:  # pragma: no cover - CI installs PyYAML
-            self.skipTest("PyYAML is not installed")
-        workflow = yaml.safe_load((ROOT / ".github" / "workflows" / "ci.yml").read_text())
+        workflow = load_workflow(self)
         self.job = workflow["jobs"]["compose-compatibility"]
         self.runs = [step.get("run", "").strip() for step in self.job["steps"]]
 
@@ -156,11 +150,7 @@ class PostgresJobTests(unittest.TestCase):
     TESTS_IF = "${{ !cancelled() && steps.cluster.outcome == 'success' }}"
 
     def setUp(self):
-        try:
-            import yaml
-        except ImportError:  # pragma: no cover - CI installs PyYAML
-            self.skipTest("PyYAML is not installed")
-        workflow = yaml.safe_load((ROOT / ".github" / "workflows" / "ci.yml").read_text())
+        workflow = load_workflow(self)
         self.job = workflow["jobs"]["postgres"]
         self.steps = self.job["steps"]
         self.runs = [step.get("run", "").strip() for step in self.steps]

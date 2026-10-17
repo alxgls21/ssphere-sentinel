@@ -58,13 +58,12 @@ from apps.console.access import Scope, Visibility
 from apps.console.containers import container_counts_by_server, containers_of_server
 from apps.console.health import (
     HEALTH_NAMES,
-    HEALTH_RANKS,
     annotate_servers,
     empty_counts,
     server_load,
 )
 from apps.console.http import console_api
-from apps.console.listing import apply_search, counts_by_severity, name_order, page_envelope
+from apps.console.listing import filter_list, name_order, page_envelope
 from apps.console.params import PAGE_PARAMS, SCOPE_PARAMS, PageRequest, QueryParams
 from apps.console.serializers import iso
 from apps.infrastructure.models import Server
@@ -200,14 +199,10 @@ def server_list(request):
     page = PageRequest.from_params(params)
 
     in_scope = visible_servers(request.visibility, now, scope)
-    matching = apply_search(in_scope, words, SEARCH_FIELDS)
-    counts = counts_by_severity(matching)
-    scope_total = sum(counts.values()) if not words else in_scope.count()
-    total = sum(counts.values()) if status == "all" else counts[status]
+    rows, counts, total, scope_total = filter_list(in_scope, words=words, fields=SEARCH_FIELDS, status=status)
 
     items: list[dict] = []
     if page.offset < total:
-        rows = matching if status == "all" else matching.filter(severity=HEALTH_RANKS[status])
         annotations, order = ordering(sort, direction, now)
         rows = list(
             rows.annotate(**annotations)

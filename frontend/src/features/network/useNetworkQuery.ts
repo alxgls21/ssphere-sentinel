@@ -1,5 +1,4 @@
-import { useCallback, useMemo } from 'react'
-import { useSearchParams } from 'react-router'
+import { useListQuery } from '@/hooks/useListQuery'
 import { parseQuery, writeQuery, type NetworkQuery } from './networkModel'
 
 /**
@@ -8,14 +7,5 @@ import { parseQuery, writeQuery, type NetworkQuery } from './networkModel'
  * again from the first page; only a patch that names the page keeps it.
  */
 export function useNetworkQuery(): readonly [NetworkQuery, (patch: Partial<NetworkQuery>) => void] {
-  const [params, setParams] = useSearchParams()
-  const query = useMemo(() => parseQuery(params), [params])
-  const update = useCallback(
-    (patch: Partial<NetworkQuery>) =>
-      setParams((prev) => writeQuery(prev, { ...parseQuery(prev), page: 1, ...patch }), {
-        replace: true,
-      }),
-    [setParams],
-  )
-  return [query, update] as const
+  return useListQuery(parseQuery, writeQuery)
 }

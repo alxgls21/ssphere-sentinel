@@ -9,7 +9,7 @@ from agent.heartbeat import send_heartbeat
 from agent.http_client import HttpResponse
 from agent.measurement_queue import MeasurementQueue
 from agent.network_delivery import BATCH_BACKOFF_BASE_SECONDS, NetworkDelivery
-from agent.tests.test_measurement_queue import Clock, measurement
+from agent.tests.queue_helpers import Clock, measurement
 
 
 def results_body(*entries, status=None):

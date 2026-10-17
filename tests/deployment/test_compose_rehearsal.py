@@ -21,12 +21,13 @@ import json
 import os
 import re
 import shutil
-import stat
 import subprocess
 import sys
 import tempfile
 import unittest
 from pathlib import Path
+
+from tests.deployment.helpers import logical_lines, write_executable
 
 ROOT = Path(__file__).resolve().parents[2]
 SCRIPT = ROOT / ".github" / "scripts" / "compose-upgrade-e2e.sh"
@@ -200,8 +201,7 @@ def host_state() -> dict:
 
 def code_lines(text: str) -> list[str]:
     """Logical lines (continuations joined) that are not comments."""
-    joined = re.sub(r"\\\n\s*", " ", text)
-    return [line for line in joined.splitlines() if line.strip() and not line.lstrip().startswith("#")]
+    return [line for line in logical_lines(text) if line.strip() and not line.lstrip().startswith("#")]
 
 
 class StandIns:
@@ -216,12 +216,8 @@ class StandIns:
         self.bin = self.base / "bin"
         self.bin.mkdir()
         for name, text in (("docker", FAKE_DOCKER), ("git", FAKE_GIT), ("mktemp", FAKE_MKTEMP)):
-            path = self.bin / name
-            path.write_text(f"#!{sys.executable}\n{text}")
-            path.chmod(path.stat().st_mode | stat.S_IXUSR)
-        sudo = self.bin / "sudo"
-        sudo.write_text(FAKE_SUDO)
-        sudo.chmod(sudo.stat().st_mode | stat.S_IXUSR)
+            write_executable(self.bin / name, f"#!{sys.executable}\n{text}")
+        write_executable(self.bin / "sudo", FAKE_SUDO)
         self.state = self.base / "state.json"
         self.calls = self.base / "calls"
         # Where the stand-in mktemp makes the script's scratch directory (the

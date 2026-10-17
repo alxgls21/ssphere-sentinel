@@ -88,7 +88,6 @@ from django.utils import timezone
 from apps.console.access import Scope, Visibility
 from apps.console.health import (
     HEALTH_NAMES,
-    HEALTH_RANKS,
     HEALTHY,
     annotate_devices,
     empty_counts,
@@ -97,11 +96,9 @@ from apps.console.health import (
 )
 from apps.console.history import DEFAULT_RANGE, RANGES
 from apps.console.http import console_api
-from apps.console.listing import apply_search, counts_by_severity, name_order, page_envelope
+from apps.console.listing import filter_list, name_order, page_envelope
 from apps.console.params import PAGE_PARAMS, SCOPE_PARAMS, PageRequest, QueryParams
-from apps.console.serializers import iso
-from apps.console.targets import agent_status
-from apps.infrastructure.models import Server
+from apps.console.serializers import agent_server_names, assigned_agent_payload, iso
 from apps.inventory.models import Device
 from apps.snmp.models import (
     DELTA_STATES_WITH_VALUES,
@@ -290,17 +287,6 @@ def serialize_rates(sample: dict | None, stale_before: datetime | None) -> dict 
 
 
 def serialize(row: dict, interface_counts: dict, servers: dict[UUID, str], now: datetime) -> dict:
-    agent = None
-    server_id = row["assigned_agent__server_id"]
-    if row["assigned_agent_id"] is not None and server_id in servers:
-        agent = {
-            "id": str(row["assigned_agent_id"]),
-            "name": row["assigned_agent__name"],
-            "status": agent_status(row["assigned_agent__last_seen_at"], now),
-            "lastSeenAt": iso(row["assigned_agent__last_seen_at"]) if row["assigned_agent__last_seen_at"] else None,
-            "serverId": str(server_id),
-            "serverName": servers[server_id],
-        }
     polled = row["snmp_state__last_poll_at"]
     state = None
     if polled is not None:
@@ -332,7 +318,7 @@ def serialize(row: dict, interface_counts: dict, servers: dict[UUID, str], now: 
             "timeoutSeconds": row["snmp_config__timeout_seconds"],
             "retries": row["snmp_config__retries"],
             "agentAssigned": row["assigned_agent_id"] is not None,
-            "agent": agent,
+            "agent": assigned_agent_payload(row, servers, now),
         },
         "state": state,
         "stale": polled is not None and not row["poll_fresh"],
@@ -371,8 +357,7 @@ def serialize_rows(visibility: Visibility, rows: list[dict], now: datetime, scop
             oper_status=status["oper_status"],
         )
         counts[status["device_id"]][health] += status["n"]
-    server_ids = {row["assigned_agent__server_id"] for row in rows if row["assigned_agent__server_id"] is not None}
-    servers = dict(visibility.filter(Server.objects.filter(pk__in=server_ids)).values_list("pk", "name")) if server_ids else {}
+    servers = agent_server_names(visibility, rows)
     return [serialize(row, counts[row["id"]], servers, now) for row in rows]
 
 
@@ -388,14 +373,10 @@ def device_list(request):
     page = PageRequest.from_params(params)
 
     in_scope = snmp_devices(request.visibility, now, scope)
-    matching = apply_search(in_scope, words, SEARCH_FIELDS)
-    counts = counts_by_severity(matching)
-    scope_total = sum(counts.values()) if not words else in_scope.count()
-    total = sum(counts.values()) if status == "all" else counts[status]
+    rows, counts, total, scope_total = filter_list(in_scope, words=words, fields=SEARCH_FIELDS, status=status)
 
     items: list[dict] = []
     if page.offset < total:
-        rows = matching if status == "all" else matching.filter(severity=HEALTH_RANKS[status])
         annotations, order = ordering(sort, direction, now)
         rows = list(rows.annotate(**annotations).order_by(*order).values(*FIELDS)[page.offset : page.offset + page.size])
         items = serialize_rows(request.visibility, rows, now, scope)

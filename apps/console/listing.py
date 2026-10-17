@@ -8,7 +8,7 @@ from datetime import datetime
 from django.db.models import Count, Q, QuerySet
 from django.db.models.functions import Collate, Lower
 
-from apps.console.health import HEALTH_NAMES, empty_counts
+from apps.console.health import HEALTH_NAMES, HEALTH_RANKS, empty_counts
 from apps.console.params import PageRequest
 from apps.console.serializers import iso
 
@@ -32,6 +32,28 @@ def counts_by_severity(queryset: QuerySet) -> dict[str, int]:
     for row in queryset.order_by().values("severity").annotate(n=Count("pk")):
         counts[HEALTH_NAMES[row["severity"]]] = row["n"]
     return counts
+
+
+def filter_list(
+    in_scope: QuerySet,
+    *,
+    words: Collection[str],
+    fields: Collection[str],
+    status: str,
+) -> tuple[QuerySet, dict[str, int], int, int]:
+    """Return filtered rows, health counts, matching total and unsearched scope total.
+
+    Count before applying the status filter so every status chip describes the
+    same search. Without a search, that count also supplies the scope total.
+    The returned rows stay lazy for each endpoint's ordering and pagination.
+    """
+    matching = apply_search(in_scope, words, fields)
+    counts = counts_by_severity(matching)
+    searched_total = sum(counts.values())
+    scope_total = in_scope.count() if words else searched_total
+    if status == "all":
+        return matching, counts, searched_total, scope_total
+    return matching.filter(severity=HEALTH_RANKS[status]), counts, counts[status], scope_total
 
 
 def name_order(field: str, *, descending: bool = False):

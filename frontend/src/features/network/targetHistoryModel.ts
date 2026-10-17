@@ -43,6 +43,10 @@ export const historySpecs = (protocol: TargetProtocol): readonly TargetHistorySp
 
 export const HISTORY_IDS: readonly TargetHistoryId[] = ['latency', 'latencyMax', 'loss', 'failed']
 
+/** No measurement in the bucket is not "0 failed". */
+const failedIn = (series: TargetSeries, index: number): number | null =>
+  (series.measurements[index] ?? 0) > 0 ? (series.failed[index] ?? null) : null
+
 /** The values of a series, `null` where a bucket has none. */
 export function valuesOf(series: TargetSeries, id: TargetHistoryId): (number | null)[] {
   switch (id) {
@@ -53,10 +57,7 @@ export function valuesOf(series: TargetSeries, id: TargetHistoryId): (number | n
     case 'loss':
       return series.lossPercent
     case 'failed':
-      // No measurement in the bucket is not "0 failed".
-      return series.failed.map((count, index) =>
-        (series.measurements[index] ?? 0) > 0 ? count : null,
-      )
+      return series.failed.map((_, index) => failedIn(series, index))
   }
 }
 
@@ -112,7 +113,7 @@ export function describeSample(
 }
 
 function valueText(series: TargetSeries, id: TargetHistoryId, index: number): string {
-  const value = valuesOf(series, id)[index]
+  const value = id === 'failed' ? failedIn(series, index) : valuesOf(series, id)[index]
   if (value == null) return id === 'failed' ? 'no measurements' : EMPTY
   if (id === 'failed') return `${value} of ${series.measurements[index] ?? 0}`
   return id === 'loss' ? formatPercent(value, 1) : formatLatency(value)

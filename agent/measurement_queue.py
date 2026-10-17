@@ -113,6 +113,17 @@ class RetryOutcome:
     dropped: int
 
 
+@dataclass(frozen=True)
+class _QueueTable:
+    name: str
+    id_column: str
+    item_label: str
+
+
+_NETWORK_TABLE = _QueueTable("pending_measurements", "measurement_id", "network measurement(s)")
+_SNMP_TABLE = _QueueTable("pending_snmp", "poll_id", "SNMP poll(s)")
+
+
 def retry_delay_seconds(attempts: int) -> float:
     """Exponential backoff for item-level retries, capped at RETRY_MAX_SECONDS."""
     exponent = max(0, attempts - 1)
@@ -430,70 +441,14 @@ class MeasurementQueue:
         return batch
 
     def remove(self, measurement_ids: Iterable[str]) -> int:
-        ids = list(dict.fromkeys(measurement_ids))
-        if not ids:
-            return 0
-        removed = 0
-        with self._write() as conn:
-            for chunk in _chunks(ids, 500):
-                placeholders = ",".join("?" * len(chunk))
-                removed += conn.execute(
-                    f"DELETE FROM pending_measurements WHERE measurement_id IN ({placeholders})",
-                    chunk,
-                ).rowcount
-        return removed
+        return self._remove_items(_NETWORK_TABLE, measurement_ids)
 
     def mark_retry(self, measurement_ids: Iterable[str]) -> RetryOutcome:
         """Increment attempts and back off; drop rows that exhausted retries."""
-        ids = list(dict.fromkeys(measurement_ids))
-        if not ids:
-            return RetryOutcome(0, 0)
-        now = self._wall_fn()
-        rescheduled = 0
-        dropped = 0
-        with self._write() as conn:
-            for measurement_id in ids:
-                row = conn.execute(
-                    "SELECT attempts FROM pending_measurements WHERE measurement_id = ?",
-                    (measurement_id,),
-                ).fetchone()
-                if row is None:
-                    continue
-                attempts = row[0] + 1
-                if attempts >= MAX_ITEM_ATTEMPTS:
-                    conn.execute(
-                        "DELETE FROM pending_measurements WHERE measurement_id = ?",
-                        (measurement_id,),
-                    )
-                    dropped += 1
-                    continue
-                conn.execute(
-                    "UPDATE pending_measurements SET attempts = ?, next_attempt_at = ? "
-                    "WHERE measurement_id = ?",
-                    (attempts, now + retry_delay_seconds(attempts), measurement_id),
-                )
-                rescheduled += 1
-        if dropped:
-            logger.warning(
-                "Dropped %d network measurement(s) after %d unacknowledged attempts",
-                dropped,
-                MAX_ITEM_ATTEMPTS,
-            )
-        return RetryOutcome(rescheduled, dropped)
+        return self._mark_items_retry(_NETWORK_TABLE, measurement_ids)
 
     def purge_expired(self) -> int:
-        cutoff = self._wall_fn() - self.max_age_seconds
-        with self._write() as conn:
-            purged = conn.execute(
-                "DELETE FROM pending_measurements WHERE enqueued_at < ?", (cutoff,)
-            ).rowcount
-        if purged:
-            logger.warning(
-                "Dropped %d network measurement(s) older than %d seconds",
-                purged,
-                int(self.max_age_seconds),
-            )
-        return purged
+        return self._purge_expired_items(_NETWORK_TABLE)
 
     def count(self) -> int:
         return self._read("SELECT COUNT(*) FROM pending_measurements")[0][0]
@@ -594,65 +549,14 @@ class MeasurementQueue:
         return batch
 
     def remove_snmp(self, poll_ids: Iterable[str]) -> int:
-        ids = list(dict.fromkeys(poll_ids))
-        if not ids:
-            return 0
-        removed = 0
-        with self._write() as conn:
-            for chunk in _chunks(ids, 500):
-                placeholders = ",".join("?" * len(chunk))
-                removed += conn.execute(
-                    f"DELETE FROM pending_snmp WHERE poll_id IN ({placeholders})",
-                    chunk,
-                ).rowcount
-        return removed
+        return self._remove_items(_SNMP_TABLE, poll_ids)
 
     def mark_snmp_retry(self, poll_ids: Iterable[str]) -> RetryOutcome:
         """Increment attempts and back off; drop polls that exhausted retries."""
-        ids = list(dict.fromkeys(poll_ids))
-        if not ids:
-            return RetryOutcome(0, 0)
-        now = self._wall_fn()
-        rescheduled = 0
-        dropped = 0
-        with self._write() as conn:
-            for poll_id in ids:
-                row = conn.execute(
-                    "SELECT attempts FROM pending_snmp WHERE poll_id = ?", (poll_id,)
-                ).fetchone()
-                if row is None:
-                    continue
-                attempts = row[0] + 1
-                if attempts >= MAX_ITEM_ATTEMPTS:
-                    conn.execute("DELETE FROM pending_snmp WHERE poll_id = ?", (poll_id,))
-                    dropped += 1
-                    continue
-                conn.execute(
-                    "UPDATE pending_snmp SET attempts = ?, next_attempt_at = ? WHERE poll_id = ?",
-                    (attempts, now + retry_delay_seconds(attempts), poll_id),
-                )
-                rescheduled += 1
-        if dropped:
-            logger.warning(
-                "Dropped %d SNMP poll(s) after %d unacknowledged attempts",
-                dropped,
-                MAX_ITEM_ATTEMPTS,
-            )
-        return RetryOutcome(rescheduled, dropped)
+        return self._mark_items_retry(_SNMP_TABLE, poll_ids)
 
     def purge_expired_snmp(self) -> int:
-        cutoff = self._wall_fn() - self.max_age_seconds
-        with self._write() as conn:
-            purged = conn.execute(
-                "DELETE FROM pending_snmp WHERE enqueued_at < ?", (cutoff,)
-            ).rowcount
-        if purged:
-            logger.warning(
-                "Dropped %d SNMP poll(s) older than %d seconds",
-                purged,
-                int(self.max_age_seconds),
-            )
-        return purged
+        return self._purge_expired_items(_SNMP_TABLE)
 
     def snmp_count(self) -> int:
         return self._read("SELECT COUNT(*) FROM pending_snmp")[0][0]
@@ -660,6 +564,79 @@ class MeasurementQueue:
     def snmp_attempts(self, poll_id: str) -> int | None:
         rows = self._read("SELECT attempts FROM pending_snmp WHERE poll_id = ?", (poll_id,))
         return rows[0][0] if rows else None
+
+    # These operations share retry/retention rules. Table and column names come
+    # only from the fixed descriptors above; all item values remain parameters.
+    def _remove_items(self, table: _QueueTable, item_ids: Iterable[str]) -> int:
+        ids = list(dict.fromkeys(item_ids))
+        if not ids:
+            return 0
+        removed = 0
+        with self._write() as conn:
+            for chunk in _chunks(ids, 500):
+                placeholders = ",".join("?" * len(chunk))
+                removed += conn.execute(
+                    f"DELETE FROM {table.name} WHERE {table.id_column} IN ({placeholders})",
+                    chunk,
+                ).rowcount
+        return removed
+
+    def _mark_items_retry(self, table: _QueueTable, item_ids: Iterable[str]) -> RetryOutcome:
+        ids = list(dict.fromkeys(item_ids))
+        if not ids:
+            return RetryOutcome(0, 0)
+        now = self._wall_fn()
+        rescheduled = 0
+        dropped = 0
+        with self._write() as conn:
+            for chunk in _chunks(ids, 500):
+                placeholders = ",".join("?" * len(chunk))
+                attempts_by_id = dict(
+                    conn.execute(
+                        f"SELECT {table.id_column}, attempts FROM {table.name} "
+                        f"WHERE {table.id_column} IN ({placeholders})",
+                        chunk,
+                    )
+                )
+                for item_id in chunk:
+                    if item_id not in attempts_by_id:
+                        continue
+                    attempts = attempts_by_id[item_id] + 1
+                    if attempts >= MAX_ITEM_ATTEMPTS:
+                        conn.execute(
+                            f"DELETE FROM {table.name} WHERE {table.id_column} = ?", (item_id,)
+                        )
+                        dropped += 1
+                        continue
+                    conn.execute(
+                        f"UPDATE {table.name} SET attempts = ?, next_attempt_at = ? "
+                        f"WHERE {table.id_column} = ?",
+                        (attempts, now + retry_delay_seconds(attempts), item_id),
+                    )
+                    rescheduled += 1
+        if dropped:
+            logger.warning(
+                "Dropped %d %s after %d unacknowledged attempts",
+                dropped,
+                table.item_label,
+                MAX_ITEM_ATTEMPTS,
+            )
+        return RetryOutcome(rescheduled, dropped)
+
+    def _purge_expired_items(self, table: _QueueTable) -> int:
+        cutoff = self._wall_fn() - self.max_age_seconds
+        with self._write() as conn:
+            purged = conn.execute(
+                f"DELETE FROM {table.name} WHERE enqueued_at < ?", (cutoff,)
+            ).rowcount
+        if purged:
+            logger.warning(
+                "Dropped %d %s older than %d seconds",
+                purged,
+                table.item_label,
+                int(self.max_age_seconds),
+            )
+        return purged
 
     def close(self) -> None:
         with self._lock:

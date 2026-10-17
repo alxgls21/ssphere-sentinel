@@ -14,20 +14,21 @@ import type {
   TargetSeries,
   TargetSeriesOptions,
 } from '../types'
+import { listQuery, parseCounts, parsePage } from './lists'
 import {
   array,
-  bad,
   flag,
+  nullableNumber,
   nullableText,
   nullableTime,
   number,
   oneOf,
+  parallel,
   record,
   text,
   time,
   whole,
 } from './parse'
-import { parseCounts, parsePage } from './servers'
 import type { Transport } from './transport'
 
 /**
@@ -52,8 +53,6 @@ const REASON: readonly TargetReason[] = [
   'loss',
   'ok',
 ]
-
-const nullableNumber = (value: unknown): number | null => (value === null ? null : number(value))
 
 function parseAgent(raw: unknown): TargetAgent | null {
   if (raw === null) return null
@@ -150,35 +149,16 @@ export function parseTargetDetail(raw: unknown): TargetDetail {
 export function parseTargetSeries(raw: unknown): TargetSeries {
   const row = record(raw)
   const t = array(row.t).map(number)
-  const parallel = <T>(value: unknown, read: (sample: unknown) => T): T[] => {
-    const values = array(value).map(read)
-    if (values.length !== t.length) throw bad()
-    return values
-  }
+  const column = parallel(t)
   return {
     generatedAt: time(row.generatedAt),
     bucketMs: number(row.bucketMs),
     t,
-    latencyMs: parallel(row.latencyMs, nullableNumber),
-    latencyMaxMs: parallel(row.latencyMaxMs, nullableNumber),
-    lossPercent: parallel(row.lossPercent, nullableNumber),
-    measurements: parallel(row.measurements, (sample) => whole(sample)),
-    failed: parallel(row.failed, (sample) => whole(sample)),
-  }
-}
-
-/** The query string of a list request: what is left at its default is not sent. */
-function listQuery(options: TargetListOptions): Record<string, string | undefined> {
-  const q = options.q?.trim()
-  return {
-    customer: options.scope?.customerId ?? undefined,
-    site: options.scope?.siteId ?? undefined,
-    q: q ? q : undefined,
-    status: options.status && options.status !== 'all' ? options.status : undefined,
-    sort: options.sort,
-    dir: options.dir,
-    page: options.page === undefined ? undefined : String(options.page),
-    pageSize: options.pageSize === undefined ? undefined : String(options.pageSize),
+    latencyMs: column(row.latencyMs, nullableNumber),
+    latencyMaxMs: column(row.latencyMaxMs, nullableNumber),
+    lossPercent: column(row.lossPercent, nullableNumber),
+    measurements: column(row.measurements, (sample) => whole(sample)),
+    failed: column(row.failed, (sample) => whole(sample)),
   }
 }
 

@@ -1,7 +1,6 @@
 import os
 import sqlite3
 import stat
-import tempfile
 import threading
 import unittest
 import uuid
@@ -15,51 +14,7 @@ from agent.measurement_queue import (
     QueueStorageError,
     validate_queue_path,
 )
-
-
-def measurement(**overrides):
-    payload = {
-        "measurement_id": str(uuid.uuid4()),
-        "target_id": str(uuid.uuid4()),
-        "measured_at": "2026-10-09T10:00:00+00:00",
-        "success": True,
-        "latency_ms": 1.5,
-        "packet_loss_percentage": 0.0,
-        "probe_count": 4,
-        "successful_probes": 4,
-        "failure_reason": "",
-    }
-    payload.update(overrides)
-    return payload
-
-
-class Clock:
-    def __init__(self, now=1_000_000.0):
-        self.now = now
-
-    def __call__(self):
-        return self.now
-
-
-class QueueTestCase(unittest.TestCase):
-    def setUp(self):
-        self._tmp = tempfile.TemporaryDirectory()
-        self.dir = Path(self._tmp.name)
-        os.chmod(self.dir, 0o700)
-        self.path = self.dir / "state" / "queue.sqlite3"
-        self.clock = Clock()
-        self.queues = []
-
-    def tearDown(self):
-        for queue in self.queues:
-            queue.close()
-        self._tmp.cleanup()
-
-    def open_queue(self, path=None, **kwargs):
-        kwargs.setdefault("wall_fn", self.clock)
-        queue = MeasurementQueue.open(self.path if path is None else path, **kwargs)
-        self.queues.append(queue)
-        return queue
+from agent.tests.queue_helpers import QueueTestCase, measurement, poll
 
 
 class PersistenceTests(QueueTestCase):
@@ -178,6 +133,52 @@ class BoundsTests(QueueTestCase):
         queue = self.open_queue()
         with self.assertRaises(QueueError):
             queue.enqueue(measurement(measurement_id="nope"))
+
+
+class SharedOperationTests(unittest.TestCase):
+    def test_network_batch_operations_are_bounded_and_isolated(self):
+        self._check_batch_operations(snmp=False)
+
+    def test_snmp_batch_operations_are_bounded_and_isolated(self):
+        self._check_batch_operations(snmp=True)
+
+    def _check_batch_operations(self, *, snmp):
+        queue = MeasurementQueue(None)
+        self.addCleanup(queue.close)
+        if snmp:
+            make_item, id_key = poll, "poll_id"
+            enqueue, retry, remove = queue.enqueue_snmp, queue.mark_snmp_retry, queue.remove_snmp
+            attempts, count = queue.snmp_attempts, queue.snmp_count
+        else:
+            make_item, id_key = measurement, "measurement_id"
+            enqueue, retry, remove = queue.enqueue, queue.mark_retry, queue.remove
+            attempts, count = queue.attempts, queue.count
+
+        items = [make_item() for _ in range(501)]
+        for item in items:
+            enqueue(item)
+        ids = [item[id_key] for item in items]
+        if snmp:
+            queue.enqueue(measurement(measurement_id=ids[0]))
+        else:
+            queue.enqueue_snmp(poll(poll_id=ids[0]))
+
+        statements = []
+        queue._conn.set_trace_callback(statements.append)
+        # Generators, repeated IDs, unknown IDs and more than one SQL chunk
+        # must retain the same semantics as a single acknowledged item.
+        requested = [*ids, ids[0], str(uuid.uuid4())]
+        outcome = retry(item_id for item_id in requested)
+        queue._conn.set_trace_callback(None)
+        self.assertEqual((outcome.rescheduled, outcome.dropped), (501, 0))
+        self.assertEqual({attempts(item_id) for item_id in ids}, {1})
+        reads = [statement for statement in statements if statement.startswith("SELECT")]
+        self.assertLessEqual(len(reads), 2)
+        self.assertEqual(remove(item_id for item_id in requested), 501)
+        self.assertEqual(count(), 0)
+        other_attempts = queue.attempts if snmp else queue.snmp_attempts
+        other_count = queue.count if snmp else queue.snmp_count
+        self.assertEqual((other_attempts(ids[0]), other_count()), (0, 1))
 
 
 class SecurityTests(QueueTestCase):

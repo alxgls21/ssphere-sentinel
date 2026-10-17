@@ -12,8 +12,7 @@ from agent.measurement_queue import MeasurementQueue
 from agent.network_delivery import NetworkDelivery
 from agent.snmp_delivery import SnmpDelivery
 from agent.snmp_payload import MAX_INTERFACES_PER_REPORT, MAX_POLLS_PER_REPORT
-from agent.tests.test_measurement_queue import Clock, measurement
-from agent.tests.test_snmp_queue import poll
+from agent.tests.queue_helpers import Clock, measurement, poll
 
 A, B, C, D = (f"00000000-0000-0000-0000-00000000000{i}" for i in range(1, 5))
 

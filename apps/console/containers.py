@@ -44,12 +44,11 @@ from django.utils import timezone
 from apps.console.access import Scope, Visibility
 from apps.console.health import (
     HEALTH_NAMES,
-    HEALTH_RANKS,
     annotate_containers,
     empty_counts,
 )
 from apps.console.http import console_api
-from apps.console.listing import apply_search, counts_by_severity, name_order, page_envelope
+from apps.console.listing import filter_list, name_order, page_envelope
 from apps.console.params import PAGE_PARAMS, SCOPE_PARAMS, PageRequest, QueryParams
 from apps.console.serializers import iso
 from apps.infrastructure.models import DockerContainer
@@ -177,14 +176,10 @@ def container_list(request):
     in_scope = visible_containers(request.visibility, now, scope)
     if server_id is not None:
         in_scope = in_scope.filter(server_id=server_id)
-    matching = apply_search(in_scope, words, SEARCH_FIELDS)
-    counts = counts_by_severity(matching)
-    scope_total = sum(counts.values()) if not words else in_scope.count()
-    total = sum(counts.values()) if status == "all" else counts[status]
+    rows, counts, total, scope_total = filter_list(in_scope, words=words, fields=SEARCH_FIELDS, status=status)
 
     items: list[dict] = []
     if page.offset < total:
-        rows = matching if status == "all" else matching.filter(severity=HEALTH_RANKS[status])
         rows = rows.order_by(*ordering(sort, direction)).values(*FIELDS)[page.offset : page.offset + page.size]
         for row in rows:
             item = serialize(row)

@@ -151,4 +151,25 @@ describe('what it says', () => {
     expect(table.rows.at(-1)?.cells).toEqual(['10 ms', '14 ms', '0.0%', '0 of 1', '1'])
     expect(table.rows.at(-3)?.cells).toEqual(['—', '—', '—', 'no measurements', '0'])
   })
+
+  it('reads measurement counts linearly when building a long history table', () => {
+    const size = 128
+    let reads = 0
+    const measurements = new Proxy(Array<number>(size).fill(1), {
+      get(target, key, receiver) {
+        if (typeof key === 'string' && /^\d+$/.test(key)) reads += 1
+        return Reflect.get(target, key, receiver)
+      },
+    })
+    const s = series({
+      t: Array.from({ length: size }, (_, index) => index * 60_000),
+      latencyMs: Array<number>(size).fill(10),
+      latencyMaxMs: Array<number>(size).fill(20),
+      lossPercent: Array<number>(size).fill(0),
+      measurements,
+      failed: Array<number>(size).fill(0),
+    })
+    expect(historyTable('target', 'icmp', s, '1h', 'utc').rows).toHaveLength(size)
+    expect(reads).toBeLessThanOrEqual(size * 4)
+  })
 })

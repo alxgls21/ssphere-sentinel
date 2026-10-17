@@ -12,14 +12,11 @@ import re
 import unittest
 from pathlib import Path
 
+from tests.deployment.helpers import logical_lines
+
 ROOT = Path(__file__).resolve().parents[2]
 SCRIPTS = ROOT / ".github" / "scripts"
 REHEARSAL = SCRIPTS / "postgres-upgrade-e2e.sh"
-
-
-def logical_lines(text: str) -> list[str]:
-    """Shell lines with backslash continuations joined."""
-    return re.sub(r"\\\n\s*", " ", text).splitlines()
 
 
 class ShellInvocationTests(unittest.TestCase):

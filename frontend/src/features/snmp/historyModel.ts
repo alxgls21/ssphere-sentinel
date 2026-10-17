@@ -51,25 +51,27 @@ export const DEVICE_HISTORY_IDS: readonly DeviceHistoryId[] = DEVICE_SPECS.map((
 const polledIn = (series: DeviceSeries, index: number): number =>
   (series.reachablePolls[index] ?? 0) + (series.failedPolls[index] ?? 0)
 
+/** A bucket in which nothing was polled has no count, not a count of 0. */
+function pollCountIn(
+  series: DeviceSeries,
+  id: 'reachable' | 'failed',
+  index: number,
+): number | null {
+  const counts = id === 'reachable' ? series.reachablePolls : series.failedPolls
+  return polledIn(series, index) > 0 ? (counts[index] ?? null) : null
+}
+
 export function deviceValues(series: DeviceSeries, id: DeviceHistoryId): (number | null)[] {
-  switch (id) {
-    case 'response':
-      return series.responseMs
-    case 'reachable':
-      // A bucket in which nothing was polled has no count, not a count of 0.
-      return series.reachablePolls.map((count, index) =>
-        polledIn(series, index) > 0 ? count : null,
-      )
-    case 'failed':
-      return series.failedPolls.map((count, index) => (polledIn(series, index) > 0 ? count : null))
-  }
+  if (id === 'response') return series.responseMs
+  const counts = id === 'reachable' ? series.reachablePolls : series.failedPolls
+  return counts.map((_, index) => pollCountIn(series, id, index))
 }
 
 export const hasDeviceHistory = (series: DeviceSeries): boolean =>
   series.t.some((_, index) => polledIn(series, index) > 0)
 
 function deviceText(series: DeviceSeries, id: DeviceHistoryId, index: number): string {
-  const value = deviceValues(series, id)[index]
+  const value = id === 'response' ? series.responseMs[index] : pollCountIn(series, id, index)
   if (value == null) return id === 'response' ? EMPTY : 'no polls'
   if (id === 'response') return formatLatency(value)
   return `${value} of ${polledIn(series, index)}`

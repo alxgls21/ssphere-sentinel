@@ -32,6 +32,18 @@ export function number(value: unknown): number {
   return value
 }
 
+export const nullableNumber = (value: unknown): number | null =>
+  value === null ? null : number(value)
+
+/** Reads parallel arrays that must be as long as the time axis. */
+export function parallel(t: readonly number[]) {
+  return <T>(value: unknown, read: (sample: unknown) => T): T[] => {
+    const values = array(value).map(read)
+    if (values.length !== t.length) throw bad()
+    return values
+  }
+}
+
 /** A whole number from `min`. */
 export function whole(value: unknown, min = 0): number {
   const n = number(value)

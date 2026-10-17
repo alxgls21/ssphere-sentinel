@@ -93,6 +93,25 @@ describe('device history', () => {
     expect(table.rows[0]?.cells).toEqual(['11 ms', '1 of 1', '0 of 1'])
     expect(table.rows.at(-3)?.cells).toEqual(['—', 'no polls', 'no polls'])
   })
+
+  it('reads poll counts linearly when building a long history table', () => {
+    const size = 128
+    let reads = 0
+    const reachablePolls = new Proxy(Array<number>(size).fill(1), {
+      get(target, key, receiver) {
+        if (typeof key === 'string' && /^\d+$/.test(key)) reads += 1
+        return Reflect.get(target, key, receiver)
+      },
+    })
+    const s = deviceSeries({
+      t: Array.from({ length: size }, (_, index) => index * 60_000),
+      responseMs: Array<number>(size).fill(10),
+      reachablePolls,
+      failedPolls: Array<number>(size).fill(0),
+    })
+    expect(deviceTable('device', s, '1h', 'utc').rows).toHaveLength(size)
+    expect(reads).toBeLessThanOrEqual(size * 8)
+  })
 })
 
 describe('interface history', () => {
