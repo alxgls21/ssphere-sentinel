@@ -54,6 +54,7 @@ describe('HistoryPanel', () => {
   })
 
   it('keeps saying it is demo data while the servers are served over http but not read from it', async () => {
+    overrides.set('servers', { connected: false })
     panel(resource({ data: await series() }), '/', 'http')
     expect(screen.getByText(DEMO_FOOTER)).toBeVisible()
     expect(screen.getByText(/^mock/)).toBeInTheDocument()

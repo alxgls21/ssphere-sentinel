@@ -1,4 +1,4 @@
-import type { AttentionItem, AttentionResult, ProbeProtocol } from '@/api/types'
+import type { AttentionItem, AttentionResult } from '@/api/types'
 import { NAV_ITEMS, type NavItem } from '@/config/nav'
 import { formatAge, formatQuantity } from '@/lib/format'
 import { displayStatus } from '@/lib/status'
@@ -10,11 +10,8 @@ import { STATUS_NAME, STATUS_WORD } from '@/ui/status'
  * an "update" while the order is locked. No React in here, so it is all unit-tested.
  */
 
-/**
- * A queue row. `protocol` tells an ICMP target from a TCP one; the shared
- * AttentionItem view-model does not carry it yet, so a target without it reads "net".
- */
-export type QueueItem = AttentionItem & { protocol?: ProbeProtocol }
+/** A queue row: the shared AttentionItem view-model. */
+export type QueueItem = AttentionItem
 
 /** One poll of the queue, tagged with the request that produced it. */
 export interface QueueSnapshot extends Omit<AttentionResult, 'items'> {
@@ -40,8 +37,6 @@ export function kindLabel(item: QueueItem): string {
       return 'srv'
     case 'container':
       return 'ctr'
-    case 'target':
-      return item.protocol ?? 'net'
   }
 }
 
@@ -78,7 +73,7 @@ export const displayed = (item: AttentionItem) => displayStatus(item.severity, i
 
 /**
  * The accessible name of a row, so one stop reads the whole line:
- * "Row 2 of 9, critical, tcp acme-vpn:443, connection refused, 9 failed probes, Acme Athens-DC, 9 minutes".
+ * "Row 2 of 9, critical, ctr acme-proxy, dead, on edge-gw-02, Acme Athens-DC, 9 minutes".
  */
 export function rowLabel(item: QueueItem, position: number, total: number, nowMs: number): string {
   return [
@@ -114,7 +109,6 @@ export function rowCopyText(item: QueueItem, nowMs: number): string {
 const SCREEN_ID = {
   server: 'servers',
   container: 'docker',
-  target: 'network',
 } as const satisfies Record<AttentionItem['kind'], NavItem['id']>
 
 const SCREEN_PATH = Object.fromEntries(NAV_ITEMS.map(({ id, path }) => [id, path])) as Record<

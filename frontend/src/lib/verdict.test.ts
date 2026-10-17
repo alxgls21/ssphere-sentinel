@@ -14,33 +14,26 @@ const counts = (over: Partial<StatusCounts> = {}): StatusCounts => ({
 function summary(
   servers: Partial<StatusCounts>,
   containers: Partial<StatusCounts> = {},
-  targets: Partial<StatusCounts> = {},
 ): OverviewSummary {
   return {
     generatedAt: '2026-10-12T14:05:12Z',
-    servers: { total: 0, online: 0, counts: counts(servers) },
-    containers: { total: 0, running: 0, counts: counts(containers) },
-    targets: { total: 0, up: 0, counts: counts(targets), successTrend: [] },
-    devices: { inInventory: 0, byType: { router: 0, switch: 0, firewall: 0, other: 0 } },
+    servers: { total: 0, counts: counts(servers) },
+    containers: { total: 0, counts: counts(containers) },
   }
 }
 
 describe('computeVerdict', () => {
-  it('is CRITICAL when anything is critical, counting across domains', () => {
+  it('is CRITICAL when anything is critical, counting across servers and containers', () => {
     const v = computeVerdict(
-      summary(
-        { healthy: 10, critical: 1 },
-        { healthy: 50, warning: 2, critical: 1, idle: 3 },
-        { healthy: 30, warning: 1 },
-      ),
+      summary({ healthy: 10, critical: 1 }, { healthy: 50, warning: 2, critical: 1, idle: 3 }),
       'live',
     )
     expect(v.state).toBe('critical')
     expect(v.word).toBe('CRITICAL')
     expect(v.status).toBe('critical')
-    expect(v.needAttention).toBe(2 + 3) // 2 critical + 3 warning
+    expect(v.needAttention).toBe(2 + 2) // 2 critical + 2 warning
     expect(v.counts.critical).toBe(2)
-    expect(v.counts.warning).toBe(3)
+    expect(v.counts.warning).toBe(2)
   })
 
   it('excludes idle from the denominator', () => {
@@ -80,12 +73,10 @@ describe('an offline server does not change what decides', () => {
   const withOffline = summary(
     { healthy: 13, warning: 2, critical: 1, offline: 1 },
     { healthy: 62, warning: 1, critical: 2, idle: 3 },
-    { healthy: 37, warning: 2, critical: 1 },
   )
   const without = summary(
     { healthy: 13, warning: 2, critical: 1 },
     { healthy: 62, warning: 1, critical: 2, idle: 3 },
-    { healthy: 37, warning: 2, critical: 1 },
   )
 
   it('is still CRITICAL with the same figures', () => {
@@ -95,11 +86,11 @@ describe('an offline server does not change what decides', () => {
     expect(flagged.word).toBe('CRITICAL')
     expect(flagged.status).toBe('critical')
     expect(flagged.needAttention).toBe(plain.needAttention)
-    expect(flagged.needAttention).toBe(9)
+    expect(flagged.needAttention).toBe(6)
     expect(flagged.monitored).toBe(plain.monitored)
-    expect(flagged.monitored).toBe(121)
+    expect(flagged.monitored).toBe(81)
     expect(flagged.idle).toBe(plain.idle)
-    expect(flagged.counts).toMatchObject({ critical: 4, warning: 5, healthy: 112, idle: 3 })
+    expect(flagged.counts).toMatchObject({ critical: 3, warning: 3, healthy: 75, idle: 3 })
   })
 
   it('is CRITICAL even when the offline server is the only critical entity', () => {

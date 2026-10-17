@@ -255,7 +255,7 @@ describe('AppShell: moving between screens', () => {
 
   it('titles the tab with the screen', async () => {
     renderApp('/servers')
-    await waitFor(() => expect(document.title).toBe('[MOCK] ● 38 OK - Servers - Sentinel'))
+    await waitFor(() => expect(document.title).toBe('[MOCK] ● 30 OK - Servers - Sentinel'))
   })
 
   it('toggles the sidebar with [', () => {
@@ -312,7 +312,8 @@ describe('AppShell: demo data', () => {
     expect(screen.queryByRole('complementary', { name: 'Demo data' })).toBeNull()
   })
 
-  it('still says it over an HTTP adapter while features are not connected', () => {
+  it('still says it over an HTTP adapter while a feature that shows figures is not connected', () => {
+    overrides.set('servers', { connected: false })
     stubViewport(DESKTOP)
     renderShell(
       <Routes>

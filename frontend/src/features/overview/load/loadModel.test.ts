@@ -7,6 +7,7 @@ import {
   metricNoun,
   percentText,
   rowTooltip,
+  thresholdNote,
 } from './loadModel'
 
 const row = (overrides: Partial<FleetLoadRow> = {}): FleetLoadRow => ({
@@ -36,6 +37,15 @@ describe('LOAD_TABS', () => {
 describe('THRESHOLD_NOTE', () => {
   it('states the cell size and the thresholds from lib, labelled as UI defaults', () => {
     expect(THRESHOLD_NOTE).toBe('cell = 5% · warn at 80 · crit at 95 · UI defaults')
+  })
+})
+
+describe('thresholdNote', () => {
+  it('names the limits in force and whose they are', () => {
+    expect(thresholdNote({ warn: 70, crit: 90, origin: 'server' })).toBe(
+      'cell = 5% · warn at 70 · crit at 90 · set on the server',
+    )
+    expect(thresholdNote({ warn: 80, crit: 95, origin: 'default' })).toBe(THRESHOLD_NOTE)
   })
 })
 

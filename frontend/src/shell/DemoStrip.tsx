@@ -1,4 +1,3 @@
-import { useApiMode } from '@/app/mode'
 import { cn } from '@/lib/cn'
 
 /**
@@ -11,7 +10,6 @@ import { cn } from '@/lib/cn'
  * chip and the status bar block still say it.
  */
 export function DemoStrip({ className }: { className?: string }) {
-  const mode = useApiMode()
   return (
     <aside
       aria-label="Demo data"
@@ -21,10 +19,7 @@ export function DemoStrip({ className }: { className?: string }) {
       )}
     >
       <strong className="type-tag">DEMO DATA</strong>
-      <span className="text-fg-muted">
-        Sample servers and metrics, not your infrastructure.
-        {mode === 'http' ? ' They ignore the customer and site filter.' : ''}
-      </span>
+      <span className="text-fg-muted">Sample servers and metrics, not your infrastructure.</span>
     </aside>
   )
 }

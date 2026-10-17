@@ -65,6 +65,7 @@ describe('StatTile (implemented domain)', () => {
   })
 
   it('keeps the mock wording over an HTTP adapter while the feature is not connected', () => {
+    overrides.set('servers', { connected: false })
     renderApp(tile(), { api: { ...createTestApi(), source: 'http' } })
     expect(
       screen.getByRole('link', { name: 'Servers: 15 of 16 online, 1 critical, mock data' }),
@@ -79,11 +80,6 @@ describe('StatTile (implemented domain)', () => {
     expect(screen.getByRole('link', { name: 'Servers: 15 of 16 online, 1 critical' })).toBeVisible()
     expect(screen.queryByText('mock')).not.toBeInTheDocument()
     expect(screen.getByText('live')).toBeInTheDocument()
-  })
-
-  it('places a decorative trend beside the value, hidden from assistive technology', () => {
-    renderApp(tile({ content: content({ trend: <span data-testid="trend" /> }) }))
-    expect(screen.getByTestId('trend').parentElement).toHaveAttribute('aria-hidden', 'true')
   })
 
   it('says stale in words and shape, dims only the marks, and never dims the text', () => {
@@ -192,11 +188,19 @@ describe('StatTile (placeholder)', () => {
     expect(screen.queryByText('mock')).not.toBeInTheDocument()
   })
 
-  it('draws the value and unit in muted text with a dashed frame and bar', () => {
+  it('draws no figure, even when handed one: a dashed frame, a sentence and a dashed bar', () => {
     const { container } = renderApp(planned())
-    expect(screen.getByText('12')).toHaveClass('text-fg-muted')
+    expect(screen.queryByText('12')).not.toBeInTheDocument()
+    expect(screen.queryByText('in inventory')).not.toBeInTheDocument()
+    expect(container.querySelector('.type-kpi')).toBeNull()
+    expect(screen.getByText('Not served by the console API')).toBeInTheDocument()
     expect(container.querySelector('[data-planned]')).toHaveClass('border-dashed')
     expect(container.querySelector('span[aria-hidden="true"].border-dashed')).not.toBeNull()
+  })
+
+  it('says it is not implemented in the backend, for a feature that is not', () => {
+    renderApp(planned({ features: 'alerts', to: '/alerts' }))
+    expect(screen.getByText('Not implemented in the backend')).toBeInTheDocument()
   })
 
   it('still shows an inline error with Retry', async () => {

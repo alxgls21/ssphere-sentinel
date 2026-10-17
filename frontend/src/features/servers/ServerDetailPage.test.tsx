@@ -2,8 +2,11 @@ import { screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { Link, Route, Routes } from 'react-router'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { ApiError } from '@/api/errors'
 import { createMockApi } from '@/api/mock/client'
+import type { ServerTelemetry } from '@/api/types'
 import { fakeCharts, resetFakeCharts } from '@/charts/testing/fakeEcharts'
+import { FEATURES } from '@/config/features'
 import { registryOverrides } from '@/config/testing'
 import { createTestApi, renderApp } from '@/test/render'
 import ServerDetailPage from './ServerDetailPage'
@@ -365,10 +368,111 @@ describe('ServerDetailPage resource sparklines', () => {
       expect(within(summary).queryByText('mock')).toBeNull()
       expect(within(history).getByText(/^live/)).toBeInTheDocument()
       expect(within(history).queryByText(/Demo data/)).toBeNull()
-      // The containers are another feature, still demo data.
+      // The containers come with the server detail, so they are as live as it is.
       expect(
-        within(screen.getByRole('region', { name: 'Containers' })).getByText(/^mock/),
+        within(screen.getByRole('region', { name: 'Containers' })).getByText(/^live/),
       ).toBeInTheDocument()
     })
+  })
+})
+
+describe('ServerDetailPage over the console API', () => {
+  /** A server whose heartbeats go on while its newest resource reading has gone stale. */
+  async function apiWith(
+    telemetry: Partial<ServerTelemetry> | null,
+    status: 'online' | 'warning' = 'online',
+  ) {
+    const real = mock()
+    const detail = await real.getServer('srv-ath-db-01')
+    const base = detail.item.server.telemetry
+    const server = {
+      ...detail.item.server,
+      status,
+      telemetry: telemetry === null || base === null ? null : { ...base, ...telemetry },
+    }
+    return createTestApi({
+      source: 'http',
+      getServer: vi.fn(async () => ({
+        ...detail,
+        item: { ...detail.item, health: 'unknown' as const, server },
+      })),
+      getServerSeries: (options) => real.getServerSeries(options),
+    })
+  }
+
+  it('says a stale reading is not the present value, and labels the meters as the last reading', async () => {
+    page('srv-ath-db-01', await apiWith({ stale: true, receivedAt: '2026-10-12T13:50:00Z' }))
+    const notice = await screen.findByRole('status')
+    expect(notice).toHaveTextContent('STALE')
+    expect(notice).toHaveTextContent('not the present values')
+    expect(notice).toHaveTextContent('13:50:00Z (10m ago)')
+    const summary = screen.getByRole('region', { name: 'Summary' })
+    expect(within(summary).getByText('LAST READING')).toBeInTheDocument()
+    expect(within(summary).queryByText('NOW')).toBeNull()
+  })
+
+  it('shows no notice, and NOW, for a current reading', async () => {
+    page('srv-ath-db-01', await apiWith({ stale: false }))
+    await screen.findByRole('heading', { level: 1, name: 'ath-db-01' })
+    const summary = await screen.findByRole('region', { name: 'Summary' })
+    expect(within(summary).getByText('NOW')).toBeInTheDocument()
+    expect(screen.queryByRole('status')).toBeNull()
+  })
+
+  it('says the agent reports but no reading has arrived, instead of showing empty meters as zero', async () => {
+    page('srv-ath-db-01', await apiWith(null))
+    const notice = await screen.findByRole('status')
+    expect(notice).toHaveTextContent('NO READING')
+    expect(notice).toHaveTextContent('no resource reading has arrived yet')
+  })
+
+  it('is tagged live over http once the servers are connected', async () => {
+    page('srv-ath-db-01', await apiWith({ stale: false }))
+    const summary = await screen.findByRole('region', { name: 'Summary' })
+    expect(within(summary).getByText(/^live/)).toBeInTheDocument()
+    expect(within(summary).queryByText(/^mock/)).toBeNull()
+  })
+
+  it('is tagged mock over http while the servers are not read from the console API', async () => {
+    overrides.set('servers', { connected: false })
+    page('srv-ath-db-01', await apiWith({ stale: false }))
+    const summary = await screen.findByRole('region', { name: 'Summary' })
+    expect(within(summary).getByText(/^mock/)).toBeInTheDocument()
+  })
+
+  it('tags the containers of the server live with the server, without making Docker connected', async () => {
+    page('srv-ath-db-01', await apiWith({ stale: false }))
+    const containers = await screen.findByRole('region', { name: 'Containers' })
+    expect(within(containers).getByText(/^live/)).toBeInTheDocument()
+    expect(FEATURES.docker.connected).toBe(false)
+  })
+
+  it('shows the failure, not another server, when the server cannot be read', async () => {
+    const api = createTestApi({
+      source: 'http',
+      getServer: vi.fn(async () => {
+        throw new ApiError('Cannot reach the server.', null, 'network')
+      }),
+      getServerSeries: vi.fn(async () => {
+        throw new ApiError('Cannot reach the server.', null, 'network')
+      }),
+    })
+    page('6f1c0d2e-5a1b-4c1d-9a55-0d6c9f6c3c11', api)
+    expect((await screen.findAllByText('Cannot reach the server.')).length).toBeGreaterThan(0)
+    expect(screen.queryByRole('heading', { level: 1, name: 'ath-db-01' })).toBeNull()
+  })
+
+  it('says the server is not found for a 404, as the console API answers an unknown or hidden id', async () => {
+    const api = createTestApi({
+      source: 'http',
+      getServer: vi.fn(async () => {
+        throw new ApiError('Not found.', 404, 'not_found')
+      }),
+      getServerSeries: vi.fn(async () => {
+        throw new ApiError('Not found.', 404, 'not_found')
+      }),
+    })
+    page('00000000-0000-0000-0000-000000000000', api)
+    expect(await screen.findByText('Server not found')).toBeInTheDocument()
   })
 })

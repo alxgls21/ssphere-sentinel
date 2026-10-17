@@ -8,7 +8,6 @@ import { useDocumentStatus } from './useDocumentStatus'
 const CRITICAL = makeSummary({
   servers: { critical: 1 },
   containers: { critical: 2 },
-  targets: { critical: 1 },
 })
 const NOMINAL = makeSummary()
 
@@ -55,7 +54,7 @@ describe('useDocumentStatus: title and favicon', () => {
 
   it('carries the verdict in the title, and its shape and color in the favicon', async () => {
     renderShell(<Host />, { summary: CRITICAL })
-    await waitFor(() => expect(document.title).toBe('[MOCK] ◆ 4 CRIT - Overview - Sentinel'))
+    await waitFor(() => expect(document.title).toBe('[MOCK] ◆ 3 CRIT - Overview - Sentinel'))
     expect(favicon()).toContain('fill="critical-token"')
     expect(favicon()).toContain('M5 0.8 L9.2 5 L5 9.2 L0.8 5 Z')
     expect(favicon()).toContain('stroke="muted-token"')
@@ -63,24 +62,30 @@ describe('useDocumentStatus: title and favicon', () => {
 
   it('shows a calm fleet as the OK circle', async () => {
     renderShell(<Host />, { summary: NOMINAL })
-    await waitFor(() => expect(document.title).toBe('[MOCK] ● 38 OK - Overview - Sentinel'))
+    await waitFor(() => expect(document.title).toBe('[MOCK] ● 30 OK - Overview - Sentinel'))
     expect(favicon()).toContain('<circle cx="5" cy="5" r="4" fill="healthy-token"/>')
   })
 
   it('names the screen it is on', async () => {
     renderShell(<Host title="Servers" />, { summary: CRITICAL })
-    await waitFor(() => expect(document.title).toBe('[MOCK] ◆ 4 CRIT - Servers - Sentinel'))
+    await waitFor(() => expect(document.title).toBe('[MOCK] ◆ 3 CRIT - Servers - Sentinel'))
   })
 
-  it('keeps the MOCK prefix over an HTTP adapter while features are not connected', async () => {
+  it('keeps the MOCK prefix over an HTTP adapter while a feature that shows figures is not connected', async () => {
+    overrides.set('overview', { connected: false })
     renderShell(<Host />, { summary: CRITICAL, api: { source: 'http' } })
-    await waitFor(() => expect(document.title).toBe('[MOCK] ◆ 4 CRIT - Overview - Sentinel'))
+    await waitFor(() => expect(document.title).toBe('[MOCK] ◆ 3 CRIT - Overview - Sentinel'))
+  })
+
+  it('has no MOCK prefix over an HTTP adapter: every feature that shows figures is connected', async () => {
+    renderShell(<Host />, { summary: CRITICAL, api: { source: 'http' } })
+    await waitFor(() => expect(document.title).toBe('◆ 3 CRIT - Overview - Sentinel'))
   })
 
   it('drops the MOCK prefix and the hatched corner only when every feature is connected and real', async () => {
     overrides.connectAll()
     renderShell(<Host />, { summary: CRITICAL, api: { source: 'http' } })
-    await waitFor(() => expect(document.title).toBe('◆ 4 CRIT - Overview - Sentinel'))
+    await waitFor(() => expect(document.title).toBe('◆ 3 CRIT - Overview - Sentinel'))
     expect(favicon()).not.toContain('muted-token')
   })
 
@@ -128,7 +133,7 @@ describe('useDocumentStatus: announcing verdict changes', () => {
     await elapse(19_000)
     expect(announcer()).toBeEmptyDOMElement()
     await elapse(2000)
-    expect(announcer()).toHaveTextContent('Verdict NOMINAL. 0 of 38 need attention.')
+    expect(announcer()).toHaveTextContent('Verdict NOMINAL. 0 of 30 need attention.')
   })
 
   it('does not announce a flap that settled back before two poll cycles', async () => {

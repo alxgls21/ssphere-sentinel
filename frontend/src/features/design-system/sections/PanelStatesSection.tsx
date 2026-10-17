@@ -57,7 +57,7 @@ const STATES: readonly StateSample[] = [
   {
     state: 'Loading',
     note: 'A skeleton appears only after 150ms and never on a refetch. The header and frame never move.',
-    panel: { title: 'Probe latency', features: 'network', scope: '1h', status: 'loading' },
+    panel: { title: 'Probe latency', features: 'servers', scope: '1h', status: 'loading' },
   },
   {
     state: 'Empty',
@@ -95,16 +95,15 @@ const STATES: readonly StateSample[] = [
   {
     state: 'Stale',
     note: 'The data is older than the stale threshold: dimmed and named STALE.',
-    panel: { title: 'Probe targets', features: 'network', stale: true, children: <SampleRows /> },
+    panel: { title: 'Probe targets', features: 'servers', stale: true, children: <SampleRows /> },
   },
   {
     state: 'Planned',
-    note: 'The backend has no alert engine: dashed frame, PLANNED chip, muted values, and one footer sentence.',
+    note: 'The backend has no alert engine: dashed frame, PLANNED chip and a sentence saying so. The panel holds no rows and no figure, not even a sample.',
     panel: {
       title: 'Active alerts',
       features: 'alerts',
       plannedNote: 'Alert engine not implemented.',
-      children: <SampleRows />,
     },
   },
   {

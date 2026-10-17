@@ -3,14 +3,11 @@ import type {
   ContainerState,
   Customer,
   DockerContainer,
-  NetworkDevice,
-  NetworkTarget,
   Scope,
   Server,
   Site,
 } from '@/api/types'
 import {
-  LOSS_WARN_PERCENT,
   RESOURCE_CRIT_PERCENT,
   RESOURCE_WARN_PERCENT,
   resourceLevel,
@@ -18,18 +15,14 @@ import {
 } from '@/lib/thresholds'
 import {
   CUSTOMERS,
-  DEVICE_SPECS,
   SERVER_SPECS,
   SIDECARS,
   SITES,
-  TARGET_SPECS,
   type ContainerSpec,
   type ServerFault,
   type ServerSpec,
-  type TargetSpec,
 } from './estate'
-import { clamp, createRng, hash01, hashString, round1, valueNoise } from './random'
-import { conditionAt, latestProbeIndex, probeTime, type Episode, type ProbeModel } from './series'
+import { clamp, createRng, hashString, round1, valueNoise } from './random'
 import { HOUR, MINUTE, SECOND, toIso, type Clock } from './time'
 
 export interface Fleet {
@@ -37,40 +30,29 @@ export interface Fleet {
   sites: Site[]
   servers: Server[]
   containers: DockerContainer[]
-  targets: NetworkTarget[]
-  devices: NetworkDevice[]
 }
 
-/** The fleet plus the measurement models its network targets are probed by. */
+/** What the sample API is built from. */
 export interface Estate {
   fleet: Fleet
-  probes: ProbeModel[]
 }
 
 /**
  * What the estate looks like:
  *   story    the outage story (see estate.ts): every kind of problem at once
  *   calm     nothing wrong: the same fleet with no ongoing incident
- *   partial  calm, but a few things are not observed (never reported, no recent probe)
+ *   partial  calm, but a few things are not observed (never reported, Docker unreadable)
  *   empty    nothing is monitored
  */
 export type FleetProfile = 'story' | 'calm' | 'partial' | 'empty'
 
 const emptyEstate = (): Estate => ({
-  fleet: { customers: [], sites: [], servers: [], containers: [], targets: [], devices: [] },
-  probes: [],
+  fleet: { customers: [], sites: [], servers: [], containers: [] },
 })
 
 /** A calm fleet keeps every resource below the warning threshold, with room for drift. */
 const CALM_RESOURCE_CAP_PERCENT = 72
-/** ...and every probe target answers quickly, however slow its link normally is. */
-const CALM_LATENCY_CAP_MS = 90
 
-/** Partial profile: targets nobody has measured. Minutes since the last probe; null = never probed. */
-const PARTIAL_SILENT_TARGETS: Readonly<Record<string, number | null>> = {
-  'core-git-https': null,
-  'hc-portal': 180,
-}
 /** Partial profile: hosts whose Docker state the agent cannot read. */
 const PARTIAL_DOCKER_UNAVAILABLE: ReadonlySet<string> = new Set(['muc-pos-02'])
 
@@ -214,125 +196,6 @@ function buildContainers(
   )
 }
 
-/* ----------------------------------------------------------- network probes */
-
-function buildProbeModel(spec: TargetSpec, profile: FleetProfile, { anchor }: Clock): ProbeModel {
-  const story = profile === 'story'
-  const intervalMs = (spec.intervalSec ?? 60) * SECOND
-  const seed = hashString(spec.name)
-  const baseJitter = spec.protocol === 'icmp' ? 0.1 : 0.15
-  const loss = spec.lossPercent ?? 0
-  const episodes: Episode[] = (spec.episodes ?? [])
-    .filter((episode) => story || episode.toMin !== undefined)
-    .map((episode) => ({
-      from: anchor - episode.fromMin * MINUTE,
-      to: episode.toMin === undefined ? null : anchor - episode.toMin * MINUTE,
-      latencyMs: episode.latencyMs,
-      lossPercent: episode.lossPercent,
-      failure: episode.failure,
-    }))
-  return {
-    targetId: `tgt-${spec.name}`,
-    name: spec.name,
-    protocol: spec.protocol,
-    intervalMs,
-    phaseMs: Math.floor(hash01(seed, 5) * (intervalMs / SECOND)) * SECOND,
-    latencyMs: story ? spec.latencyMs : Math.min(spec.latencyMs, CALM_LATENCY_CAP_MS),
-    jitter: baseJitter * (0.7 + 0.6 * hash01(seed, 11)),
-    lossPercent: story || loss < LOSS_WARN_PERCENT ? loss : 0,
-    flakyRate: story ? (spec.flaky ?? 0) : 0,
-    silent: profile === 'partial' && spec.name in PARTIAL_SILENT_TARGETS,
-    episodes,
-  }
-}
-
-function buildTarget(
-  spec: TargetSpec,
-  model: ProbeModel,
-  profile: FleetProfile,
-  { now, anchor }: Clock,
-): NetworkTarget {
-  const identity = {
-    id: model.targetId,
-    name: spec.name,
-    address: spec.address,
-    protocol: spec.protocol,
-    port: spec.port,
-    siteId: spec.site,
-  }
-  if (model.silent) {
-    const silentMin = PARTIAL_SILENT_TARGETS[spec.name]
-    return {
-      ...identity,
-      status: 'unknown',
-      latencyMs: null,
-      packetLossPercent: 0,
-      lastProbeAt: silentMin == null ? null : toIso(anchor - silentMin * MINUTE),
-      failingSince: null,
-      consecutiveFailures: 0,
-      failureReason: '',
-    }
-  }
-  const lastIndex = latestProbeIndex(model, now)
-  const lastAt = probeTime(model, lastIndex)
-  const failing = model.episodes.find(
-    (episode) =>
-      episode.failure !== undefined &&
-      lastAt >= episode.from &&
-      (episode.to === null || lastAt < episode.to),
-  )
-  const recent = profile === 'story' ? spec.recentFailures : undefined
-  if (failing || recent) {
-    // The run starts at the first probe after the link went dark; a flapping target's run is just its last probes.
-    const firstIndex = failing
-      ? Math.ceil((failing.from - model.phaseMs) / model.intervalMs)
-      : lastIndex - (recent?.count ?? 1) + 1
-    return {
-      ...identity,
-      status: 'down',
-      latencyMs: null,
-      packetLossPercent: 100,
-      lastProbeAt: toIso(lastAt),
-      failingSince: toIso(probeTime(model, firstIndex)),
-      consecutiveFailures: lastIndex - firstIndex + 1,
-      failureReason: failing?.failure ?? recent?.reason ?? 'timeout',
-    }
-  }
-  const condition = conditionAt(model, now)
-  const loss = model.protocol === 'icmp' ? round1(condition.lossPercent) : 0
-  return {
-    ...identity,
-    status: loss >= LOSS_WARN_PERCENT ? 'degraded' : 'up',
-    latencyMs: round1(condition.latencyMs),
-    packetLossPercent: loss,
-    lastProbeAt: toIso(lastAt),
-    failingSince: null,
-    consecutiveFailures: 0,
-    failureReason: '',
-  }
-}
-
-/* --------------------------------------------------------- network devices */
-
-function buildDevices(profile: FleetProfile, { now }: Clock): NetworkDevice[] {
-  return DEVICE_SPECS.map((spec) => {
-    const calm = profile !== 'story'
-    const reachable = calm || spec.reachable
-    return {
-      id: `dev-${spec.name}`,
-      name: spec.name,
-      deviceType: spec.type,
-      managementAddress: spec.ip,
-      siteId: spec.site,
-      reachable,
-      responseMs: reachable ? spec.responseMs : null,
-      lastPollAt: toIso(now - spec.pollAgoSec * SECOND),
-      interfacesTotal: spec.interfaces,
-      interfacesDown: calm ? 0 : spec.down,
-    }
-  })
-}
-
 /* ------------------------------------------------------------------ estate */
 
 export function buildEstate(profile: FleetProfile, clock: Clock): Estate {
@@ -344,28 +207,20 @@ export function buildEstate(profile: FleetProfile, clock: Clock): Estate {
     servers.push(server)
     containers.push(...buildContainers(spec, server, profile, clock))
   }
-  const probes = TARGET_SPECS.map((spec) => buildProbeModel(spec, profile, clock))
-  const targets = TARGET_SPECS.map((spec, index) =>
-    buildTarget(spec, probes[index] as ProbeModel, profile, clock),
-  )
   return {
     fleet: {
       customers: CUSTOMERS.map((customer) => ({ ...customer })),
       sites: SITES.map((site) => ({ ...site })),
       servers,
       containers,
-      targets,
-      devices: buildDevices(profile, clock),
     },
-    probes,
   }
 }
 
 /**
- * Narrows the estate to a customer and/or site. Servers, targets and devices
- * carry a siteId; containers inherit their server's. Entities with no site
- * (public probes) belong to no scope but "everything". A customer and a site
- * that do not belong together select nothing.
+ * Narrows the estate to a customer and/or site. Servers carry a siteId; containers
+ * inherit their server's. A server with no site belongs to no scope but "everything".
+ * A customer and a site that do not belong together select nothing.
  */
 export function scopeEstate(estate: Estate, scope?: Scope): Estate {
   if (!scope || (scope.customerId === null && scope.siteId === null)) return estate
@@ -379,8 +234,6 @@ export function scopeEstate(estate: Estate, scope?: Scope): Estate {
   const inScope = (siteId: string | null) => siteId !== null && siteIds.has(siteId)
   const servers = fleet.servers.filter((server) => inScope(server.siteId))
   const serverIds = new Set(servers.map((server) => server.id))
-  const targets = fleet.targets.filter((target) => inScope(target.siteId))
-  const targetIds = new Set(targets.map((target) => target.id))
   return {
     fleet: {
       customers: fleet.customers.filter((customer) =>
@@ -389,9 +242,6 @@ export function scopeEstate(estate: Estate, scope?: Scope): Estate {
       sites,
       servers,
       containers: fleet.containers.filter((container) => serverIds.has(container.serverId)),
-      targets,
-      devices: fleet.devices.filter((device) => inScope(device.siteId)),
     },
-    probes: estate.probes.filter((model) => targetIds.has(model.targetId)),
   }
 }

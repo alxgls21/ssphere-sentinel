@@ -1,21 +1,16 @@
 import type {
-  AlertsOptions,
-  Alert,
   AttentionOptions,
   AttentionResult,
   EntityIndex,
-  EventsOptions,
   FleetLoad,
   FleetLoadOptions,
   HealthBreakdown,
-  NetworkSeries,
-  NetworkSeriesOptions,
   OverviewSummary,
   RequestOptions,
   ScopeOptions,
-  SentinelEvent,
   ServerDetail,
   ServerList,
+  ServerListOptions,
   ServerSeries,
   ServerSeriesOptions,
 } from './types'
@@ -25,12 +20,11 @@ import type {
  * interface, never on how the data is produced.
  *
  * Each Overview panel has its own method so each panel loads, refreshes and
- * fails independently. Today the only implementation is the mock in ./mock.
- * To go live, add an HTTP implementation (fetch + mapping onto ./types) and
- * provide it from src/app/providers.tsx. Each new screen adds its methods here.
- *
- * Methods marked "mock-only" cannot be served by the backend as it is today
- * (see src/config/features.ts); a real adapter returns empty data for them.
+ * fails independently. The port holds only what the console API can answer:
+ * there is no method for probe latency, alerts or events, so no screen can show
+ * them. A new capability adds its method here, with its endpoint, together.
+ * The console API is the implementation (src/app/consoleApi.ts); the sample
+ * fleet in ./mock exists for tests and for design work, and never ships.
  */
 export interface SentinelApi {
   /** Honest provenance of the data, shown to operators in the shell. */
@@ -42,33 +36,24 @@ export interface SentinelApi {
   /** Headline counts: drives the verdict, tiles and sidebar badges. */
   getOverviewSummary(options?: RequestOptions): Promise<OverviewSummary>
 
-  /** Needs-attention queue: non-healthy servers, containers and targets. */
+  /** Needs-attention queue: non-healthy servers and containers. */
   listAttention(options?: AttentionOptions): Promise<AttentionResult>
-
-  /** Probe latency percentiles and loss over time. Percentiles are mock-only (the backend does not aggregate). */
-  getNetworkSeries(options: NetworkSeriesOptions): Promise<NetworkSeries>
 
   /** Top servers by CPU, memory or disk from the latest telemetry. */
   getFleetLoad(options: FleetLoadOptions): Promise<FleetLoad>
 
-  /** Per-domain composition and per-site entity grids. Site grouping is mock-only. */
+  /** Per-domain composition and per-site entity grids. Targets and SNMP are planned rows: nothing is counted for them. */
   getHealthBreakdown(options?: RequestOptions): Promise<HealthBreakdown>
-
-  /** PLANNED: the backend has no alert engine. */
-  listAlerts(options?: AlertsOptions): Promise<Alert[]>
-
-  /** PLANNED: the backend has no event log. */
-  listEvents(options?: EventsOptions): Promise<SentinelEvent[]>
 
   /** Everything searchable, for the command palette. */
   getEntityIndex(options?: RequestOptions): Promise<EntityIndex>
 
-  /** Every server in scope with its latest telemetry. Search, filter and sort are the UI's: the fleet is small. */
-  listServers(options?: RequestOptions): Promise<ServerList>
+  /** One page of the servers in scope that match the query, with their latest telemetry and the counts the filter chips show. */
+  listServers(options?: ServerListOptions): Promise<ServerList>
 
   /** One server and its containers. Rejects with ApiError(404) for an unknown id. */
   getServer(id: string, options?: Pick<RequestOptions, 'signal'>): Promise<ServerDetail>
 
-  /** CPU, memory and disk history. Served by the console API; demo data until the screen is connected. */
+  /** CPU, memory and disk history, with a gap for every bucket that has no sample. */
   getServerSeries(options: ServerSeriesOptions): Promise<ServerSeries>
 }

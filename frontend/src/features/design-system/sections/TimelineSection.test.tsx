@@ -46,17 +46,19 @@ describe('TimelineSection', () => {
     expect(none.queryByRole('list')).not.toBeInTheDocument()
   })
 
-  it('marks every specimen planned sample data, never mock or live', () => {
+  it('marks every specimen as sample data of an unimplemented log, never as live', () => {
     renderApp(<TimelineSection />)
     for (const name of [
       'Recent events, timeline',
       'Recent events, all lanes',
       'Recent events, no incidents',
     ]) {
-      expect(panel(name)).toHaveAttribute('data-planned', 'true')
-      expect(within(panel(name)).getByText('Planned')).toBeInTheDocument()
+      expect(panel(name)).not.toHaveAttribute('data-planned')
+      expect(within(panel(name)).getByText(/^mock/)).toBeInTheDocument()
       expect(
-        within(panel(name)).getByText('Sample data. Event log not implemented.'),
+        within(panel(name)).getByText(
+          'Sample data. The event log is not implemented in the backend.',
+        ),
       ).toBeInTheDocument()
       expect(panel(name)).not.toHaveTextContent(/\blive\b/i)
     }

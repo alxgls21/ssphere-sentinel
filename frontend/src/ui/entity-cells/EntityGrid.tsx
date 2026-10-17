@@ -29,9 +29,12 @@ interface EntityGridProps {
 const spokenState = (status: DisplayStatus) =>
   status === 'offline' ? STATUS_NAME.offline : STATUS_WORD[status]
 
-/** The cell's spoken name, ending in what its figures are unless they are live (judged by its own feature). */
+/**
+ * The cell's spoken name, ending in what its figures are unless they are live. They come from
+ * the overview's site breakdown, so they are judged by that as well as by the entity's own feature.
+ */
 const cellLabel = (entity: SiteEntity, source: DataSource) => {
-  const provenance = provenanceOf([FEATURE_OF_ENTITY[entity.kind]], source)
+  const provenance = provenanceOf([FEATURE_OF_ENTITY[entity.kind], 'overview'], source)
   return [entity.name, entity.kind, spokenState(displayOf(entity)), PROVENANCE_SPOKEN[provenance]]
     .filter(Boolean)
     .join(', ')

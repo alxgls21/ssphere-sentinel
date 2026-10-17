@@ -24,8 +24,8 @@ interface HistoryPanelProps {
 
 /**
  * CPU, RAM and disk history of one server, over the range in the top bar.
- * The console API serves this history. While the screen is not connected to
- * it, this is demo data: the footer says so and the SOURCE tag says mock.
+ * The console API serves this history. While the servers are not read from it
+ * (sample data), the footer says so and the SOURCE tag says mock.
  */
 export function HistoryPanel({ index, resource, name, className }: HistoryPanelProps) {
   const { pollMs } = useLive()

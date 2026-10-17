@@ -7,12 +7,15 @@ import {
   loadOf,
   matchesSearch,
   nextSort,
+  noLoadReason,
+  noLoadSentence,
   parseQuery,
   serverDisplay,
   sortServers,
   stateWord,
   writeQuery,
 } from './serversModel'
+import { DEFAULT_RESOURCE_LIMITS } from '@/lib/thresholds'
 
 function item(
   name: string,
@@ -29,6 +32,7 @@ function item(
     os?: string
     ip?: string
     telemetry?: boolean
+    stale?: boolean
   } = {},
 ): ServerListItem {
   const status = over.status ?? 'online'
@@ -54,6 +58,7 @@ function item(
               diskTotalBytes: 1,
               uptimeSeconds: over.uptime ?? 1000,
               collectedAt: '2026-10-12T14:00:00Z',
+              ...(over.stale === undefined ? {} : { stale: over.stale }),
             },
     },
     health: over.health ?? 'healthy',
@@ -74,7 +79,7 @@ describe('query in the URL', () => {
   })
 
   it('round-trips a query and keeps the view params', () => {
-    const query = { q: ' db ', status: 'warning', sort: 'cpu', dir: 'asc' } as const
+    const query = { q: ' db ', status: 'warning', sort: 'cpu', dir: 'asc', page: 3 } as const
     const written = writeQuery(new URLSearchParams('range=6h&customer=acme'), query)
     expect(written.get('range')).toBe('6h')
     expect(written.get('customer')).toBe('acme')
@@ -246,5 +251,58 @@ describe('an offline server', () => {
     expect(
       sortServers(rows, { sort: 'status', dir: 'desc' }).map((row) => row.server.name),
     ).toEqual(['a-off', 'b-cpu', 'b-warn', 'c-ok'])
+  })
+})
+
+describe('the page in the URL', () => {
+  it('reads a whole page number from 1 and treats anything else as the first page', () => {
+    expect(parseQuery(new URLSearchParams('page=4')).page).toBe(4)
+    for (const bad of ['0', '-1', '2.5', 'two', '', '10001', '123456', ' 3']) {
+      expect(parseQuery(new URLSearchParams({ page: bad })).page, bad).toBe(1)
+    }
+    expect(parseQuery(new URLSearchParams('page=10000')).page).toBe(10000)
+  })
+
+  it('writes the page only when it is not the first, and keeps the rest of the view', () => {
+    const base = { ...DEFAULT_QUERY, q: 'db' }
+    expect(writeQuery(new URLSearchParams('range=6h'), { ...base, page: 3 }).toString()).toBe(
+      'range=6h&q=db&page=3',
+    )
+    expect(writeQuery(new URLSearchParams('page=3'), { ...base, page: 1 }).has('page')).toBe(false)
+  })
+})
+
+describe('a reading that is not current', () => {
+  const stale = item('stale-01', { health: 'unknown', cpu: 99, stale: true })
+  const fresh = item('fresh-01', { health: 'warning', cpu: 85, stale: false })
+
+  it('is not a load: no figure, whatever the reading says', () => {
+    expect(loadOf(stale, 'cpu')).toBeNull()
+    expect(loadOf(fresh, 'cpu')).toBe(85)
+  })
+
+  it('does not name a cause from a stale reading: only the server health and a current reading do', () => {
+    const warned = item('w', { health: 'warning', cpu: 99, stale: true })
+    expect(stateWord(warned)).toBe('DEGRADED')
+    expect(stateWord(fresh)).toBe('HIGH CPU')
+  })
+
+  it('names the cause by the limits in force, not by the default ones', () => {
+    const quiet = item('q', { health: 'warning', cpu: 70 })
+    expect(stateWord(quiet)).toBe('DEGRADED')
+    expect(stateWord(quiet, { ...DEFAULT_RESOURCE_LIMITS, warn: 60 })).toBe('HIGH CPU')
+  })
+
+  it('says why there is no reading, in a sentence and in a short one, for each case', () => {
+    expect(noLoadReason(fresh)).toBeNull()
+    expect(noLoadReason(stale)).toMatch(/^Stale: .* not shown as the present value/)
+    expect(noLoadSentence(stale)).toBe('No current reading: the last one is stale')
+    const gone = item('g', { status: 'offline', health: 'critical' })
+    expect(noLoadSentence(gone)).toBe('No current reading: the agent stopped reporting')
+    const quiet = item('m', { telemetry: false })
+    expect(noLoadReason(quiet)).toMatch(/^No reading yet/)
+    expect(noLoadSentence(quiet)).toBe('No reading yet: no telemetry received')
+    const never = item('n', { status: 'unknown', health: 'unknown', telemetry: false, seen: null })
+    expect(noLoadSentence(never)).toBe('No reading: never reported')
   })
 })

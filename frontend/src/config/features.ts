@@ -19,6 +19,7 @@
  */
 
 export type FeatureId =
+  | 'overview'
   | 'servers'
   | 'docker'
   | 'network'
@@ -59,12 +60,19 @@ export interface FeatureInfo {
 }
 
 export const FEATURES: Record<FeatureId, FeatureInfo> = {
+  overview: {
+    id: 'overview',
+    label: 'Overview summary',
+    backend: 'console-api',
+    connected: true,
+    note: 'The console API counts servers and containers, and the overview tiles, verdict, attention queue and health breakdown read those counts. It counts nothing else.',
+  },
   servers: {
     id: 'servers',
     label: 'Servers',
     backend: 'console-api',
-    connected: false,
-    note: 'The console API serves servers, their latest telemetry and its history. This screen shows demo data until it is connected to it.',
+    connected: true,
+    note: 'The console API serves servers, their latest telemetry and its history, and these screens read them.',
   },
   docker: {
     id: 'docker',
@@ -78,6 +86,7 @@ export const FEATURES: Record<FeatureId, FeatureInfo> = {
     label: 'ICMP / TCP',
     backend: 'stored',
     connected: false,
+    placeholder: true,
     note: 'The backend stores probe targets and measurements. The console API does not serve them yet.',
   },
   snmp: {
@@ -102,22 +111,22 @@ export const FEATURES: Record<FeatureId, FeatureInfo> = {
     label: 'Alerts',
     backend: 'unsupported',
     connected: false,
-    note: 'The alert engine is not implemented in the backend. Alerts shown here are simulated.',
+    note: 'The alert engine is not implemented in the backend, so there are no alerts to show.',
   },
   events: {
     id: 'events',
     label: 'Events',
     backend: 'unsupported',
     connected: false,
-    note: 'The backend has no event log yet. Events shown here are simulated.',
+    note: 'The backend has no event log yet, so there are no events to show.',
   },
   'site-links': {
     id: 'site-links',
     label: 'Site assignment',
     backend: 'console-api',
-    connected: false,
+    connected: true,
     requires: 'placing each server and probe target on a site in the admin',
-    note: 'The backend supports placing servers and probe targets on a site, and the console API filters by it. The views here that group by site are not connected to it yet and show sample sites.',
+    note: 'The backend supports placing servers and probe targets on a site, and the console API filters by it. A server with no site is shown on none.',
   },
   customers: {
     id: 'customers',
@@ -242,16 +251,15 @@ export const PROVENANCE_SPOKEN: Record<Provenance, string | null> = {
 /** The feature whose data an entity of this kind is. */
 export const FEATURE_OF_ENTITY: Record<'server' | 'container' | 'target' | 'device', FeatureId> = {
   server: 'servers',
-  container: 'docker',
+  // The containers an entity cell shows are the overview's: the Docker screen itself is not built.
+  container: 'overview',
   target: 'network',
   device: 'snmp',
 }
 
-/** The features whose figures the designed screens show. While any is not live, the app as a whole shows demo data. */
-export const DATA_FEATURES: readonly FeatureId[] = [
-  'servers',
-  'docker',
-  'network',
-  'snmp',
-  'site-links',
-]
+/**
+ * The features whose figures the screens show. While any is not live, the app as a whole shows demo
+ * data. Probe targets, SNMP, alerts and events are not in the list: no screen shows a figure for
+ * them, only a statement that they are not available.
+ */
+export const DATA_FEATURES: readonly FeatureId[] = ['overview', 'servers', 'site-links']

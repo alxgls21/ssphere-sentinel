@@ -174,6 +174,7 @@ describe('EntityCells grid', () => {
   })
 
   it('keeps claiming mock data over an HTTP adapter while the kind is not connected', () => {
+    overrides.set('servers', { connected: false })
     renderApp(<EntityCells variant="grid" entities={entities} label="Live" />, {
       api: createTestApi({ source: 'http' }),
     })
@@ -181,7 +182,6 @@ describe('EntityCells grid', () => {
   })
 
   it('does not claim mock data for a kind that is connected and real', () => {
-    overrides.set('servers', { connected: true })
     renderApp(<EntityCells variant="grid" entities={entities} label="Live" />, {
       api: createTestApi({ source: 'http' }),
     })

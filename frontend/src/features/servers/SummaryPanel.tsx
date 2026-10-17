@@ -4,6 +4,7 @@ import { EMPTY, formatBytes, formatClock } from '@/lib/format'
 import { Panel, type PanelProps } from '@/ui/Panel'
 import { CellMeter, Sparkline } from '@/ui/meters'
 import { historyLabel, valuesOf } from './historyModel'
+import { reportsLoad } from '@/lib/serverList'
 import { heartbeatText, uptimeText } from './serversModel'
 
 function Fact({ label, children }: { label: string; children: React.ReactNode }) {
@@ -26,9 +27,9 @@ interface SummaryPanelProps extends Pick<PanelProps, 'status' | 'error' | 'onRet
 }
 
 /**
- * [1] Summary: the latest reading of one server. Offline, the same meters show
- * the last reading before the agent stopped, labelled as such, because "it was
- * at 92% disk when it went quiet" is exactly what an operator needs to know.
+ * [1] Summary: the latest reading of one server. Offline, or when the reading is stale, the
+ * same meters show the last reading received, labelled as such, because "it was at 92% disk
+ * when it went quiet" is exactly what an operator needs to know.
  * Each meter has its history beside it, from the series the history panel draws.
  */
 export function SummaryPanel({
@@ -42,7 +43,8 @@ export function SummaryPanel({
   const { tz } = usePrefs()
   const server = item?.server
   const telemetry = server?.telemetry ?? null
-  const live = server?.status === 'online' || server?.status === 'warning'
+  // Only a current reading is the present value; offline, stale or missing, the meters show the last one.
+  const live = item !== undefined && reportsLoad(item)
   const clock = (iso: string) => formatClock(Date.parse(iso), tz)
   const memoryUsed = telemetry ? (telemetry.memoryTotalBytes * telemetry.memoryPercent) / 100 : null
   const diskUsed = telemetry ? (telemetry.diskTotalBytes * telemetry.diskPercent) / 100 : null
@@ -108,8 +110,9 @@ export function SummaryPanel({
             </div>
           ) : (
             <p className="type-body text-fg-muted">
-              This server is enrolled but its agent has not sent a heartbeat yet, so there is
-              nothing to show.
+              {server.lastSeenAt
+                ? 'The agent reports, but no resource reading has arrived yet, so there is nothing to show.'
+                : 'This server is enrolled but its agent has not sent a heartbeat yet, so there is nothing to show.'}
             </p>
           )}
           <dl className="grid grid-cols-2 gap-x-6 gap-y-2 @2xl:grid-cols-4">

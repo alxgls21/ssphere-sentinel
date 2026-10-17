@@ -1,6 +1,6 @@
 import { useId, type ReactNode, type Ref } from 'react'
 import { usePrefs } from '@/app/prefs'
-import type { FeatureId } from '@/config/features'
+import type { Availability, FeatureId } from '@/config/features'
 import { useDelayedFlag } from '@/hooks/useDelayedFlag'
 import { useProvenance } from '@/hooks/useProvenance'
 import { useStale } from '@/hooks/useStale'
@@ -8,9 +8,18 @@ import type { ResourceStatus } from '@/hooks/useResource'
 import { cn } from '@/lib/cn'
 import { formatTime } from '@/lib/format'
 import { FeatureChip, PlannedChip, SourceTag } from '@/ui/provenance/Chips'
+import { EmptyState } from '@/ui/states/EmptyState'
 import { ErrorState } from '@/ui/states/ErrorState'
 import { StatusTag } from '@/ui/status'
 import { SkeletonRows } from '@/ui/states/Skeleton'
+
+/** What a panel with nothing real behind it says first, by why there is nothing. */
+const UNAVAILABLE_TITLE: Record<Exclude<Availability, 'live'>, string> = {
+  planned: 'Not implemented in the backend',
+  'needs-configuration': 'Connected, but its setup is missing',
+  'not-connected': 'Not connected to the console yet',
+  unknown: 'Not known to be available',
+}
 
 export interface PanelProps {
   title: string
@@ -45,7 +54,7 @@ export interface PanelProps {
   skeleton?: ReactNode
 
   footer?: ReactNode
-  /** The footer sentence of a planned panel ("Alert engine not implemented."), after "Sample data." */
+  /** What a panel with nothing real behind it says under its title, instead of the registry's note. */
   plannedNote?: string
   /** No body padding (tables, lists that run full-bleed). */
   flush?: boolean
@@ -109,7 +118,16 @@ export function Panel({
     : undefined
 
   let body: ReactNode
-  if (status === 'error') {
+  if (planned) {
+    // Nothing real exists behind this panel: it says so, and shows no figure in place of one.
+    body = (
+      <EmptyState
+        glyph={availability === 'planned' ? 'planned' : undefined}
+        title={UNAVAILABLE_TITLE[availability ?? 'unknown']}
+        hint={plannedNote ?? note}
+      />
+    )
+  } else if (status === 'error') {
     body = (
       <ErrorState
         title={`Could not load ${title.toLowerCase()}`}
@@ -130,10 +148,7 @@ export function Panel({
     body = children
   }
 
-  const footerSentence = planned
-    ? `Sample data. ${plannedNote ?? (availability === 'planned' ? 'Not implemented in the backend yet.' : note)}`
-    : null
-  const hasFooter = footer != null || footerSentence != null
+  const hasFooter = footer != null && !planned
 
   return (
     <section
@@ -155,7 +170,7 @@ export function Panel({
     >
       {planned ? (
         <span id={descId} className="sr-only">
-          Sample data. {note}
+          {UNAVAILABLE_TITLE[availability ?? 'unknown']}. {note}
         </span>
       ) : null}
       <header className="flex min-h-(--panel-head) shrink-0 items-center gap-x-2 gap-y-1 border-b border-border px-3 @max-sm:flex-wrap @max-sm:py-1">
@@ -204,16 +219,8 @@ export function Panel({
       </div>
 
       {hasFooter ? (
-        <footer
-          className={cn(
-            'type-data flex shrink-0 items-center gap-3 border-t border-border px-3 text-fg-faint',
-            planned ? 'min-h-6' : 'min-h-7',
-          )}
-        >
+        <footer className="type-data flex min-h-7 shrink-0 items-center gap-3 border-t border-border px-3 text-fg-faint">
           {footer}
-          {footerSentence ? (
-            <span className={cn('truncate', footer != null && 'ml-auto')}>{footerSentence}</span>
-          ) : null}
         </footer>
       ) : null}
     </section>

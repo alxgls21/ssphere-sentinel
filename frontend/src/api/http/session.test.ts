@@ -15,6 +15,35 @@ const signedIn = {
 }
 const anonymous = { ...signedIn, authenticated: false, user: null, access: null }
 
+describe('parseSession thresholds', () => {
+  const published = {
+    resourceWarnPercent: 75,
+    resourceCritPercent: 90,
+    probeLossWarnPercent: 3,
+    probeLatencyWarnMs: 200,
+    targetCritFailures: 4,
+  }
+
+  it('carries the limits the server published with a signed-in session', () => {
+    expect(parseSession({ ...signedIn, thresholds: published }).thresholds).toEqual(published)
+  })
+
+  it('signs in without limits when the server published none', () => {
+    expect(parseSession({ ...signedIn, thresholds: null })).not.toHaveProperty('thresholds')
+    expect(parseSession(anonymous)).not.toHaveProperty('thresholds')
+  })
+
+  it.each([
+    ['not an object', 'high'],
+    ['a limit missing', { ...published, resourceCritPercent: undefined }],
+    ['a limit that is not a number', { ...published, resourceWarnPercent: '75' }],
+    ['a negative limit', { ...published, probeLatencyWarnMs: -1 }],
+    ['a limit that is not finite', { ...published, targetCritFailures: Number.NaN }],
+  ])('refuses limits that are %s', (_what, thresholds) => {
+    expect(() => parseSession({ ...signedIn, thresholds })).toThrow(/unexpected answer/)
+  })
+})
+
 describe('parseSession', () => {
   it('reads a signed-in answer', () => {
     expect(parseSession(signedIn)).toEqual({

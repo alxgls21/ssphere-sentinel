@@ -3,6 +3,7 @@ import { cn } from '@/lib/cn'
 import { formatPercent } from '@/lib/format'
 import { resourceLevel, type ResourceLevel } from '@/lib/thresholds'
 import { StatusGlyph, STATUS_NAME } from '@/ui/status'
+import { useResourceLimits } from './limits'
 
 /**
  * Fill is cyan (never "OK green") below the warning threshold, then the
@@ -40,9 +41,10 @@ interface CellMeterProps {
  * semantics (value, range, "warning"), because cells cannot be a styled <meter>.
  */
 export function CellMeter({ percent, label, cells = BLOCK_CELLS, className }: CellMeterProps) {
+  const limits = useResourceLimits()
   const value =
     percent !== null && Number.isFinite(percent) ? Math.min(100, Math.max(0, percent)) : null
-  const level = value === null ? 'ok' : resourceLevel(value)
+  const level = value === null ? 'ok' : resourceLevel(value, limits)
   const filled = filledCells(value, cells)
   const glyph = level === 'warn' ? 'warning' : level === 'crit' ? 'critical' : null
 

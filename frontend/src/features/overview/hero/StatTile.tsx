@@ -18,14 +18,12 @@ export interface TileContent {
   summary: string
   /** The headline number. */
   value: number
-  /** Muted beside the value: "/16 online", "in inventory", "sample". */
+  /** Muted beside the value: "/122 ok". */
   unit: string
   /** The line of glyph-coded counts. */
   detail: ReactNode
-  /** The composition bar, or a PlannedBar. */
+  /** The composition bar. */
   bar: ReactNode
-  /** Right of the value (network targets: the success-rate sparkline). Decorative. */
-  trend?: ReactNode
 }
 
 export interface StatTileProps {
@@ -77,8 +75,8 @@ export function PlannedBar() {
  * value stays in text color.
  *
  * Implemented domains are ONE link to their screen, named in full
- * ("Servers: 15 of 16 online, 1 critical, 2 warning, mock data"). Planned
- * ones get a dashed frame, muted values and no link: nothing to open yet.
+ * ("Servers: 80 of 122 ok, 18 critical, 13 warning"). Ones with nothing real
+ * behind them get a dashed frame, no figure and no link: nothing to open yet.
  */
 export function StatTile({
   label,
@@ -152,30 +150,17 @@ export function StatTile({
 
   const body = (
     <div className={cn('flex min-h-0 flex-1 flex-col gap-1.5', planned && 'text-fg-muted')}>
-      {content ? (
+      {content && !planned ? (
         <>
           <div className="flex h-8 min-w-0 items-center gap-1">
             <span
               // A new key restarts the flash for each change, never for an unchanged value.
               key={flashes}
-              className={cn(
-                'type-kpi tnum rounded-sm',
-                planned ? 'text-fg-muted' : 'text-fg',
-                flashes > 0 && 'animate-flash',
-              )}
+              className={cn('type-kpi tnum rounded-sm text-fg', flashes > 0 && 'animate-flash')}
             >
               {formatInteger(content.value)}
             </span>
             <span className="type-data min-w-0 truncate text-fg-muted">{content.unit}</span>
-            {content.trend ? (
-              // The sparkline's end dot leaves 5px of its own margin, so 4px of it may hang into the padding.
-              <span
-                aria-hidden="true"
-                className={cn('-mr-1 ml-auto shrink-0', stale && 'opacity-60')}
-              >
-                {content.trend}
-              </span>
-            ) : null}
           </div>
           <div className="flex h-4 items-center gap-2">
             {content.detail}
@@ -183,6 +168,18 @@ export function StatTile({
           </div>
           {/* Only marks dim when stale: text keeps its contrast, and the STALE tag carries the state. */}
           <div className={cn('mt-auto', stale && 'opacity-60')}>{content.bar}</div>
+        </>
+      ) : planned ? (
+        // No figure exists behind it: the tile says so and shows none, not even a zero.
+        <>
+          <p className="type-data">
+            {availability === 'planned'
+              ? 'Not implemented in the backend'
+              : 'Not served by the console API'}
+          </p>
+          <div className="mt-auto">
+            <PlannedBar />
+          </div>
         </>
       ) : showSkeleton ? (
         <>

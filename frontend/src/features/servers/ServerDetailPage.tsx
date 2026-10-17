@@ -10,13 +10,15 @@ import { useLiveResource } from '@/hooks/useLiveResource'
 import type { Resource } from '@/hooks/useResource'
 import { useStale } from '@/hooks/useStale'
 import { cn } from '@/lib/cn'
-import { formatClock } from '@/lib/format'
+import { formatAge, formatClock } from '@/lib/format'
 import { PlaceName } from '@/ui/PlaceName'
 import { PanelBoundary } from '@/ui/PanelBoundary'
 import { EmptyState, Skeleton } from '@/ui/states'
 import { STATUS_FRAME, STATUS_TINT, StatusTag } from '@/ui/status'
 import { ContainersPanel } from './ContainersPanel'
 import { HistoryPanel } from './HistoryPanel'
+import { readingOf } from '@/lib/serverList'
+import { useResourceLimits } from '@/ui/meters'
 import { stateWord, heartbeatText, serverDisplay } from './serversModel'
 import { SummaryPanel } from './SummaryPanel'
 
@@ -48,7 +50,7 @@ function NotFound({ id }: { id: string }) {
   )
 }
 
-/** The offline / never-reported notice: the one thing to know before reading any number below. */
+/** The offline, stale, missing or never-reported notice: the one thing to know before reading any number below. */
 function ReportingNotice({ item, nowMs }: { item: ServerListItem; nowMs: number }) {
   const { tz } = usePrefs()
   const { server } = item
@@ -67,6 +69,29 @@ function ReportingNotice({ item, nowMs }: { item: ServerListItem; nowMs: number 
           The agent stopped reporting at {at} ({heartbeatText(item, nowMs)}). Readings below are the
           last it sent, and its containers cannot be observed.
         </span>
+      </output>
+    )
+  }
+  const reading = readingOf(item)
+  if (reading === 'stale' && server.telemetry) {
+    const received = server.telemetry.receivedAt ?? server.telemetry.collectedAt
+    return (
+      <output className="type-body flex flex-wrap items-center gap-x-3 gap-y-1 rounded-sm border border-border bg-raised px-3 py-2">
+        <StatusTag status="unknown" word="STALE" />
+        <span>
+          The agent still sends heartbeats, but its newest resource reading arrived at{' '}
+          {formatClock(Date.parse(received), tz)} ({formatAge(received, nowMs)} ago), older than the
+          offline window. Readings below are the last received, not the present values, and they
+          take no part in this server's health.
+        </span>
+      </output>
+    )
+  }
+  if (reading === 'missing') {
+    return (
+      <output className="type-body flex flex-wrap items-center gap-x-3 gap-y-1 rounded-sm border border-border bg-raised px-3 py-2">
+        <StatusTag status="unknown" word="NO READING" />
+        <span>The agent reports, but no resource reading has arrived yet.</span>
       </output>
     )
   }
@@ -130,7 +155,7 @@ function ServerPanels({ id, resource }: { id: string; resource: Resource<ServerD
           className="lg:col-span-7"
         />
       </PanelBoundary>
-      <PanelBoundary title="Containers" index={3} features="docker" className="lg:col-span-5">
+      <PanelBoundary title="Containers" index={3} features="servers" className="lg:col-span-5">
         <ContainersPanel
           index={3}
           resource={resource}
@@ -144,13 +169,14 @@ function ServerPanels({ id, resource }: { id: string; resource: Resource<ServerD
 
 /**
  * One server: who it is, how it is doing now, how it got there (CPU, RAM and
- * disk over the range in the top bar) and what runs on it (Docker). Demo data
- * until the screen is connected to the console API, which serves all of it.
+ * disk over the range in the top bar) and what runs on it (Docker). All of it is
+ * read from the console API; a failed request is its panel's error, never sample data.
  */
 export default function ServerDetailPage() {
   const api = useApi()
   const { id = '' } = useParams()
   const back = useBackTo()
+  const limits = useResourceLimits()
   const resource = useLiveResource(
     `server:${id}`,
     `server:${id}`,
@@ -186,7 +212,7 @@ export default function ServerDetailPage() {
             )}
           </h1>
           {item ? (
-            <StatusTag status={serverDisplay(item)} word={stateWord(item)} variant="tag" />
+            <StatusTag status={serverDisplay(item)} word={stateWord(item, limits)} variant="tag" />
           ) : null}
         </div>
         {item ? (

@@ -1,6 +1,7 @@
 import { cleanup, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { useApi } from '@/api/context'
 import { App } from './App'
 import { useApiMode } from './mode'
 import { AppProviders } from './providers'
@@ -82,6 +83,11 @@ function Probe() {
   return <p>{`mode=${mode} scenario=${scenario}`}</p>
 }
 
+function SourceProbe() {
+  const api = useApi()
+  return <p>{`source=${api.source} methods=${Object.keys(api).sort().join(',')}`}</p>
+}
+
 const open = (path: string) => window.history.pushState({}, '', path)
 const here = () => window.location.pathname + window.location.search
 
@@ -146,6 +152,36 @@ describe('production safety', () => {
     )
     // The tree is rebuilt once the session is known, so look again rather than hold on to the first element.
     await waitFor(() => expect(screen.getByText('mode=http scenario=normal')).toBeVisible())
+  })
+})
+
+describe('the data source', () => {
+  it('is the console API, with no method for what it does not serve', async () => {
+    stubApi(SIGNED_IN)
+    render(
+      <AppProviders>
+        <SourceProbe />
+      </AppProviders>,
+    )
+    const probe = await screen.findByText(/^source=http /)
+    for (const missing of ['listAlerts', 'listEvents', 'getNetworkSeries']) {
+      expect(probe.textContent).not.toContain(missing)
+    }
+    expect(probe.textContent).toContain('getOverviewSummary')
+  })
+
+  it('is the sample fleet only when a development run asks for it, and nothing renders before it has loaded', async () => {
+    vi.stubEnv('VITE_SENTINEL_API', 'mock')
+    const fetchSpy = vi.fn()
+    vi.stubGlobal('fetch', fetchSpy)
+    render(
+      <AppProviders>
+        <SourceProbe />
+      </AppProviders>,
+    )
+    expect(screen.queryByText(/source=/)).toBeNull()
+    expect(await screen.findByText(/^source=mock /)).toBeVisible()
+    expect(fetchSpy).not.toHaveBeenCalled()
   })
 })
 

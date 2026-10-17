@@ -17,40 +17,38 @@ afterEach(() => {
 function fleet(
   servers: Partial<StatusCounts>,
   containers: Partial<StatusCounts> = {},
-  targets: Partial<StatusCounts> = {},
 ): OverviewSummary {
   return makeSummary({
-    servers: { total: 0, online: 0, counts: counts(servers) },
-    containers: { total: 0, running: 0, counts: counts(containers) },
-    targets: { total: 0, up: 0, counts: counts(targets), successTrend: [] },
+    servers: { total: 0, counts: counts(servers) },
+    containers: { total: 0, counts: counts(containers) },
   })
 }
 
 const hero = () => screen.getByRole('button', { name: /^Fleet status:/ })
 
 describe('VerdictHero: critical (the reference story)', () => {
-  it('shows 9 of 121 needing attention beside a CRITICAL word with its glyph', () => {
+  it('shows 6 of 81 needing attention beside a CRITICAL word with its glyph', () => {
     renderHero(<VerdictHero />)
     const button = hero()
     expect(button).toHaveAttribute('data-verdict', 'critical')
-    expect(within(button).getByText('9')).toHaveClass('type-hero', 'text-fg')
+    expect(within(button).getByText('6')).toHaveClass('type-hero', 'text-fg')
     expect(within(button).getByText('CRITICAL')).toBeInTheDocument()
-    expect(within(button).getByText('need attention of 121')).toBeInTheDocument()
+    expect(within(button).getByText('need attention of 81')).toBeInTheDocument()
     expect(button.querySelector('svg.size-6')).toHaveAttribute('data-status', 'critical')
   })
 
   it('draws the fleet bar without idle, then glyph-coded counts worst first', () => {
     renderHero(<VerdictHero />)
-    const bar = within(hero()).getByRole('img', { name: 'Fleet: 4 critical, 5 warning, 112 ok' })
+    const bar = within(hero()).getByRole('img', { name: 'Fleet: 3 critical, 3 warning, 75 ok' })
     expect(bar.querySelector('[data-status="idle"]')).toBeNull()
-    expect(hero()).toHaveTextContent('4 CRIT5 WARN112 OK')
+    expect(hero()).toHaveTextContent('3 CRIT3 WARN75 OK')
   })
 
-  it('is named in full, with idle and the planned domains explained as its description', () => {
+  it('is named in full, with idle and what the console API does not serve explained as its description', () => {
     renderHero(<VerdictHero />)
     const button = hero()
     expect(button).toHaveAccessibleName(
-      'Fleet status: critical, 9 need attention of 121, 4 critical, 5 warning, 112 ok, mock data',
+      'Fleet status: critical, 6 need attention of 81, 3 critical, 3 warning, 75 ok, mock data',
     )
     expect(button).toHaveAccessibleDescription(
       `3 idle entities are not counted. ${NOT_COUNTED} Enter opens Needs attention.`,
@@ -73,16 +71,15 @@ describe('VerdictHero: an offline server', () => {
       data: fleet(
         { healthy: 13, warning: 2, critical: 1, offline: 1 },
         { healthy: 62, warning: 1, critical: 2, idle: 3 },
-        { healthy: 37, warning: 2, critical: 1 },
       ),
     })
 
-  it('decides exactly as without it: CRITICAL, 9 of 121, a critical frame and edge', () => {
+  it('decides exactly as without it: CRITICAL, 6 of 81, a critical frame and edge', () => {
     renderHero(<VerdictHero />, { summary: offline() })
     const button = hero()
     expect(button).toHaveAttribute('data-verdict', 'critical')
-    expect(within(button).getByText('9')).toHaveClass('type-hero')
-    expect(within(button).getByText('need attention of 121')).toBeInTheDocument()
+    expect(within(button).getByText('6')).toHaveClass('type-hero')
+    expect(within(button).getByText('need attention of 81')).toBeInTheDocument()
     expect(button.querySelector('svg.size-6')).toHaveAttribute('data-status', 'critical')
     expect(button).toHaveClass(STATUS_FRAME.critical)
     const [tint, edge] = [...button.querySelectorAll(':scope > span[aria-hidden="true"]')]
@@ -93,19 +90,19 @@ describe('VerdictHero: an offline server', () => {
   it('breaks critical down in the bar and in the name, offline directly after it', () => {
     renderHero(<VerdictHero />, { summary: offline() })
     const bar = within(hero()).getByRole('img', {
-      name: 'Fleet: 3 critical, 1 offline, 5 warning, 112 ok',
+      name: 'Fleet: 2 critical, 1 offline, 3 warning, 75 ok',
     })
     expect(
       [...bar.querySelectorAll('[data-status]')].map((part) => part.getAttribute('data-status')),
     ).toEqual(['critical', 'offline', 'warning', 'healthy'])
     expect(hero()).toHaveAccessibleName(
-      'Fleet status: critical, 9 need attention of 121, 3 critical, 1 offline, 5 warning, 112 ok, mock data',
+      'Fleet status: critical, 6 need attention of 81, 2 critical, 1 offline, 3 warning, 75 ok, mock data',
     )
   })
 
   it('lists the offline mark in the counts, and keeps the words where they fit', () => {
     renderHero(<VerdictHero />, { summary: offline() })
-    expect(hero()).toHaveTextContent('3 CRIT1 OFFL5 WARN112 OK')
+    expect(hero()).toHaveTextContent('2 CRIT1 OFFL3 WARN75 OK')
     expect(hero().querySelector('svg[data-status="offline"]')).not.toBeNull()
   })
 
@@ -235,13 +232,13 @@ describe('VerdictHero: stale and loading', () => {
     vi.useFakeTimers()
     const { store } = renderHero(<VerdictHero />)
     store.report('summary', { updatedAt: Date.now(), failed: false, fetching: false })
-    expect(within(hero()).getByText('9').closest('[class*="opacity-60"]')).toBeNull()
+    expect(within(hero()).getByText('6').closest('[class*="opacity-60"]')).toBeNull()
     act(() => {
       vi.advanceTimersByTime(60_000)
     })
     expect(hero()).toHaveAttribute('data-verdict', 'critical')
     // Large text may dim (3:1 is enough); the word and the caption never do (they would fall below AA).
-    expect(within(hero()).getByText('9').closest('[class*="opacity-60"]')).not.toBeNull()
+    expect(within(hero()).getByText('6').closest('[class*="opacity-60"]')).not.toBeNull()
     expect(within(hero()).getByText('CRITICAL').closest('[class*="opacity-60"]')).toBeNull()
     expect(within(hero()).getByText('STALE')).toBeVisible()
   })

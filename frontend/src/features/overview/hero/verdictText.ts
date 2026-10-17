@@ -7,15 +7,16 @@ import { healthOf, needsAttention } from '@/lib/status'
 import { NO_DATA_AFTER_SECONDS } from '@/lib/thresholds'
 import type { Verdict } from '@/lib/verdict'
 
-/** The domains the verdict counts. SNMP and alerts are deliberately absent: the console does not read SNMP yet, and alerts are not implemented. */
-export const VERDICT_FEATURES: readonly FeatureId[] = ['servers', 'docker', 'network']
+/** What the verdict counts: the servers and containers the console API counts. Nothing else is counted. */
+export const VERDICT_FEATURES: readonly FeatureId[] = ['servers', 'overview']
 
 /**
- * What the verdict leaves out, and what it rests on, stated wherever it is explained: the warn and
- * critical levels are presentational defaults (the backend has no alert rules).
+ * What the verdict leaves out, and what it rests on, stated wherever it is explained: the console
+ * API serves no probe targets, SNMP devices, alerts or events, and decides for itself which
+ * servers and containers are warning or critical.
  */
 export const NOT_COUNTED =
-  'Alerts and events are not counted: not implemented in the backend. SNMP devices are not counted: the console does not read them yet. Warn and critical levels are UI defaults, not backend rules.'
+  "Probe targets, SNMP devices, alerts and events are not counted: the console API does not serve them. Which servers and containers are warning or critical is the server's decision."
 
 /** "3 critical, 1 offline, 5 warning": the counts that need a look, in words, worst first. Empty when none. */
 export function describeProblems(counts: StatusCounts): string {

@@ -2,16 +2,10 @@ import type {
   ContainerHealth,
   ContainerState,
   HealthStatus,
-  NetworkTarget,
   ServerStatus,
   StatusCounts,
 } from '@/api/types'
-import {
-  TARGET_CRIT_FAILURES,
-  latencyExceedsWarn,
-  lossExceedsWarn,
-  resourceLevel,
-} from './thresholds'
+import { resourceLevel } from './thresholds'
 
 /**
  * Domain state -> UI health vocabulary. Keeping every mapping here means a
@@ -57,28 +51,6 @@ export function containerHealth(state: ContainerState, health: ContainerHealth):
 }
 
 /**
- * Probe target health, from its latest measurements and the UI-default thresholds:
- *   critical  a run of consecutive failures (TARGET_CRIT_FAILURES or more)
- *   warning   fewer failures, or the probe answers but loses packets / is slow
- *   unknown   no recent measurement
- */
-export function targetHealth(
-  target: Pick<NetworkTarget, 'status' | 'consecutiveFailures' | 'latencyMs' | 'packetLossPercent'>,
-): HealthStatus {
-  if (target.status === 'unknown') return 'unknown'
-  if (target.consecutiveFailures >= TARGET_CRIT_FAILURES) return 'critical'
-  if (target.status === 'down' || target.status === 'degraded') return 'warning'
-  if (lossExceedsWarn(target.packetLossPercent)) return 'warning'
-  if (target.latencyMs !== null && latencyExceedsWarn(target.latencyMs)) return 'warning'
-  return 'healthy'
-}
-
-export function deviceHealth(reachable: boolean, interfacesDown: number): HealthStatus {
-  if (!reachable) return 'critical'
-  return interfacesDown > 0 ? 'warning' : 'healthy'
-}
-
-/**
  * Aggregate rank for rolling a group up into one status (a site, a domain):
  * higher wins. A neutral idle member never changes a group's status, and an
  * unknown member outranks healthy (something is not being observed).
@@ -119,11 +91,6 @@ export function compareSeverity(a: HealthStatus, b: HealthStatus): number {
 /** Warning, critical and unknown need someone to look. Healthy and idle do not. */
 export function needsAttention(status: HealthStatus): boolean {
   return status === 'warning' || status === 'critical' || status === 'unknown'
-}
-
-/** An entity "asserts a problem" when it is warning or critical (unknown asserts nothing). */
-export function isIssue(status: HealthStatus): boolean {
-  return status === 'warning' || status === 'critical'
 }
 
 export function emptyCounts(): StatusCounts {
@@ -211,7 +178,9 @@ export function serverHealthWithResources(
 ): HealthStatus {
   const base = serverHealth(status)
   if (base === 'critical' || base === 'unknown' || !samples) return base
-  const levels = [samples.cpuPercent, samples.memoryPercent, samples.diskPercent].map(resourceLevel)
+  const levels = [samples.cpuPercent, samples.memoryPercent, samples.diskPercent].map((percent) =>
+    resourceLevel(percent),
+  )
   if (levels.includes('crit')) return 'critical'
   if (levels.includes('warn') || base === 'warning') return 'warning'
   return 'healthy'

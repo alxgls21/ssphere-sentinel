@@ -37,34 +37,29 @@ describe('formatFigure', () => {
 describe('describeVerdict', () => {
   it('states the figure, the denominator and every counted status, without idle', () => {
     const text = describeVerdict(verdictOf(), { hasData: true, freshness: 'live' })
-    expect(text.figure).toBe('9')
-    expect(text.caption).toBe('need attention of 121')
-    expect(text.short).toBe('9 need attention')
-    expect(text.summary).toBe('critical, 9 need attention of 121, 4 critical, 5 warning, 112 ok')
+    expect(text.figure).toBe('6')
+    expect(text.caption).toBe('need attention of 81')
+    expect(text.short).toBe('6 need attention')
+    expect(text.summary).toBe('critical, 6 need attention of 81, 3 critical, 3 warning, 75 ok')
   })
 
   it('reads the same figures with an offline server, and breaks critical down in words only', () => {
     const summary = makeSummary()
     summary.servers.counts = counts({ healthy: 13, warning: 2, critical: 1, offline: 1 })
     const text = describeVerdict(verdictOf('live', summary), { hasData: true, freshness: 'live' })
-    expect(text.figure).toBe('9')
-    expect(text.caption).toBe('need attention of 121')
-    expect(text.short).toBe('9 need attention')
+    expect(text.figure).toBe('6')
+    expect(text.caption).toBe('need attention of 81')
+    expect(text.short).toBe('6 need attention')
     expect(text.summary).toBe(
-      'critical, 9 need attention of 121, 3 critical, 1 offline, 5 warning, 112 ok',
+      'critical, 6 need attention of 81, 2 critical, 1 offline, 3 warning, 75 ok',
     )
   })
 
-  it('says what the count excludes: idle entities and the planned domains', () => {
+  it('says what the count excludes: idle entities and the domains the console API does not serve', () => {
     const text = describeVerdict(verdictOf(), { hasData: true, freshness: 'live' })
     expect(text.scope).toBe(`3 idle entities are not counted. ${NOT_COUNTED}`)
-    // Alerts and events do not exist in the backend; SNMP does, but the console does not read it yet.
-    expect(NOT_COUNTED).toContain(
-      'Alerts and events are not counted: not implemented in the backend',
-    )
-    expect(NOT_COUNTED).toContain(
-      'SNMP devices are not counted: the console does not read them yet',
-    )
+    expect(NOT_COUNTED).toContain('Probe targets, SNMP devices, alerts and events are not counted')
+    expect(NOT_COUNTED).toContain('the console API does not serve them')
   })
 
   it('uses the singular for one idle entity and omits the idle sentence for none', () => {
@@ -95,7 +90,6 @@ describe('describeVerdict', () => {
     const empty = makeSummary()
     empty.servers.counts = counts()
     empty.containers.counts = counts()
-    empty.targets.counts = counts()
     expect(describeVerdict(verdictOf('live', empty), ctx(true, 'live')).caption).toBe(
       'nothing monitored yet',
     )

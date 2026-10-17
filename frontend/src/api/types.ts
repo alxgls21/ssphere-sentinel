@@ -83,7 +83,7 @@ export interface Server {
   ipAddress: string | null
   operatingSystem: string
   status: ServerStatus
-  /** The backend has no Site link for servers yet: sample data (see `site-links`). */
+  /** The site the server is placed on in the admin; null when it is on none (see `site-links`). */
   siteId: string | null
   lastSeenAt: Iso | null
   agentVersion: string
@@ -99,6 +99,16 @@ export interface ServerTelemetry {
   diskTotalBytes: number
   uptimeSeconds: number
   collectedAt: Iso
+  /**
+   * When the console API accepted the reading. Served by the console API; absent in demo data.
+   * With `stale` it says how current the reading is, which is not the same as the heartbeat.
+   */
+  receivedAt?: Iso
+  /**
+   * The reading is older than the offline window: it is the last one received, not the present
+   * value, and takes no part in health or load ranking. Absent (demo data) means current.
+   */
+  stale?: boolean
 }
 
 /* ------------------------------------------------------------------ docker */
@@ -118,53 +128,8 @@ export interface DockerContainer {
   startedAt: Iso | null
 }
 
-/* ----------------------------------------------------------- network probes */
+/* ------------------------------------------------------------------ events */
 
-export type ProbeProtocol = 'icmp' | 'tcp'
-export type ProbeStatus = 'up' | 'degraded' | 'down' | 'unknown'
-
-export interface NetworkTarget {
-  id: string
-  name: string
-  address: string
-  protocol: ProbeProtocol
-  port: number | null
-  status: ProbeStatus
-  /** The backend has no Site link for targets yet: sample data (see `site-links`). */
-  siteId: string | null
-  latencyMs: number | null
-  packetLossPercent: number
-  /** Last time a probe completed (success or failure). */
-  lastProbeAt: Iso | null
-  /** Start of the current run of failed measurements; null while healthy. */
-  failingSince: Iso | null
-  /** Consecutive failed measurements in the current run. */
-  consecutiveFailures: number
-  failureReason: string
-}
-
-/* ------------------------------------------------- network devices (SNMP) */
-
-export type DeviceType = 'router' | 'switch' | 'firewall' | 'other'
-
-export interface NetworkDevice {
-  id: string
-  name: string
-  deviceType: DeviceType
-  managementAddress: string
-  siteId: string | null
-  reachable: boolean
-  responseMs: number | null
-  lastPollAt: Iso | null
-  interfacesTotal: number
-  /** Admin-up interfaces whose operational status is not "up". */
-  interfacesDown: number
-}
-
-/* ---------------------------------------------------------- alerts & events */
-
-export type AlertSeverity = 'critical' | 'warning'
-export type AlertState = 'active' | 'acknowledged'
 export type SubjectKind = 'server' | 'container' | 'target' | 'device' | 'interface' | 'site'
 
 export interface SubjectRef {
@@ -173,22 +138,9 @@ export interface SubjectRef {
   name: string
 }
 
-/** PLANNED: the backend has no alert engine. Always sample data. */
-export interface Alert {
-  id: string
-  severity: AlertSeverity
-  state: AlertState
-  title: string
-  message: string
-  subject: SubjectRef
-  rule: string
-  siteId: string | null
-  since: Iso
-}
-
 export type EventLevel = 'info' | 'healthy' | 'warning' | 'critical'
 
-/** PLANNED: the backend has no event log. Always sample data. */
+/** One entry of an event log. The backend has none, so no screen reads this yet. */
 export interface SentinelEvent {
   id: string
   at: Iso
@@ -203,36 +155,30 @@ export interface SentinelEvent {
 
 export type EntityKind = 'server' | 'container' | 'target' | 'device'
 
-/** Headline counts for the verdict, the sidebar badges and the tiles. */
+/**
+ * Headline counts for the verdict, the sidebar badges and the tiles. Only what the console API
+ * counts: servers and containers. Probe targets, SNMP devices, alerts and incidents have no
+ * answer here, and none is made up.
+ */
 export interface OverviewSummary {
   generatedAt: Iso
-  servers: { total: number; online: number; counts: StatusCounts }
-  containers: { total: number; running: number; counts: StatusCounts }
-  targets: {
-    total: number
-    up: number
-    counts: StatusCounts
-    /** Success rate (0-100) per bucket over the last hour, oldest first (12 points; empty when nothing is monitored). */
-    successTrend: number[]
-  }
-  /** SNMP devices. PLANNED: inventory only, nothing is collected. */
-  devices: { inInventory: number; byType: Record<DeviceType, number> }
+  /** `total` is every server in scope; `counts` is by health status, with the offline share where known. */
+  servers: { total: number; counts: StatusCounts }
+  containers: { total: number; counts: StatusCounts }
 }
 
 export type AttentionSeverity = 'critical' | 'warning' | 'unknown' | 'idle'
 
 export interface AttentionItem {
-  kind: 'server' | 'container' | 'target'
+  kind: 'server' | 'container'
   id: string
   name: string
-  /** Probe protocol, set for kind 'target' so the row can read "tcp acme-vpn" / "icmp 10.20.0.1". */
-  protocol?: ProbeProtocol
   severity: AttentionSeverity
-  /** Domain word for the status tag: OFFLINE, UNHEALTHY, RESTARTING, DOWN, ... */
+  /** Domain word for the status tag: OFFLINE, UNHEALTHY, RESTARTING, ... */
   stateLabel: string
   /** A server whose agent stopped reporting: critical in `severity`, described apart wherever it is shown. */
   offline?: boolean
-  /** One line built only from ingested fields (state, health, last seen, failure reason, latency, loss, cpu/disk). */
+  /** One line built only from ingested fields (state, health, host, last seen, cpu/memory/disk). */
   detail: string
   hostName?: string
   customerName?: string
@@ -252,10 +198,6 @@ export interface AttentionResult {
   items: AttentionItem[]
   /** Idle items left out of `items` (shown behind a "+N hidden" toggle). */
   hiddenIdle: number
-}
-
-export interface NetworkSeriesOptions extends RequestOptions {
-  range: RangeKey
 }
 
 /**
@@ -304,7 +246,7 @@ export interface DomainBreakdown {
   domain: 'servers' | 'containers' | 'targets' | 'snmp'
   label: string
   counts: StatusCounts
-  /** True when the console shows no real data for this domain (SNMP: the console does not read it yet). */
+  /** True when the console API serves nothing for this domain (probe targets, SNMP): no figure is shown. */
   planned?: boolean
 }
 
@@ -321,7 +263,7 @@ export interface SiteBreakdown {
   siteId: string
   customerName: string
   siteName: string
-  /** Sample data until the backend links servers and targets to sites. */
+  /** The servers and containers placed on the site, worst first. */
   entities: SiteEntity[]
 }
 
@@ -330,16 +272,6 @@ export interface HealthBreakdown {
   domains: DomainBreakdown[]
   /** Worst site first. */
   sites: SiteBreakdown[]
-}
-
-export interface AlertsOptions extends RequestOptions {
-  state?: AlertState
-  limit?: number
-}
-
-export interface EventsOptions extends RequestOptions {
-  range?: RangeKey
-  limit?: number
 }
 
 /** Every searchable thing, for the command palette. */
@@ -361,6 +293,34 @@ export interface EntityIndex {
   items: EntityIndexItem[]
 }
 
+/* ---------------------------------------------------------- container lists */
+
+/** A container with where it runs, as the fleet-wide list serves it. */
+export interface ContainerListItem extends ServerContainer {
+  serverName: string
+  customerName?: string
+  siteName?: string
+}
+
+export interface ContainerListOptions extends RequestOptions {
+  status?: 'all' | 'critical' | 'warning' | 'unknown' | 'idle' | 'healthy'
+  sort?: 'status' | 'name' | 'server' | 'started'
+  dir?: SortDirection
+  /** 1-based. */
+  page?: number
+  pageSize?: number
+}
+
+export interface ContainerList {
+  generatedAt: Iso
+  items: ContainerListItem[]
+  page: PageInfo
+  /** Per health status over the scope. */
+  counts: StatusCounts
+  /** Containers in the scope. */
+  scopeTotal: number
+}
+
 /* ------------------------------------------------------------ servers screen */
 
 /** One server as the list and the detail page show it: the record, its health and where it lives. */
@@ -374,9 +334,40 @@ export interface ServerListItem {
   containers: { total: number; counts: StatusCounts }
 }
 
+/** One page of a paginated list, as the console API reports it. `number` is 1-based. */
+export interface PageInfo {
+  number: number
+  size: number
+  /** Items that match the query, across every page. */
+  total: number
+  pages: number
+}
+
+export type ServerStatusFilter = 'all' | 'critical' | 'warning' | 'unknown' | 'healthy'
+export type ServerSortKey = 'status' | 'name' | 'cpu' | 'memory' | 'disk' | 'uptime' | 'seen'
+export type SortDirection = 'asc' | 'desc'
+
+/** What the Servers list asks for. Search, filter, sort and paging are the answerer's job. */
+export interface ServerListOptions extends RequestOptions {
+  /** Words, every one of which must appear in the name, hostname, address, OS, site or customer. */
+  q?: string
+  status?: ServerStatusFilter
+  sort?: ServerSortKey
+  dir?: SortDirection
+  /** 1-based. */
+  page?: number
+  pageSize?: number
+}
+
 export interface ServerList {
   generatedAt: Iso
+  /** The requested page of servers that match the query. */
   items: ServerListItem[]
+  page: PageInfo
+  /** Per health status over the scope and the search, not the status filter: what each filter chip would show. */
+  counts: StatusCounts
+  /** Servers in the scope, whatever the search. */
+  scopeTotal: number
 }
 
 export interface ServerContainer {

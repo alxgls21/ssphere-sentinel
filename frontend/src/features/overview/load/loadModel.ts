@@ -1,7 +1,11 @@
 import type { FleetLoadRow, LoadMetric } from '@/api/types'
 import { BLOCK_CELLS } from '@/lib/blocks'
 import { formatPercent, formatTime, type Timezone } from '@/lib/format'
-import { RESOURCE_CRIT_PERCENT, RESOURCE_WARN_PERCENT } from '@/lib/thresholds'
+import {
+  DEFAULT_LIMITS_IN_FORCE,
+  limitsOrigin,
+  type ResourceLimitsInForce,
+} from '@/ui/meters/limits'
 
 /** Servers listed: the busiest few, because the point is where to look first. */
 export const LOAD_ROWS = 8
@@ -28,8 +32,11 @@ export const LOAD_TABS: readonly { value: LoadMetric; label: string; title: stri
 
 export const metricNoun = (metric: LoadMetric): string => METRICS[metric].noun
 
-/** The thresholds are presentational defaults, not backend rules: the footer says so. */
-export const THRESHOLD_NOTE = `cell = ${100 / BLOCK_CELLS}% · warn at ${RESOURCE_WARN_PERCENT} · crit at ${RESOURCE_CRIT_PERCENT} · UI defaults`
+/** The limits in force, and whose they are (the console's defaults or the server's): the footer says so. */
+export const thresholdNote = (limits: ResourceLimitsInForce): string =>
+  `cell = ${100 / BLOCK_CELLS}% · warn at ${limits.warn} · crit at ${limits.crit} · ${limitsOrigin(limits)}`
+
+export const THRESHOLD_NOTE = thresholdNote(DEFAULT_LIMITS_IN_FORCE)
 
 const NAMED_EXCLUDED = 3
 

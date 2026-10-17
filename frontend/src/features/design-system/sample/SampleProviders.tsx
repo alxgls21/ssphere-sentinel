@@ -5,13 +5,11 @@ import { LiveContext } from '@/app/live'
 import { PrefsContext } from '@/app/prefs'
 import { ShellContext } from '@/app/shell'
 import { SummaryContext } from '@/app/summary'
-import { AlertsContext } from '../../overview/alertsResource'
 import { SAMPLE_SUMMARIES } from './data'
 import {
   FALLBACK_PREFS,
   GALLERY_API,
   GALLERY_SHELL,
-  alertsResource,
   liveControls,
   summaryResource,
   type ScenarioKind,
@@ -35,13 +33,9 @@ export function SummaryScenario({
 }: SummaryScenarioProps) {
   const live = useMemo(() => liveControls(kind), [kind])
   const resource = useMemo(() => summaryResource(kind, summary), [kind, summary])
-  // The alerts tile reads the page's shared alerts resource: here, a fixed sample.
-  const alerts = useMemo(() => alertsResource(), [])
   return (
     <LiveContext.Provider value={live}>
-      <SummaryContext.Provider value={resource}>
-        <AlertsContext.Provider value={alerts}>{children}</AlertsContext.Provider>
-      </SummaryContext.Provider>
+      <SummaryContext.Provider value={resource}>{children}</SummaryContext.Provider>
     </LiveContext.Provider>
   )
 }

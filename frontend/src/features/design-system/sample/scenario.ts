@@ -1,17 +1,16 @@
 import type { SentinelApi } from '@/api/client'
-import type { Alert, OverviewSummary } from '@/api/types'
+import type { OverviewSummary } from '@/api/types'
 import { LiveStore, type LiveControls } from '@/app/live'
 import { DEFAULT_PREFS, type PrefsApi } from '@/app/prefs'
 import type { ShellApi } from '@/app/shell'
 import type { Resource } from '@/hooks/useResource'
 import { POLL_MS } from '@/lib/thresholds'
-import { SAMPLE_ALERTS, SAMPLE_TIME } from './data'
+import { SAMPLE_TIME } from './data'
 import { noop } from './noop'
 
 /**
  * The contexts the shared components read, built from static values. The
- * gallery has no data source of its own, so every method that is not needed
- * refuses, and the ones that are (the planned Alerts tile) answer with samples.
+ * gallery has no data source of its own, so every method refuses.
  */
 
 const refuse = (name: string) => () =>
@@ -22,11 +21,8 @@ export const GALLERY_API: SentinelApi = {
   getScopeOptions: refuse('getScopeOptions'),
   getOverviewSummary: refuse('getOverviewSummary'),
   listAttention: refuse('listAttention'),
-  getNetworkSeries: refuse('getNetworkSeries'),
   getFleetLoad: refuse('getFleetLoad'),
   getHealthBreakdown: refuse('getHealthBreakdown'),
-  listAlerts: () => Promise.resolve(SAMPLE_ALERTS),
-  listEvents: refuse('listEvents'),
   getEntityIndex: refuse('getEntityIndex'),
   listServers: refuse('listServers'),
   getServer: refuse('getServer'),
@@ -67,18 +63,6 @@ export const GALLERY_SHELL: ShellApi = {
  *   no-data         data on screen but every source has failed: the verdict reads NO DATA
  */
 export type ScenarioKind = 'ready' | 'loading' | 'error' | 'refresh-failed' | 'no-data'
-
-/** The sample alerts as a loaded resource, at the gallery's fixed sample time. */
-export function alertsResource(): Resource<Alert[]> {
-  return {
-    status: 'success',
-    data: SAMPLE_ALERTS,
-    error: null,
-    isRefreshing: false,
-    updatedAt: SAMPLE_TIME,
-    refetch: noop,
-  }
-}
 
 export function summaryResource(
   kind: ScenarioKind,

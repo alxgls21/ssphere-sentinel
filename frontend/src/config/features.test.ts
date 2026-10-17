@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 import {
   AVAILABILITY_WORD,
   AVAILABILITY_WORD_SHORT,
+  DATA_FEATURES,
   FEATURES,
   availabilityOf,
   describeAvailability,
@@ -28,7 +29,9 @@ describe('availabilityOf', () => {
     })
 
     it('is not live while the screen does not read it, however ready the backend is', () => {
-      expect(FEATURES.servers.backend).toBe('console-api')
+      expect(FEATURES.docker.backend).toBe('console-api')
+      expect(availabilityOf('docker', 'http')).toBe('not-connected')
+      setFeature('servers', { connected: false })
       expect(availabilityOf('servers', 'http')).toBe('not-connected')
     })
 
@@ -53,12 +56,18 @@ describe('availabilityOf', () => {
   })
 
   describe('a feature the backend supports but the console does not read yet', () => {
-    it.each(['servers', 'docker', 'network', 'customers'] as const)('%s is not connected', (id) => {
+    it.each(['docker', 'customers'] as const)('%s is not connected', (id) => {
       expect(availabilityOf(id, 'http')).toBe('not-connected')
       expect(shortfallOf(id, 'http')).toBe('not-connected')
       expect(isPlanned(id)).toBe(false)
       // Demo figures stand in for it: no placeholder frame.
       expect(isPlaceholder(id, 'http')).toBe(false)
+    })
+
+    it('network is not connected, and its panels show a placeholder instead of demo figures', () => {
+      expect(availabilityOf('network', 'http')).toBe('not-connected')
+      expect(isPlanned('network')).toBe(false)
+      expect(isPlaceholder('network', 'http')).toBe(true)
     })
 
     it('says whether the console API serves it or only the backend stores it', () => {
@@ -99,14 +108,14 @@ describe('availabilityOf', () => {
     })
   })
 
-  describe('site assignment: supported by the backend, views not connected', () => {
-    it('C. is not connected when sites are assigned and the views are not connected', () => {
+  describe('site assignment: served by the console API, read by the screens', () => {
+    it('C. is live over the console API, and never on demo data', () => {
       setFeature('site-links', { configuration: 'complete' })
-      expect(availabilityOf('site-links', 'http')).toBe('not-connected')
+      expect(availabilityOf('site-links', 'http')).toBe('live')
+      expect(availabilityOf('site-links', 'mock')).toBe('not-connected')
     })
 
     it('does not claim that site assignment is missing or that setup is incomplete', () => {
-      expect(availabilityOf('site-links', 'http')).toBe('not-connected')
       expect(isPlanned('site-links')).toBe(false)
       expect(FEATURES['site-links'].note).not.toMatch(
         /not implemented|missing|incomplete|no .* link/i,
@@ -114,7 +123,7 @@ describe('availabilityOf', () => {
       expect(FEATURES['site-links'].note).toMatch(
         /supports placing servers and probe targets on a site/,
       )
-      expect(FEATURES['site-links'].note).toMatch(/not connected to it yet/)
+      expect(FEATURES['site-links'].note).toMatch(/the console API filters by it/)
     })
   })
 
@@ -185,10 +194,35 @@ describe('availabilityOf', () => {
 })
 
 describe('the registry as shipped', () => {
-  it('has no feature that is live yet: nothing is connected', () => {
+  it('lists as live only what the console reads from the console API: the overview counts, servers and site assignment', () => {
+    const live = (Object.keys(FEATURES) as FeatureId[]).filter(
+      (id) => availabilityOf(id, 'http') === 'live',
+    )
+    expect(live).toEqual(['overview', 'servers', 'site-links'])
+  })
+
+  it('is live nowhere on demo data, whatever is connected', () => {
     for (const id of Object.keys(FEATURES) as FeatureId[]) {
-      expect(availabilityOf(id, 'http'), id).not.toBe('live')
+      expect(availabilityOf(id, 'mock'), id).not.toBe('live')
     }
+  })
+
+  it('reads the overview summary from the console API: live over http, mock on the sample API', () => {
+    expect(availabilityOf('overview', 'http')).toBe('live')
+    expect(availabilityOf('overview', 'mock')).toBe('not-connected')
+    expect(DATA_FEATURES).toContain('overview')
+  })
+
+  it('counts as data only the features whose figures a screen shows', () => {
+    expect([...DATA_FEATURES].sort()).toEqual(['overview', 'servers', 'site-links'])
+    for (const id of ['network', 'snmp', 'alerts', 'events', 'topology'] as const) {
+      expect(DATA_FEATURES).not.toContain(id)
+    }
+  })
+
+  it('does not say simulated figures are on screen for what is not implemented', () => {
+    expect(FEATURES.alerts.note).not.toMatch(/simulated|sample|demo/i)
+    expect(FEATURES.events.note).not.toMatch(/simulated|sample|demo/i)
   })
 
   it('never says a feature needs setup: nothing confirms that any setup is missing', () => {

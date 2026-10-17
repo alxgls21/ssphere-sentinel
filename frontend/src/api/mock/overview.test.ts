@@ -8,9 +8,9 @@ import {
   type Scope,
   type StatusCounts,
 } from '@/api/types'
-import { listAttention } from './attention'
 import { createMockApi } from './client'
 import { buildEstate } from './fixtures'
+import { listAttention } from './attention'
 import type { MockScenario } from './scenario'
 
 const NOW = Date.UTC(2026, 9, 12, 14, 5, 12)
@@ -37,7 +37,6 @@ describe('consistency across panels', () => {
         const domains = [
           ['server', summary.servers],
           ['container', summary.containers],
-          ['target', summary.targets],
         ] as const
         for (const [kind, domain] of domains) {
           const mine = items.filter((item) => item.kind === kind)
@@ -54,8 +53,7 @@ describe('consistency across panels', () => {
 
       it('hides idle items behind a count by default, and shows them last on request', async () => {
         const summary = await api.getOverviewSummary()
-        const idle =
-          summary.servers.counts.idle + summary.containers.counts.idle + summary.targets.counts.idle
+        const idle = summary.servers.counts.idle + summary.containers.counts.idle
         const hidden = await api.listAttention()
         expect(hidden.hiddenIdle).toBe(idle)
         expect(hidden.items.some((item) => item.severity === 'idle')).toBe(false)
@@ -75,16 +73,10 @@ describe('consistency across panels', () => {
         const domain = (name: string) => breakdown.domains.find((d) => d.domain === name)
         expect(domain('servers')?.counts).toEqual(summary.servers.counts)
         expect(domain('containers')?.counts).toEqual(summary.containers.counts)
-        expect(domain('targets')?.counts).toEqual(summary.targets.counts)
         expect(domain('servers')?.planned).toBeUndefined()
+        // No backend serves these two: they carry no figure, not even a zero that reads as "all fine".
+        expect(domain('targets')).toMatchObject({ planned: true, label: 'NET TARGETS' })
         expect(domain('snmp')).toMatchObject({ planned: true, label: 'SNMP DEVS' })
-        expect(domain('snmp')?.counts).toEqual({
-          healthy: 0,
-          warning: 0,
-          critical: 0,
-          unknown: summary.devices.inInventory,
-          idle: 0,
-        })
       })
 
       it('every site entity is a monitored entity, once, with the status the index reports', async () => {
@@ -103,7 +95,7 @@ describe('consistency across panels', () => {
         }
       })
 
-      it('entity index holds servers, containers, targets, devices, sites and customers', async () => {
+      it('entity index holds servers, containers, sites and customers', async () => {
         const [summary, scopes, index] = await Promise.all([
           api.getOverviewSummary(),
           api.getScopeOptions(),
@@ -112,8 +104,6 @@ describe('consistency across panels', () => {
         expect(index.items).toHaveLength(
           summary.servers.total +
             summary.containers.total +
-            summary.targets.total +
-            summary.devices.inInventory +
             scopes.sites.length +
             scopes.customers.length,
         )
@@ -138,9 +128,9 @@ describe('consistency across panels', () => {
     })
   }
 
-  it('summary says the story: 16 servers, 14 online, one critical', async () => {
+  it('summary says the story: 16 servers, one offline, one never reported', async () => {
     const summary = await apiFor().getOverviewSummary()
-    expect(summary.servers).toMatchObject({ total: 16, online: 14 })
+    expect(summary.servers.total).toBe(16)
     expect(summary.servers.counts).toEqual({
       healthy: 11,
       warning: 3,
@@ -149,11 +139,8 @@ describe('consistency across panels', () => {
       idle: 0,
       offline: 1,
     })
-    expect(summary.containers.running).toBeLessThan(summary.containers.total)
-    expect(summary.targets.up).toBeLessThan(summary.targets.total)
-    expect(summary.targets.successTrend).toHaveLength(12)
-    expect(summary.devices.inInventory).toBe(12)
-    expect(Object.values(summary.devices.byType).reduce((a, b) => a + b, 0)).toBe(12)
+    expect(summary).not.toHaveProperty('targets')
+    expect(summary).not.toHaveProperty('devices')
   })
 })
 
@@ -162,16 +149,14 @@ describe('scope', () => {
 
   it('narrows every method to a site', async () => {
     const scope = site('site-fra-dc')
-    const [summary, attention, load, breakdown, index, series] = await Promise.all([
+    const [summary, attention, load, breakdown, index] = await Promise.all([
       api.getOverviewSummary({ scope }),
       api.listAttention({ scope, includeIdle: true }),
       api.getFleetLoad({ scope, metric: 'cpu' }),
       api.getHealthBreakdown({ scope }),
       api.getEntityIndex({ scope }),
-      api.getNetworkSeries({ scope, range: '1h' }),
     ])
     expect(summary.servers.total).toBe(4)
-    expect(summary.devices.inInventory).toBe(3)
     expect(attention.items.length).toBeGreaterThan(0)
     expect(attention.items.every((item) => item.siteName === 'Frankfurt DC')).toBe(true)
     expect(attention.items.every((item) => item.customerName === 'Northwind Retail')).toBe(true)
@@ -184,8 +169,6 @@ describe('scope', () => {
     expect(breakdown.sites.map((entry) => entry.siteName)).toEqual(['Frankfurt DC'])
     expect(index.items.some((item) => item.id === 'srv-ath-app-01')).toBe(false)
     expect(index.items.some((item) => item.id === 'srv-fra-web-01')).toBe(true)
-    expect(series.targetCount).toBe(summary.targets.total)
-    expect(sum(summary.targets.counts)).toBe(summary.targets.total)
   })
 
   it('partitions the estate: the sites add up to everything that has a site', async () => {
@@ -196,9 +179,6 @@ describe('scope', () => {
       parts.reduce((n, s) => n + pick(s), 0)
     expect(total((s) => s.servers.total)).toBe(all.servers.total)
     expect(total((s) => s.containers.total)).toBe(all.containers.total)
-    expect(total((s) => s.devices.inInventory)).toBe(all.devices.inInventory)
-    // Two public probes belong to no site.
-    expect(total((s) => s.targets.total)).toBe(all.targets.total - 2)
     expect(total((s) => s.servers.counts.critical)).toBe(all.servers.counts.critical)
     expect(total((s) => s.containers.counts.unknown)).toBe(all.containers.counts.unknown)
   })
@@ -210,7 +190,6 @@ describe('scope', () => {
       api.getOverviewSummary({ scope: site('site-pir-depot') }),
     ])
     expect(whole.servers.total).toBe(athens.servers.total + piraeus.servers.total)
-    expect(whole.targets.total).toBe(athens.targets.total + piraeus.targets.total)
     expect(whole.containers.counts.critical).toBe(
       athens.containers.counts.critical + piraeus.containers.counts.critical,
     )
@@ -236,19 +215,6 @@ describe('scope', () => {
     for (const entry of options.sites) {
       expect(options.customers.some((c) => c.id === entry.customerId)).toBe(true)
     }
-  })
-
-  it('keeps alerts and events inside the scope', async () => {
-    const scope = site('site-pir-depot')
-    const alerts = await api.listAlerts({ scope })
-    expect(alerts.length).toBeGreaterThan(0)
-    expect(alerts.every((alert) => alert.siteId === 'site-pir-depot')).toBe(true)
-    const events = await api.listEvents({ scope })
-    expect(events.length).toBeGreaterThan(0)
-    const everyone = new Set(
-      (await api.getEntityIndex({ scope })).items.flatMap((item) => [item.id]),
-    )
-    for (const event of events) expect(everyone.has(event.subject.id), event.subject.id).toBe(true)
   })
 })
 
@@ -351,33 +317,6 @@ describe('needs-attention', () => {
     expect(await detailOf('loki')).toMatchObject({ stateLabel: 'STARTING', severity: 'idle' })
   })
 
-  it('describes targets by what failed, dated from the first failed probe', async () => {
-    const gateway = await detailOf('pir-gateway')
-    expect(gateway).toMatchObject({
-      severity: 'critical',
-      stateLabel: 'DOWN',
-      ageBasis: 'failing-since',
-    })
-    expect(gateway?.detail).toMatch(/^host unreachable · \d+ failed probes$/)
-    const vpn = await detailOf('pir-vpn')
-    expect(vpn?.detail).toMatch(/^timeout · \d+ failed probes$/)
-    expect(Date.parse(vpn?.ageIso as string)).toBeLessThan(NOW - 10 * 60_000)
-    expect(await detailOf('muc-vpn')).toMatchObject({
-      severity: 'warning',
-      stateLabel: 'FAILING',
-      detail: 'connection refused · 2 failed probes',
-      ageBasis: 'failing-since',
-    })
-  })
-
-  it('describes loss and latency without a made-up start', async () => {
-    const loss = await detailOf('fra-isp-a')
-    expect(loss?.detail).toMatch(/^loss 6% · \d+ ms$/)
-    expect(loss).toMatchObject({ stateLabel: 'DEGRADED', ageIso: null, ageBasis: null })
-    expect((await detailOf('muc-cdn'))?.detail).toMatch(/^latency 2\d\d ms · warn at 150$/)
-    expect((await detailOf('hc-annex-lte'))?.detail).toMatch(/^loss 3% · \d+ ms$/)
-  })
-
   it('says "never reported" for a server that has never reported', async () => {
     expect(await detailOf('core-ci-01')).toMatchObject({
       severity: 'unknown',
@@ -388,28 +327,19 @@ describe('needs-attention', () => {
     })
   })
 
-  it('describes unobserved targets', async () => {
-    const { items } = await apiFor('partial').listAttention()
-    expect(items.find((item) => item.name === 'core-git-https')?.detail).toBe('never reported')
-    expect(items.find((item) => item.name === 'hc-portal')?.detail).toBe(
-      'no recent measurement · last probe 3h ago',
-    )
-  })
-
   it('omits site names for entities that belong to no site', () => {
     const { fleet } = buildEstate('story', { now: NOW, anchor: NOW })
-    const dns = fleet.targets.find((target) => target.name === 'public-dns')
-    if (!dns) throw new Error('fixture missing')
-    Object.assign(dns, {
-      status: 'down',
-      failingSince: dns.lastProbeAt,
-      consecutiveFailures: 5,
-      failureReason: 'timeout',
-    })
-    const item = listAttention(fleet, NOW, false).items.find((entry) => entry.name === 'public-dns')
-    expect(item).toBeDefined()
-    expect(item).not.toHaveProperty('siteName')
-    expect(item).not.toHaveProperty('customerName')
+    const server = fleet.servers.find((entry) => entry.name === 'ath-app-01')
+    if (!server) throw new Error('fixture missing')
+    server.siteId = null
+    const item = listAttention(fleet, NOW, false).items.find((entry) => entry.id === server.id)
+    // A healthy server is not in the queue; make it a problem so it is.
+    expect(item).toBeUndefined()
+    Object.assign(server, { status: 'offline' })
+    const offline = listAttention(fleet, NOW, false).items.find((entry) => entry.id === server.id)
+    expect(offline).toBeDefined()
+    expect(offline).not.toHaveProperty('siteName')
+    expect(offline).not.toHaveProperty('customerName')
   })
 })
 
@@ -480,7 +410,7 @@ describe('health breakdown by site', () => {
       const [bc, bw] = key(b)
       expect(ac! > bc! || (ac === bc && aw! >= bw!)).toBe(true)
     }
-    expect(sites[0]?.siteName).toBe('Piraeus Depot')
+    expect(sites[0]?.siteName).toBe('Athens DC')
     expect(sites[0]?.customerName).toBe('Meridian Logistics')
   })
 
@@ -519,17 +449,6 @@ describe('entity index details', () => {
       detail: 'postgres:16.4 on ath-db-01',
       siteName: 'Athens DC',
     })
-    expect(find('tgt-ath-api')).toMatchObject({
-      kind: 'target',
-      detail: 'api.meridian.example:443',
-    })
-    expect(find('tgt-ath-gateway')).toMatchObject({ detail: '10.20.0.1' })
-    expect(find('tgt-public-dns')).not.toHaveProperty('siteName')
-    expect(find('dev-pir-sw1')).toMatchObject({
-      kind: 'device',
-      detail: '10.30.0.3',
-      status: 'unknown',
-    })
     expect(find('site-pir-depot')).toMatchObject({
       kind: 'site',
       status: 'critical',
@@ -565,7 +484,7 @@ describe('offline flags', () => {
     expect(flagged(attention)).toEqual(stopped)
     expect(flagged(index)).toEqual(stopped)
     expect(flagged(sites.flatMap((entry) => entry.entities))).toEqual(stopped)
-    // Nothing that is not a server is ever flagged: not a container, target, device, site or customer.
+    // Nothing that is not a server is ever flagged: not a container, site or customer.
     expect(attention.filter((item) => item.offline).every((item) => item.kind === 'server')).toBe(
       true,
     )
@@ -592,14 +511,11 @@ describe('offline flags', () => {
     expect(summary.servers.counts.offline).toBe(1)
     expect(summary.servers.counts.critical).toBeGreaterThanOrEqual(1)
     expect(summary.containers.counts).not.toHaveProperty('offline')
-    expect(summary.targets.counts).not.toHaveProperty('offline')
 
     const { domains } = await NORMAL.getHealthBreakdown()
     const byDomain = Object.fromEntries(domains.map((entry) => [entry.domain, entry.counts]))
     expect(byDomain.servers?.offline).toBe(1)
     expect(byDomain.containers).not.toHaveProperty('offline')
-    expect(byDomain.targets).not.toHaveProperty('offline')
-    expect(byDomain.snmp).not.toHaveProperty('offline')
   })
 
   it('sets nothing where no server is offline', async () => {

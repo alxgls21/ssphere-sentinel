@@ -1,28 +1,43 @@
-import type { HealthStatus, ServerListItem } from '@/api/types'
+import type { ServerListItem, ServerSortKey, ServerStatusFilter, SortDirection } from '@/api/types'
 import { EMPTY, formatAge, formatDuration } from '@/lib/format'
-import { compareSeverity, countStatuses, displayStatus, type DisplayStatus } from '@/lib/status'
-import { resourceLevel } from '@/lib/thresholds'
+import { readingOf, reportsLoad, uptimeOf } from '@/lib/serverList'
+import { displayStatus, type DisplayStatus } from '@/lib/status'
+import { DEFAULT_RESOURCE_LIMITS, resourceLevel, type ResourceLimits } from '@/lib/thresholds'
 
 /**
- * Everything the Servers list decides: which rows, in what order, and the
- * words it uses. Pure, so it is tested without a screen. The data source gives
- * the whole fleet; narrowing it is the UI's job until the backend paginates.
+ * What the Servers list asks for and the words it uses. Pure, so it is tested without a
+ * screen. Which rows, in what order and on which page is the data source's answer (the
+ * console API's; see lib/serverList for the same rules over sample data).
  */
 
 /* ------------------------------------------------------------------- query */
 
-export type StatusFilter = 'all' | 'critical' | 'warning' | 'unknown' | 'healthy'
-export type SortKey = 'status' | 'name' | 'cpu' | 'memory' | 'disk' | 'uptime' | 'seen'
-export type SortDir = 'asc' | 'desc'
+export type StatusFilter = ServerStatusFilter
+export type SortKey = ServerSortKey
+export type SortDir = SortDirection
 
 export interface ServersQuery {
   q: string
   status: StatusFilter
   sort: SortKey
   dir: SortDir
+  /** 1-based. */
+  page: number
 }
 
-export const DEFAULT_QUERY: ServersQuery = { q: '', status: 'all', sort: 'status', dir: 'desc' }
+export const DEFAULT_QUERY: ServersQuery = {
+  q: '',
+  status: 'all',
+  sort: 'status',
+  dir: 'desc',
+  page: 1,
+}
+
+/** The console API refuses a page number above this. */
+export const MAX_PAGE = 10_000
+
+/** Servers asked for at a time. The console API serves at most 200; the list pages through them. */
+export const SERVERS_PAGE_SIZE = 50
 
 export const STATUS_FILTERS: readonly StatusFilter[] = [
   'all',
@@ -65,6 +80,12 @@ export const FIRST_DIR: Record<SortKey, SortDir> = {
 const isOneOf = <T extends string>(list: readonly T[], value: string | null): value is T =>
   value !== null && (list as readonly string[]).includes(value)
 
+/** A page number from the URL: a whole number from 1, anything else is the first page. */
+function wholePage(value: string | null): number {
+  const page = value !== null && /^\d{1,5}$/.test(value) ? Number(value) : 1
+  return page >= 1 && page <= MAX_PAGE ? page : 1
+}
+
 export function parseQuery(params: URLSearchParams): ServersQuery {
   const status = params.get('status')
   const sort = params.get('sort')
@@ -75,6 +96,7 @@ export function parseQuery(params: URLSearchParams): ServersQuery {
     status: isOneOf(STATUS_FILTERS, status) ? status : DEFAULT_QUERY.status,
     sort: key,
     dir: dir === 'asc' || dir === 'desc' ? dir : FIRST_DIR[key],
+    page: wholePage(params.get('page')),
   }
 }
 
@@ -89,6 +111,7 @@ export function writeQuery(params: URLSearchParams, query: ServersQuery): URLSea
   set('status', query.status, query.status === DEFAULT_QUERY.status)
   set('sort', query.sort, query.sort === DEFAULT_QUERY.sort)
   set('dir', query.dir, query.dir === FIRST_DIR[query.sort])
+  set('page', String(query.page), query.page === DEFAULT_QUERY.page)
   return next
 }
 
@@ -103,26 +126,6 @@ export const isDefaultView = (query: ServersQuery): boolean =>
 
 /* -------------------------------------------------------------- the values */
 
-/** What an offline or never-reported server still tells us: nothing about load. */
-export const reportsLoad = (item: ServerListItem): boolean =>
-  item.server.status === 'online' || item.server.status === 'warning'
-
-export function loadOf(item: ServerListItem, metric: 'cpu' | 'memory' | 'disk'): number | null {
-  const telemetry = item.server.telemetry
-  if (!telemetry || !reportsLoad(item)) return null
-  return metric === 'cpu'
-    ? telemetry.cpuPercent
-    : metric === 'memory'
-      ? telemetry.memoryPercent
-      : telemetry.diskPercent
-}
-
-export const uptimeOf = (item: ServerListItem): number | null =>
-  reportsLoad(item) ? (item.server.telemetry?.uptimeSeconds ?? null) : null
-
-export const seenAtOf = (item: ServerListItem): number | null =>
-  item.server.lastSeenAt === null ? null : Date.parse(item.server.lastSeenAt)
-
 /**
  * What the status tag shows: the health, or offline for a server whose agent stopped
  * reporting. The health still decides (the severity edge, the status filter and the sort).
@@ -130,13 +133,19 @@ export const seenAtOf = (item: ServerListItem): number | null =>
 export const serverDisplay = (item: ServerListItem): DisplayStatus =>
   displayStatus(item.health, item.server.status === 'offline')
 
-/** The domain word for the status tag: what is wrong, not just how bad. */
-export function stateWord(item: ServerListItem): string {
+/**
+ * The domain word for the status tag: what is wrong, not just how bad. The health is the
+ * server's; the word only names what is behind it, and only from a current reading.
+ */
+export function stateWord(
+  item: ServerListItem,
+  limits: ResourceLimits = DEFAULT_RESOURCE_LIMITS,
+): string {
   const { server, health } = item
   if (server.status === 'offline') return 'OFFLINE'
   if (health === 'unknown') return 'UNKNOWN'
   if (health === 'healthy') return 'ONLINE'
-  const telemetry = server.telemetry
+  const telemetry = reportsLoad(item) ? server.telemetry : null
   if (telemetry) {
     const worst = (
       [
@@ -145,7 +154,7 @@ export function stateWord(item: ServerListItem): string {
         ['DISK', telemetry.diskPercent],
       ] as const
     )
-      .filter(([, percent]) => resourceLevel(percent) !== 'ok')
+      .filter(([, percent]) => resourceLevel(percent, limits) !== 'ok')
       .sort((a, b) => b[1] - a[1])[0]
     if (worst) return worst[0]
   }
@@ -154,10 +163,32 @@ export function stateWord(item: ServerListItem): string {
 
 /** Why a server has no load figures, for the cells that would otherwise be blank. */
 export function noLoadReason(item: ServerListItem): string | null {
-  if (reportsLoad(item)) return null
-  return item.server.status === 'offline'
-    ? 'Offline: the agent stopped reporting, so there is no current reading.'
-    : 'Never reported: this server is enrolled but its agent has not sent a heartbeat.'
+  switch (readingOf(item)) {
+    case 'current':
+      return null
+    case 'offline':
+      return 'Offline: the agent stopped reporting, so there is no current reading.'
+    case 'stale':
+      return 'Stale: the newest reading is older than the offline window, so it is not shown as the present value.'
+    case 'missing':
+      return 'No reading yet: the agent reports, but no telemetry has arrived.'
+    case 'never':
+      return 'Never reported: this server is enrolled but its agent has not sent a heartbeat.'
+  }
+}
+
+/** The one sentence a row shows in place of three meters. */
+export function noLoadSentence(item: ServerListItem): string {
+  switch (readingOf(item)) {
+    case 'offline':
+      return 'No current reading: the agent stopped reporting'
+    case 'stale':
+      return 'No current reading: the last one is stale'
+    case 'missing':
+      return 'No reading yet: no telemetry received'
+    default:
+      return 'No reading: never reported'
+  }
 }
 
 export function heartbeatText(item: ServerListItem, nowMs: number): string {
@@ -172,84 +203,19 @@ export const uptimeText = (item: ServerListItem): string => {
 
 /* ------------------------------------------------------------- search/sort */
 
-const haystack = (item: ServerListItem): string =>
-  [
-    item.server.name,
-    item.server.hostname,
-    item.server.ipAddress ?? '',
-    item.server.operatingSystem,
-    item.siteName ?? '',
-    item.customerName ?? '',
-  ]
-    .join(' ')
-    .toLowerCase()
-
-/** Every word must appear somewhere (name, hostname, address, OS, site, customer). */
-export function matchesSearch(item: ServerListItem, query: string): boolean {
-  const words = query.toLowerCase().split(/\s+/).filter(Boolean)
-  if (words.length === 0) return true
-  const text = haystack(item)
-  return words.every((word) => text.includes(word))
-}
-
-export const matchesStatus = (item: ServerListItem, filter: StatusFilter): boolean =>
-  filter === 'all' || item.health === filter
-
-export function filterServers(
-  items: readonly ServerListItem[],
-  query: Pick<ServersQuery, 'q' | 'status'>,
-): ServerListItem[] {
-  return items.filter((item) => matchesStatus(item, query.status) && matchesSearch(item, query.q))
-}
-
-function sortValue(item: ServerListItem, key: SortKey): number | null {
-  switch (key) {
-    case 'cpu':
-      return loadOf(item, 'cpu')
-    case 'memory':
-      return loadOf(item, 'memory')
-    case 'disk':
-      return loadOf(item, 'disk')
-    case 'uptime':
-      return uptimeOf(item)
-    case 'seen':
-      // Oldest heartbeat first when "desc": the silent ones are the ones to look at.
-      return seenAtOf(item) === null ? null : -(seenAtOf(item) as number)
-    default:
-      return null
-  }
-}
-
-const byName = (a: ServerListItem, b: ServerListItem) =>
-  a.server.name.localeCompare(b.server.name, 'en', { numeric: true })
-
-/**
- * Sorted copy. Rows without a value (offline, never reported) go last in either
- * direction, so a descending CPU sort never leads with blanks. Ties fall back to
- * the name, so the order is total and stable from one refresh to the next.
- */
-export function sortServers(
-  items: readonly ServerListItem[],
-  { sort, dir }: Pick<ServersQuery, 'sort' | 'dir'>,
-): ServerListItem[] {
-  const sign = dir === 'asc' ? 1 : -1
-  return [...items].sort((a, b) => {
-    if (sort === 'name') return sign * byName(a, b)
-    if (sort === 'status') {
-      // compareSeverity ranks the worst first; "desc" keeps the worst on top.
-      const order = compareSeverity(a.health, b.health)
-      return (dir === 'desc' ? 1 : -1) * order || byName(a, b)
-    }
-    const x = sortValue(a, sort)
-    const y = sortValue(b, sort)
-    if (x === null || y === null) return x === y ? byName(a, b) : x === null ? 1 : -1
-    return sign * (x - y) || byName(a, b)
-  })
-}
-
-export function countByHealth(items: readonly ServerListItem[]): Record<HealthStatus, number> {
-  return countStatuses(items.map((item) => item.health))
-}
+export {
+  countByHealth,
+  filterServers,
+  loadOf,
+  matchesSearch,
+  matchesStatus,
+  readingOf,
+  reportsLoad,
+  seenAtOf,
+  sortServers,
+  uptimeOf,
+  type Reading,
+} from '@/lib/serverList'
 
 export const FILTER_LABEL: Record<StatusFilter, string> = {
   all: 'ALL',

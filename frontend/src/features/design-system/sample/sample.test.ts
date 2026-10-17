@@ -3,7 +3,6 @@ import { computeFreshness } from '@/app/live'
 import { computeVerdict } from '@/lib/verdict'
 import {
   GRID_ENTITIES,
-  SAMPLE_ALERTS,
   SAMPLE_SERIES,
   SAMPLE_SUMMARIES,
   counts,
@@ -20,31 +19,27 @@ describe('sample summaries', () => {
     },
   )
 
-  it('reproduce the reference story: 4 critical, 5 warning, 112 ok of 121, 3 idle', () => {
+  it('reproduce the reference story: 3 critical, 3 warning, 75 ok of 81, 3 idle', () => {
     const verdict = computeVerdict(SAMPLE_SUMMARIES.critical, 'live')
-    expect(verdict.counts).toMatchObject({ critical: 4, warning: 5, healthy: 112, idle: 3 })
-    expect(verdict.needAttention).toBe(9)
-    expect(verdict.monitored).toBe(121)
+    expect(verdict.counts).toMatchObject({ critical: 3, warning: 3, healthy: 75, idle: 3 })
+    expect(verdict.needAttention).toBe(6)
+    expect(verdict.monitored).toBe(81)
   })
 
   it('derive every total from the counts', () => {
-    const { servers, containers, targets } = SAMPLE_SUMMARIES.critical
+    const { servers, containers } = SAMPLE_SUMMARIES.critical
     expect(servers.total).toBe(16)
-    expect(servers.online).toBe(15)
     expect(containers.total).toBe(68)
-    expect(containers.running).toBe(65)
-    expect(targets.total).toBe(40)
-    expect(targets.successTrend).toHaveLength(12)
+    expect(SAMPLE_SUMMARIES.critical).not.toHaveProperty('targets')
+    expect(SAMPLE_SUMMARIES.critical).not.toHaveProperty('devices')
   })
 
   it('count an offline server once: it is already inside critical', () => {
     const { servers } = summaryOf({
       servers: counts({ healthy: 5, critical: 1, offline: 1 }),
       containers: counts({ healthy: 3 }),
-      targets: counts({ healthy: 2 }),
     })
     expect(servers.total).toBe(6)
-    expect(servers.online).toBe(5)
     expect(servers.counts.offline).toBe(1)
   })
 })
@@ -117,9 +112,8 @@ describe('scenarios', () => {
 })
 
 describe('gallery api', () => {
-  it('labels itself mock, answers for the planned alerts tile and refuses the rest', async () => {
+  it('labels itself mock and refuses every request: the gallery reads no data source', async () => {
     expect(GALLERY_API.source).toBe('mock')
-    await expect(GALLERY_API.listAlerts()).resolves.toBe(SAMPLE_ALERTS)
     await expect(GALLERY_API.getOverviewSummary()).rejects.toThrow(/no getOverviewSummary/)
   })
 })

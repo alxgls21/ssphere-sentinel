@@ -1,14 +1,18 @@
-import { useMemo } from 'react'
+import { useEffect } from 'react'
 import { Navigate, useSearchParams } from 'react-router'
 import { useApi } from '@/api/context'
+import type { PageInfo } from '@/api/types'
 import { useLive } from '@/app/live'
 import { usePrefs } from '@/app/prefs'
 import { useViewTo } from '@/app/viewSearch'
 import { scopeKey, useScope } from '@/app/viewState'
+import { useDebouncedValue } from '@/hooks/useDebouncedValue'
 import { useLiveResource } from '@/hooks/useLiveResource'
 import { useMediaQuery } from '@/hooks/useMediaQuery'
+import { formatInteger } from '@/lib/format'
 import { Panel } from '@/ui/Panel'
 import { Button, Chip, SearchField, Select, type SelectOption } from '@/ui/controls'
+import { limitsOrigin, useResourceLimits } from '@/ui/meters'
 import { EmptyState, Skeleton } from '@/ui/states'
 import { StatusGlyph } from '@/ui/status'
 import { ServerCards } from './ServerCards'
@@ -17,13 +21,11 @@ import {
   FILTER_LABEL,
   FIRST_DIR,
   SORT_KEYS,
+  SERVERS_PAGE_SIZE,
   SORT_LABEL,
   STATUS_FILTERS,
-  countByHealth,
-  filterServers,
   isDefaultView,
   serverPath,
-  sortServers,
   type SortKey,
   type StatusFilter,
 } from './serversModel'
@@ -51,12 +53,43 @@ function ListSkeleton() {
   )
 }
 
-const FOOTER_NOTE = 'cell = 10% · warn at 80 · crit at 95 · UI defaults'
+/** How long the search must hold still before it is asked for: a request per keystroke is noise. */
+const SEARCH_SETTLE_MS = 250
+
+interface PagerProps {
+  page: PageInfo
+  shown: number
+  onPage: (number: number) => void
+}
+
+/** Where this page sits among the matches, and the way to the others. */
+function Pager({ page, shown, onPage }: PagerProps) {
+  const first = (page.number - 1) * page.size + 1
+  const last = first + shown - 1
+  return (
+    <nav aria-label="Pages" className="ml-auto flex shrink-0 items-center gap-2">
+      <span className="type-data tnum" aria-live="polite">
+        {shown > 0 ? `${first}–${last} of ${formatInteger(page.total)} · ` : ''}
+        page {page.number} of {page.pages}
+      </span>
+      <Button size="sm" disabled={page.number <= 1} onClick={() => onPage(page.number - 1)}>
+        Previous
+      </Button>
+      <Button
+        size="sm"
+        disabled={page.number >= page.pages}
+        onClick={() => onPage(page.number + 1)}
+      >
+        Next
+      </Button>
+    </nav>
+  )
+}
 
 /**
- * Servers: every monitored host, worst first. Search, status filter and sort
- * live in the URL. Demo data until the screen is connected to the console API,
- * which already serves the list (`servers/`).
+ * Servers: every monitored host, worst first, a page at a time. Search, status filter,
+ * sort and page live in the URL; the console API does the narrowing, ordering and paging,
+ * and its counts and totals are what the chips and the header say.
  */
 export default function ServersListPage() {
   const api = useApi()
@@ -67,36 +100,44 @@ export default function ServersListPage() {
   const [params] = useSearchParams()
   const [query, update] = useServersQuery()
   const wide = useMediaQuery('(min-width: 48rem)')
+  const limits = useResourceLimits()
 
+  const search = useDebouncedValue(query.q, SEARCH_SETTLE_MS)
+  const asked = {
+    q: search,
+    status: query.status,
+    sort: query.sort,
+    dir: query.dir,
+    page: query.page,
+  }
   const resource = useLiveResource(
     'servers',
-    `servers:${scopeKey(scope)}`,
-    (signal) => api.listServers({ scope, signal }),
-    // A scope change keeps the previous rows, dimmed, instead of flashing a skeleton.
+    `servers:${scopeKey(scope)}:${JSON.stringify(asked)}`,
+    (signal) => api.listServers({ scope, ...asked, pageSize: SERVERS_PAGE_SIZE, signal }),
+    // A new query or scope keeps the previous rows, dimmed, instead of flashing a skeleton.
     { keepPreviousData: true },
   )
-  const items = resource.data?.items
-  const nowMs = resource.data ? Date.parse(resource.data.generatedAt) : 0
+  const list = resource.data
+  const rows = list?.items ?? []
+  const nowMs = list ? Date.parse(list.generatedAt) : 0
 
-  const rows = useMemo(
-    () => (items ? sortServers(filterServers(items, query), query) : []),
-    [items, query],
-  )
-  // The chip counts follow the search, not the status chip: they say what each chip would show.
-  const counts = useMemo(
-    () => countByHealth(items ? filterServers(items, { q: query.q, status: 'all' }) : []),
-    [items, query.q],
-  )
+  // A page past the last (matches went away while the list was open, or a stale link): go to the last one.
+  const lastPage = list && list.page.number === query.page ? list.page.pages : null
+  const pastTheEnd = lastPage !== null && query.page > lastPage && list?.page.total !== 0
+  useEffect(() => {
+    if (pastTheEnd && lastPage !== null) update({ page: lastPage })
+  }, [pastTheEnd, lastPage, update])
 
   // The Overview's queue opens an entity with ?focus=<id>: a server has a page of its own.
   const focus = params.get('focus')
-  if (focus?.startsWith('srv-')) {
+  if (focus) {
     return <Navigate replace to={viewTo(serverPath(focus))} />
   }
 
-  const total = items?.length ?? 0
-  const nothingMonitored = resource.status === 'success' && total === 0
-  const noMatch = items !== undefined && total > 0 && rows.length === 0
+  const matching = list?.page.total ?? 0
+  const nothingMonitored =
+    resource.status === 'success' && list !== undefined && list.scopeTotal === 0
+  const noMatch = list !== undefined && list.scopeTotal > 0 && matching === 0
   const clear = () => update({ q: '', status: 'all' })
 
   return (
@@ -104,7 +145,7 @@ export default function ServersListPage() {
       <header className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
         <h1 className="type-title">Servers</h1>
         <p className="type-data text-fg-muted" aria-live="polite">
-          {items ? `${rows.length} of ${total} shown` : null}
+          {list ? `${formatInteger(matching)} of ${formatInteger(list.scopeTotal)} shown` : null}
         </p>
       </header>
 
@@ -125,7 +166,13 @@ export default function ServersListPage() {
                 key={filter}
                 pressed={query.status === filter}
                 onPressedChange={(pressed) => update({ status: pressed ? filter : 'all' })}
-                count={items ? (filter === 'all' ? sumCounts(counts) : counts[filter]) : undefined}
+                count={
+                  list
+                    ? filter === 'all'
+                      ? sumCounts(list.counts)
+                      : list.counts[filter]
+                    : undefined
+                }
                 leading={glyph ? <StatusGlyph status={glyph} size={10} /> : undefined}
               >
                 {FILTER_LABEL[filter]}
@@ -151,9 +198,9 @@ export default function ServersListPage() {
         features="servers"
         scope="NOW"
         refreshMs={pollMs}
-        count={items ? rows.length : undefined}
+        count={list ? matching : undefined}
         status={resource.status}
-        refreshing={resource.isRefreshing && items !== undefined}
+        refreshing={resource.isRefreshing && list !== undefined}
         error={resource.error}
         updatedAt={resource.updatedAt}
         onRetry={resource.refetch}
@@ -181,12 +228,26 @@ export default function ServersListPage() {
         skeleton={<ListSkeleton />}
         footer={
           <>
-            <span className="truncate">{FOOTER_NOTE}</span>
+            <span className="truncate">
+              cell = 10% · warn at {limits.warn} · crit at {limits.crit} · {limitsOrigin(limits)}
+            </span>
             {isDefaultView(query) ? null : (
-              <Button size="sm" variant="ghost" onClick={clear} className="ml-auto">
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={clear}
+                className={list && list.page.pages > 1 ? undefined : 'ml-auto'}
+              >
                 Clear filters
               </Button>
             )}
+            {list && list.page.pages > 1 ? (
+              <Pager
+                page={list.page}
+                shown={rows.length}
+                onPage={(number) => update({ page: number })}
+              />
+            ) : null}
           </>
         }
         flush

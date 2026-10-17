@@ -9,7 +9,6 @@ import type { OverviewSummary, StatusCounts } from '@/api/types'
 import { LiveContext, LiveStore, type LiveControls } from '@/app/live'
 import { ShellContext, type ShellApi } from '@/app/shell'
 import { SummaryContext } from '@/app/summary'
-import { AlertsProvider } from '../AlertsProvider'
 import type { Resource } from '@/hooks/useResource'
 
 /** Test support for the hero: never imported by the app. */
@@ -24,26 +23,14 @@ export const counts = (over: Partial<StatusCounts> = {}): StatusCounts => ({
 })
 
 /**
- * The reference story: 16 servers (13 ok, 2 warn, 1 crit), 68 containers
- * (62 ok, 1 warn, 2 crit, 3 idle) and 40 targets (37 ok, 2 warn, 1 crit):
- * 4 critical, 5 warning, 112 ok of 121 counted, 3 idle.
+ * The reference story: 16 servers (13 ok, 2 warn, 1 crit) and 68 containers
+ * (62 ok, 1 warn, 2 crit, 3 idle): 3 critical, 3 warning, 75 ok of 81 counted, 3 idle.
  */
 export function makeSummary(over: Partial<OverviewSummary> = {}): OverviewSummary {
   return {
     generatedAt: '2026-10-12T14:05:12Z',
-    servers: { total: 16, online: 15, counts: counts({ healthy: 13, warning: 2, critical: 1 }) },
-    containers: {
-      total: 68,
-      running: 65,
-      counts: counts({ healthy: 62, warning: 1, critical: 2, idle: 3 }),
-    },
-    targets: {
-      total: 40,
-      up: 37,
-      counts: counts({ healthy: 37, warning: 2, critical: 1 }),
-      successTrend: [99, 99, 98, 99, 100, 99, 97, 98, 99, 100, 99, 99],
-    },
-    devices: { inInventory: 12, byType: { router: 4, switch: 5, firewall: 2, other: 1 } },
+    servers: { total: 16, counts: counts({ healthy: 13, warning: 2, critical: 1 }) },
+    containers: { total: 68, counts: counts({ healthy: 62, warning: 1, critical: 2, idle: 3 }) },
     ...over,
   }
 }
@@ -107,9 +94,7 @@ function withContexts(
       <ApiContext.Provider value={api}>
         <LiveContext.Provider value={live}>
           <ShellContext.Provider value={shell}>
-            <SummaryContext.Provider value={summary}>
-              <AlertsProvider>{children}</AlertsProvider>
-            </SummaryContext.Provider>
+            <SummaryContext.Provider value={summary}>{children}</SummaryContext.Provider>
           </ShellContext.Provider>
         </LiveContext.Provider>
       </ApiContext.Provider>
@@ -132,13 +117,7 @@ interface HarnessOptions {
  * shell would have spoken.
  */
 export function renderHero(ui: ReactElement, options: HarnessOptions = {}) {
-  // The alerts tile loads through the page's shared alerts resource, which reports into the same
-  // freshness store: give it an answer so a failing default stub cannot look like a dead screen.
-  const {
-    api = createTestApi({ listAlerts: () => Promise.resolve([]) }),
-    pollMs = 1000,
-    paused = false,
-  } = options
+  const { api = createTestApi(), pollMs = 1000, paused = false } = options
   const store = new LiveStore()
   const announce = vi.fn()
   const shell = makeShell(announce)

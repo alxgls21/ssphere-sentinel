@@ -7,9 +7,10 @@ import { useLiveResource } from '@/hooks/useLiveResource'
 import type { ResourceStatus } from '@/hooks/useResource'
 import { Panel } from '@/ui/Panel'
 import { SegmentedControl } from '@/ui/controls'
+import { useResourceLimits } from '@/ui/meters'
 import { EmptyState, Skeleton } from '@/ui/states'
 import { LoadRow } from './LoadRow'
-import { LOAD_ROWS, LOAD_TABS, THRESHOLD_NOTE, excludedNote, metricNoun } from './loadModel'
+import { LOAD_ROWS, LOAD_TABS, excludedNote, metricNoun, thresholdNote } from './loadModel'
 
 /** Placeholder rows at the real row height, so loading never shifts the footer. */
 function LoadSkeleton() {
@@ -25,6 +26,7 @@ function LoadSkeleton() {
 }
 
 function LoadFooter({ excluded }: { excluded: readonly string[] }) {
+  const limits = useResourceLimits()
   const note = excludedNote(excluded)
   return (
     <div className="flex min-w-0 flex-col py-0.5">
@@ -33,7 +35,7 @@ function LoadFooter({ excluded }: { excluded: readonly string[] }) {
           {note}
         </span>
       ) : null}
-      <span className="truncate">{THRESHOLD_NOTE}</span>
+      <span className="truncate">{thresholdNote(limits)}</span>
     </div>
   )
 }

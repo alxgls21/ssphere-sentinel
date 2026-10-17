@@ -82,8 +82,9 @@ cannot say that.
   another subject, one that names no subject and one stamped before the opener close
   nothing, and info events never do. An event carries no acknowledgement, so the timeline
   claims none. The backend has no event log, alert rules, acknowledgement or incident
-  record, so the events are sample data and the timeline inherits the panel's PLANNED
-  chrome.
+  record, so the Overview mounts no timeline: its Recent events panel is PLANNED and holds
+  no rows. The derivation stays as a component, shown in the gallery with labelled sample
+  events.
 - **Missing.** One record per incident with a stable identifier: the subject (kind, id,
   name), the severity it opened at and any change, `opened_at`, `resolved_at` or none, and
   what resolved it. Acknowledgement as data: who and when, with an optional note.

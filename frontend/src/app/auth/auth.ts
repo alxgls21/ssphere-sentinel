@@ -1,5 +1,5 @@
 import { createContext, useContext } from 'react'
-import type { ConsoleUser } from '@/api/auth'
+import type { ConsoleUser, PublishedThresholds } from '@/api/auth'
 
 /**
  *   checking     asking the server who is signed in
@@ -25,6 +25,8 @@ export interface AuthApi {
   status: AuthStatus
   /** Set while authenticated against the real API; null in mock mode. */
   user: ConsoleUser | null
+  /** The limits the server judges health by; null in mock mode and while nobody is signed in. */
+  thresholds: PublishedThresholds | null
   /** True after an explicit sign-out: the sign-in page then does not remember where the user was. */
   signedOut: boolean
   /** Why the last check or sign-out failed, for the screens that say so. */

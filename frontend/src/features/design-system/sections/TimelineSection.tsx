@@ -1,9 +1,9 @@
 import type { SentinelEvent } from '@/api/types'
 import { IncidentTimeline } from '@/features/overview/events/IncidentTimeline'
 import { POLL_MS } from '@/lib/thresholds'
-import { Panel } from '@/ui/Panel'
 import { SAMPLE_TIME } from '../sample/data'
 import { SAMPLE_INCIDENT_EVENTS, SAMPLE_INFO_EVENTS } from '../sample/incidents'
+import { SamplePanel } from '../sample/SamplePanel'
 import { Specimen } from '../Specimen'
 
 /**
@@ -23,17 +23,16 @@ function Sample({
   events: readonly SentinelEvent[]
 }) {
   return (
-    <Panel
+    <SamplePanel
       title={title}
-      features="events"
-      plannedNote="Event log not implemented."
+      note="The event log is not implemented in the backend."
       scope="1h"
       refreshMs={POLL_MS}
       className={className}
       flush
     >
       <IncidentTimeline view="gallery" events={events} range="1h" now={SAMPLE_TIME} />
-    </Panel>
+    </SamplePanel>
   )
 }
 

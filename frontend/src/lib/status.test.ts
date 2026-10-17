@@ -5,14 +5,11 @@ import {
   containerHealth,
   countEntities,
   countStatuses,
-  deviceHealth,
   displayCounts,
   displayStatus,
   healthOf,
-  isIssue,
   needsAttention,
   serverHealth,
-  targetHealth,
   serverHealthWithResources,
   worstOf,
   worstStatus,
@@ -41,30 +38,6 @@ describe('status mapping', () => {
     expect(containerHealth('running', 'none')).toBe('healthy')
     expect(containerHealth('running', 'healthy')).toBe('healthy')
     expect(containerHealth('unknown', 'unknown')).toBe('unknown')
-  })
-
-  it('classifies probe targets with the UI-default thresholds', () => {
-    const t = (over: object) => ({
-      status: 'up' as const,
-      consecutiveFailures: 0,
-      latencyMs: 20,
-      packetLossPercent: 0,
-      ...over,
-    })
-    expect(targetHealth(t({}))).toBe('healthy')
-    expect(targetHealth(t({ latencyMs: 150 }))).toBe('healthy')
-    expect(targetHealth(t({ latencyMs: 151 }))).toBe('warning')
-    expect(targetHealth(t({ packetLossPercent: 2 }))).toBe('warning')
-    expect(targetHealth(t({ status: 'degraded' }))).toBe('warning')
-    expect(targetHealth(t({ status: 'down', consecutiveFailures: 2 }))).toBe('warning')
-    expect(targetHealth(t({ status: 'down', consecutiveFailures: 3 }))).toBe('critical')
-    expect(targetHealth(t({ status: 'unknown', latencyMs: null }))).toBe('unknown')
-  })
-
-  it('derives device health from reachability and interfaces', () => {
-    expect(deviceHealth(false, 0)).toBe('critical')
-    expect(deviceHealth(true, 2)).toBe('warning')
-    expect(deviceHealth(true, 0)).toBe('healthy')
   })
 
   it('raises a server by its resource samples using the UI-default thresholds', () => {
@@ -101,13 +74,11 @@ describe('status mapping', () => {
     expect(worstStatus(['healthy', 'unknown'])).toBe('unknown')
   })
 
-  it('says what needs attention and what is an issue', () => {
+  it('says what needs attention', () => {
     expect(
       needsAttention('warning') && needsAttention('critical') && needsAttention('unknown'),
     ).toBe(true)
     expect(needsAttention('healthy') || needsAttention('idle')).toBe(false)
-    expect(isIssue('warning') && isIssue('critical')).toBe(true)
-    expect(isIssue('unknown') || isIssue('idle') || isIssue('healthy')).toBe(false)
   })
 
   it('counts statuses and reports the worst present', () => {
@@ -125,19 +96,6 @@ describe('thresholds judge the value as displayed', () => {
     expect(resourceLevel(79.5)).toBe('warn') // prints "80%"
     expect(resourceLevel(94.4)).toBe('warn')
     expect(resourceLevel(94.5)).toBe('crit') // prints "95%"
-  })
-
-  it('classifies a probe by the latency and loss it prints', () => {
-    const probe = (latencyMs: number, packetLossPercent = 0) => ({
-      status: 'up' as const,
-      consecutiveFailures: 0,
-      latencyMs,
-      packetLossPercent,
-    })
-    expect(targetHealth(probe(150.4))).toBe('healthy') // prints "150 ms"
-    expect(targetHealth(probe(150.5))).toBe('warning') // prints "151 ms"
-    expect(targetHealth(probe(20, 1.94))).toBe('healthy') // prints "1.9%"
-    expect(targetHealth(probe(20, 1.95))).toBe('warning') // prints "2.0%"
   })
 })
 

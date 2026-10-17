@@ -5,9 +5,11 @@ import type {
   ServerDetail,
   ServerList,
   ServerListItem,
+  ServerListOptions,
   ServerSeries,
 } from '../types'
 import { RANGE_MS } from '@/lib/range'
+import { queryServers } from '@/lib/serverList'
 import { countStatuses } from '@/lib/status'
 import type { Fleet } from './fixtures'
 import { containerHealthOf, makeLookup, serverHealthOf, type Lookup } from './lookup'
@@ -35,12 +37,15 @@ function itemOf(server: Server, fleet: Fleet, lookup: Lookup): ServerListItem {
   }
 }
 
-export function listServers(fleet: Fleet, now: number): ServerList {
+/** The page of servers a query asks for, by the rules the console API applies (see lib/serverList). */
+export function listServers(
+  fleet: Fleet,
+  now: number,
+  options: ServerListOptions = {},
+): ServerList {
   const lookup = makeLookup(fleet)
-  return {
-    generatedAt: toIso(now),
-    items: fleet.servers.map((server) => itemOf(server, fleet, lookup)),
-  }
+  const everyone = fleet.servers.map((server) => itemOf(server, fleet, lookup))
+  return queryServers(everyone, toIso(now), options)
 }
 
 export function serverDetail(fleet: Fleet, id: string, now: number): ServerDetail {

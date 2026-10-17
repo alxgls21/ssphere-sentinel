@@ -4,14 +4,21 @@ The web console for SSphere Sentinel: a dark, terminal-inspired, NOC-style
 dashboard. It is a standalone React app in this directory and is **independent
 of the Django backend**.
 
-> **Status: sign-in and scope are real; the screens still show demo data.**
-> The console signs in against the Django console API (session cookie and CSRF)
-> and reads the customers and sites you may see from it. Every other number on
-> screen is built-in sample data, marked `DEMO DATA` (a strip above the screen, a
-> chip in the top bar, per-panel `mock` tags) and never filtered by your real
-> customers. A dashed frame with a `PLANNED` chip marks what the backend does
-> not implement, and with `NOT CONNECTED` what the backend may support but the
-> console does not read yet (SNMP: configuring it does not make data appear here).
+> **Status: sign-in, scope, servers, containers and the Overview counts are real; targets,
+> SNMP devices, alerts and events are not served yet and show no figure.**
+> The console signs in against the Django console API (session cookie and CSRF) and reads
+> from it the customers and sites you may see, the Servers list (searched, filtered, sorted
+> and paged by the server), each server with its containers and its CPU, RAM and disk
+> history, the busiest servers by load, and the containers of every visible server. The
+> Overview is built from two of those lists, the worst first of each, and from the counts
+> the API itself reports: the verdict, the tiles, the attention queue and the health by
+> domain and site are servers and containers, nothing else. Those panels say `live` only
+> because that is read from the API; a failed request is an error, never a stand-in.
+> Network targets, SNMP devices, alerts, incidents, events and network latency have no
+> console API: their panels and tiles carry a dashed frame, a `NOT CONNECTED` or `PLANNED`
+> chip and one sentence saying why, and no number, chart or sample row. The built-in sample
+> fleet exists only in a development run with `VITE_SENTINEL_API=mock` (servers and
+> containers, marked `DEMO DATA`); a production bundle holds none of it.
 > Two screens are designed and built: **Overview** and **Servers**. The other six
 > are routed and show an honest "not designed yet" placeholder.
 
@@ -121,22 +128,23 @@ updates, `r` refreshes. Single-key shortcuts can be turned off in the Display me
 
 | Document                                                 | Contents                                                                                                  |
 | -------------------------------------------------------- | --------------------------------------------------------------------------------------------------------- |
-| [`docs/architecture.md`](docs/architecture.md)           | Stack, folder structure, layering rules, data flow, sign-in, how the API replaces demo data               |
+| [`docs/architecture.md`](docs/architecture.md)           | Stack, folder structure, layering rules, data flow, sign-in, how the console API composes the Overview    |
 | [`docs/design-system.md`](docs/design-system.md)         | Principles, palette, status alphabet, typography, geometry, components, meters, charts, incident timeline |
 | [`docs/design-spec.md`](docs/design-spec.md)             | The full design spec with exact values and per-component behavior                                         |
 | [`docs/data-requirements.md`](docs/data-requirements.md) | What the console needs from the backend for visualizations it does not draw yet                           |
 
 ## Connecting more of the backend
 
-The sign-in and the scope options already go through `src/api/http`. Each further
-backend endpoint follows the same steps:
+The sign-in, the scope options, the servers and the containers go through `src/api/http`, and
+`src/app/consoleApi.ts` composes them into the whole `SentinelApi`. Each further backend
+endpoint follows the same steps:
 
 1. Add its request to `src/api/http`, validating the answer and mapping it onto
    the view-models in `src/api/types.ts`.
-2. Move the matching method of `SentinelApi` from the demo side to the real side
-   in `src/api/demo.ts` (`composeDemoApi`).
-3. Set `connected: true` for it in `src/config/features.ts`; its demo markers
-   disappear on their own.
+2. Add the matching method to `SentinelApi` and answer it in `createConsoleApi`. A feature the
+   console API does not serve has no method: its screens show a statement, not a figure.
+3. Set `connected: true` for the feature in `src/config/features.ts` once a screen reads it;
+   its markers follow on their own.
 
 No screen imports the mock or the HTTP layer, so none of them changes.
 

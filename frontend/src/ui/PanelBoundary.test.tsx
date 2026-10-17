@@ -9,7 +9,7 @@ let broken = true
 function Fragile() {
   if (broken) throw new Error('chart exploded')
   return (
-    <Panel title="Fragile panel" features="network">
+    <Panel title="Fragile panel" features="servers">
       recovered
     </Panel>
   )
@@ -25,7 +25,7 @@ describe('PanelBoundary', () => {
     vi.spyOn(console, 'error').mockImplementation(() => {})
     renderApp(
       <>
-        <PanelBoundary title="Fragile panel" features="network" index={2}>
+        <PanelBoundary title="Fragile panel" features="servers" index={2}>
           <Fragile />
         </PanelBoundary>
         <Panel title="Healthy panel" features="servers">
@@ -42,7 +42,7 @@ describe('PanelBoundary', () => {
   it('renders the panel again on Retry', async () => {
     vi.spyOn(console, 'error').mockImplementation(() => {})
     renderApp(
-      <PanelBoundary title="Fragile panel" features="network">
+      <PanelBoundary title="Fragile panel" features="servers">
         <Fragile />
       </PanelBoundary>,
     )

@@ -1,5 +1,4 @@
 import type {
-  Alert,
   EntityKind,
   NetworkSeries,
   OverviewSummary,
@@ -29,26 +28,14 @@ const total = ({ healthy, warning, critical, unknown, idle }: StatusCounts) =>
 interface Estate {
   servers: StatusCounts
   containers: StatusCounts
-  targets: StatusCounts
 }
 
 /** Totals follow from the counts, so a sample can never disagree with itself. */
-export function summaryOf({ servers, containers, targets }: Estate): OverviewSummary {
+export function summaryOf({ servers, containers }: Estate): OverviewSummary {
   return {
     generatedAt: new Date(SAMPLE_TIME).toISOString(),
-    servers: { total: total(servers), online: servers.healthy + servers.warning, counts: servers },
-    containers: {
-      total: total(containers),
-      running: total(containers) - containers.idle,
-      counts: containers,
-    },
-    targets: {
-      total: total(targets),
-      up: targets.healthy + targets.warning,
-      counts: targets,
-      successTrend: [99, 99, 98, 99, 100, 99, 97, 98, 99, 100, 99, 99],
-    },
-    devices: { inInventory: 12, byType: { router: 4, switch: 5, firewall: 2, other: 1 } },
+    servers: { total: total(servers), counts: servers },
+    containers: { total: total(containers), counts: containers },
   }
 }
 
@@ -57,61 +44,20 @@ export const SAMPLE_SUMMARIES: Record<Exclude<VerdictState, 'nodata'>, OverviewS
   critical: summaryOf({
     servers: counts({ healthy: 13, warning: 2, critical: 1 }),
     containers: counts({ healthy: 62, warning: 1, critical: 2, idle: 3 }),
-    targets: counts({ healthy: 37, warning: 2, critical: 1 }),
   }),
   degraded: summaryOf({
     servers: counts({ healthy: 14, warning: 2 }),
     containers: counts({ healthy: 64, warning: 1, idle: 3 }),
-    targets: counts({ healthy: 38, warning: 2 }),
   }),
   partial: summaryOf({
     servers: counts({ healthy: 15, unknown: 1 }),
     containers: counts({ healthy: 65, idle: 3 }),
-    targets: counts({ healthy: 40 }),
   }),
   nominal: summaryOf({
     servers: counts({ healthy: 16 }),
     containers: counts({ healthy: 65, idle: 3 }),
-    targets: counts({ healthy: 40 }),
   }),
 }
-
-/** Three active alerts for the planned Alerts tile. The real thing does not exist: this is sample data. */
-export const SAMPLE_ALERTS: Alert[] = [
-  {
-    id: 'alert-1',
-    severity: 'critical',
-    state: 'active',
-    title: 'Host unreachable',
-    message: 'No heartbeat for 5 minutes',
-    subject: { kind: 'server', id: 'srv-1', name: 'edge-gw-02' },
-    rule: 'heartbeat-missed',
-    siteId: null,
-    since: '2026-10-12T14:00:00Z',
-  },
-  {
-    id: 'alert-2',
-    severity: 'critical',
-    state: 'active',
-    title: 'Target down',
-    message: 'Connection refused',
-    subject: { kind: 'target', id: 'tgt-1', name: 'acme-vpn:443' },
-    rule: 'probe-failed',
-    siteId: null,
-    since: '2026-10-12T13:56:00Z',
-  },
-  {
-    id: 'alert-3',
-    severity: 'warning',
-    state: 'active',
-    title: 'Disk almost full',
-    message: 'Disk at 91%',
-    subject: { kind: 'server', id: 'srv-2', name: 'backup-01' },
-    rule: 'disk-high',
-    siteId: null,
-    since: '2026-10-12T13:30:00Z',
-  },
-]
 
 /* ----------------------------------------------------------------- entities */
 

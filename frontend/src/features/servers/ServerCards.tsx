@@ -3,6 +3,7 @@ import type { ServerListItem } from '@/api/types'
 import { useViewTo } from '@/app/viewSearch'
 import { cn } from '@/lib/cn'
 import { PlaceName } from '@/ui/PlaceName'
+import { useResourceLimits } from '@/ui/meters'
 import { STATUS_EDGE, StatusTag } from '@/ui/status'
 import { LoadCell } from './LoadCell'
 import {
@@ -29,6 +30,7 @@ const METRICS = [
 export function ServerCards({ rows, nowMs }: { rows: readonly ServerListItem[]; nowMs: number }) {
   const viewTo = useViewTo()
   const location = useLocation()
+  const limits = useResourceLimits()
   return (
     <ul aria-label="Servers" className="min-h-0 flex-1 overflow-auto">
       {rows.map((item) => {
@@ -46,7 +48,11 @@ export function ServerCards({ rows, nowMs }: { rows: readonly ServerListItem[]; 
               className="flex flex-col gap-1.5 py-2.5 pr-3 pl-4 -outline-offset-2 hover:bg-hover"
             >
               <span className="flex items-center gap-2">
-                <StatusTag status={serverDisplay(item)} word={stateWord(item)} variant="tag" />
+                <StatusTag
+                  status={serverDisplay(item)}
+                  word={stateWord(item, limits)}
+                  variant="tag"
+                />
                 <span className="type-data-strong min-w-0 flex-1 truncate">{server.name}</span>
                 <span className="type-data tnum shrink-0 text-fg-faint">
                   {heartbeatText(item, nowMs)}

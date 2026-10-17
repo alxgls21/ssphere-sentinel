@@ -1,5 +1,5 @@
 import { screen, within } from '@testing-library/react'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import type { SentinelApi } from '@/api/client'
 import type { SiteEntity } from '@/api/types'
 import { registryOverrides } from '@/config/testing'
@@ -48,9 +48,10 @@ const linkName = () => screen.getByRole('link').getAttribute('aria-label') ?? ''
 describe.each([
   ['A', 'servers', 'Disconnected servers'],
   ['B', 'docker', 'Disconnected Docker'],
-  ['C', 'network', 'Stored-only network (no console API)'],
-  ['D', 'site-links', 'Site assignment'],
 ] as const)('%s. %s: %s', (_id, feature, _what) => {
+  // The servers are read from the console API; this row is about a feature that is not.
+  beforeEach(() => overrides.set('servers', { connected: false }))
+
   it('is not live over an HTTP adapter, as a panel', () => {
     renderApp(panel(feature), { api: api('http') })
     expect(tagOf('Panel')).toBe('mock')
@@ -65,15 +66,50 @@ describe.each([
   })
 })
 
+describe('C. network: stored by the backend, not served by the console API', () => {
+  it('is a placeholder as a panel over an HTTP adapter: no tag, no content, never live', () => {
+    renderApp(panel('network'), { api: api('http') })
+    const region = screen.getByRole('region', { name: 'Panel' })
+    expect(region).toHaveAttribute('data-planned', 'true')
+    expect(screen.queryByText('body')).toBeNull()
+    expect(screen.queryByText('live')).toBeNull()
+    expect(within(region).queryByText(/^(live|mock|unverified)/)).toBeNull()
+    expect(screen.getByText('Not connected to the console yet')).toBeInTheDocument()
+  })
+
+  it('is a placeholder as a tile: no figure, no link, and it says why in words', () => {
+    renderApp(tile('network'), { api: api('http') })
+    expect(screen.queryByRole('link')).toBeNull()
+    expect(screen.queryByText('live')).toBeNull()
+    expect(screen.queryByText('15')).toBeNull()
+    expect(screen.getByText('Not connected to the console yet')).toBeInTheDocument()
+  })
+})
+
+describe('D. site assignment and the overview counts: served and read', () => {
+  it.each(['site-links', 'overview'] as const)(
+    '%s is live as a panel over an HTTP adapter',
+    (feature) => {
+      renderApp(panel(feature), { api: api('http') })
+      expect(tagOf('Panel')).toBe('live')
+    },
+  )
+
+  it('is mock over the sample API', () => {
+    renderApp(panel('site-links'), { api: api('mock') })
+    expect(tagOf('Panel')).toBe('mock')
+  })
+})
+
 describe('E. a mock-backed tile over an HTTP adapter', () => {
   it('keeps its visual tag and its spoken mock-data warning', () => {
-    renderApp(tile('servers', 'Servers'), { api: api('http') })
+    renderApp(tile(['servers', 'docker'], 'Servers'), { api: api('http') })
     expect(screen.getByText('mock')).toBeVisible()
     expect(screen.getByRole('link', { name: /, mock data$/ })).toBeVisible()
   })
 
   it('says the same under a mock adapter', () => {
-    renderApp(tile('servers', 'Servers'), { api: api('mock') })
+    renderApp(tile(['servers', 'overview'], 'Servers'), { api: api('mock') })
     expect(screen.getByText('mock')).toBeVisible()
     expect(linkName()).toMatch(/, mock data$/)
   })
@@ -149,7 +185,9 @@ describe('H. a genuinely connected, API-backed feature', () => {
   it('is not live if its backend only stores the data, whatever the entry claims', () => {
     overrides.set('network', { connected: true })
     renderApp(tile('network'), { api: api('http') })
-    expect(screen.getByText('mock')).toBeInTheDocument()
+    expect(screen.queryByText('live')).toBeNull()
+    expect(screen.queryByRole('link')).toBeNull()
+    expect(screen.getByText('Not connected to the console yet')).toBeInTheDocument()
   })
 })
 
@@ -203,17 +241,25 @@ describe('entity cells follow their own feature', () => {
       .map((button) => button.getAttribute('aria-label') ?? button.textContent)
   const names = () => cells().map((cell) => String(cell))
 
-  it('calls only the connected kind live, over an HTTP adapter', () => {
-    overrides.set('servers', { connected: true })
+  it('calls only the connected kinds live, over an HTTP adapter', () => {
     renderApp(<EntityCells variant="grid" entities={entities} label="Grid" />, { api: api('http') })
     const spoken = names().join(' | ')
     expect(spoken).toContain('srv, server, OK')
     expect(spoken).not.toMatch(/srv, server, OK, /)
-    expect(spoken).toMatch(/ctr, container, OK, mock data/)
+    // Containers are the overview counts', which the console API serves too.
+    expect(spoken).not.toMatch(/ctr, container, OK, /)
     expect(spoken).toMatch(/tgt, target, OK, mock data/)
   })
 
+  it('does not call any kind live while the overview breakdown behind the grid is not connected', () => {
+    overrides.set('overview', { connected: false })
+    renderApp(<EntityCells variant="grid" entities={entities} label="Grid" />, { api: api('http') })
+    for (const name of names()) expect(name).toMatch(/, mock data$/)
+  })
+
   it('does not claim real data for any kind when nothing is connected', () => {
+    overrides.set('servers', { connected: false })
+    overrides.set('overview', { connected: false })
     renderApp(<EntityCells variant="grid" entities={entities} label="Grid" />, { api: api('http') })
     for (const name of names()) expect(name).toMatch(/, mock data$/)
   })

@@ -47,4 +47,3 @@ export function clamp(value: number, min: number, max: number): number {
 }
 
 export const round1 = (value: number): number => Math.round(value * 10) / 10
-export const round2 = (value: number): number => Math.round(value * 100) / 100

@@ -88,9 +88,7 @@ describe('StatusBar: landmark and source', () => {
 
   it('names the mock data source and the current scenario', () => {
     setup()
-    expect(bar()).toHaveTextContent(
-      'MOCK · mock://fixtures v1 · MockApi (no backend read APIs) · scenario normal',
-    )
+    expect(bar()).toHaveTextContent('MOCK · mock://fixtures v1 · sample fleet · scenario normal')
   })
 
   it('follows the mock scenario in the URL', () => {
@@ -103,7 +101,8 @@ describe('StatusBar: landmark and source', () => {
     expect(within(bar()).getByText('DEMO DATA')).toBeInTheDocument()
   })
 
-  it('does not say LIVE over an HTTP adapter while features are not connected', () => {
+  it('does not say LIVE over an HTTP adapter while a feature that shows figures is not connected', () => {
+    overrides.set('servers', { connected: false })
     setup({ renderOptions: { api: { source: 'http' } } })
     expect(bar()).toHaveTextContent('Partly demo data')
     expect(bar()).not.toHaveTextContent('LIVE')

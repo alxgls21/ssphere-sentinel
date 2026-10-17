@@ -1,6 +1,7 @@
 import { render, screen } from '@testing-library/react'
 import { describe, expect, it } from 'vitest'
 import { CellMeter } from './CellMeter'
+import { ResourceLimitsContext } from './limits'
 
 const cells = (root: HTMLElement) => root.querySelectorAll('[data-cell]').length
 const filled = (root: HTMLElement) => root.querySelectorAll('[data-cell="filled"]').length
@@ -84,5 +85,32 @@ describe('CellMeter', () => {
     const { container } = render(<CellMeter percent={140} label="CPU" />)
     expect(screen.getByRole('meter')).toHaveAttribute('value', '100')
     expect(filled(container)).toBe(20)
+  })
+})
+
+describe('CellMeter limits', () => {
+  const inForce = (warn: number, crit: number) => ({ warn, crit, origin: 'server' as const })
+
+  it('judges by the limits in force: the server may warn earlier than the defaults', () => {
+    render(
+      <ResourceLimitsContext.Provider value={inForce(60, 85)}>
+        <CellMeter percent={70} label="CPU of api-02" />
+      </ResourceLimitsContext.Provider>,
+    )
+    expect(screen.getByRole('meter')).toHaveAttribute('aria-valuetext', '70 percent, warning')
+  })
+
+  it('and later: 85% is no warning where the server warns from 90', () => {
+    render(
+      <ResourceLimitsContext.Provider value={inForce(90, 98)}>
+        <CellMeter percent={85} label="CPU of api-02" />
+      </ResourceLimitsContext.Provider>,
+    )
+    expect(screen.getByRole('meter')).toHaveAttribute('aria-valuetext', '85 percent')
+  })
+
+  it('keeps the defaults when nothing is provided', () => {
+    render(<CellMeter percent={85} label="CPU of api-02" />)
+    expect(screen.getByRole('meter')).toHaveAttribute('aria-valuetext', '85 percent, warning')
   })
 })

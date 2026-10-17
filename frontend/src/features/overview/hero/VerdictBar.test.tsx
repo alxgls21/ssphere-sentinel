@@ -20,13 +20,13 @@ describe('VerdictBar', () => {
     expect(button).toHaveClass('h-10', STATUS_FRAME.critical)
     expect(button.querySelector('svg')).toHaveAttribute('data-status', 'critical')
     expect(within(button).getByText('CRITICAL')).toBeInTheDocument()
-    expect(within(button).getByText('9 need attention')).toBeInTheDocument()
+    expect(within(button).getByText('6 need attention')).toBeInTheDocument()
   })
 
   it('is named with the full verdict and describes where it leads', () => {
     renderHero(<VerdictBar />)
     expect(bar()).toHaveAccessibleName(
-      'Fleet status: critical, 9 need attention of 121, 4 critical, 5 warning, 112 ok, mock data',
+      'Fleet status: critical, 6 need attention of 81, 3 critical, 3 warning, 75 ok, mock data',
     )
     expect(bar()).toHaveAccessibleDescription(expect.stringContaining('Opens Needs attention.'))
   })

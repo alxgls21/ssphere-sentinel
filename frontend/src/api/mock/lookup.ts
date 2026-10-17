@@ -2,17 +2,11 @@ import type {
   Customer,
   DockerContainer,
   HealthStatus,
-  NetworkTarget,
   Server,
   Site,
   StatusCounts,
 } from '@/api/types'
-import {
-  containerHealth,
-  countEntities,
-  serverHealthWithResources,
-  targetHealth,
-} from '@/lib/status'
+import { containerHealth, countEntities, serverHealthWithResources } from '@/lib/status'
 import type { Fleet } from './fixtures'
 
 /**
@@ -38,8 +32,6 @@ export const serverCounts = (servers: readonly Server[]): StatusCounts =>
 
 export const containerHealthOf = (container: DockerContainer): HealthStatus =>
   containerHealth(container.state, container.health)
-
-export const targetHealthOf = (target: NetworkTarget): HealthStatus => targetHealth(target)
 
 export interface Place {
   siteId: string | null

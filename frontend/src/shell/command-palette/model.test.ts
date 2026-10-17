@@ -151,13 +151,13 @@ describe('screenItems', () => {
 describe('problemItems', () => {
   const critical = entity({ id: '1', kind: 'server', name: 'crit-server', status: 'critical' })
   const warning = entity({ id: '2', kind: 'container', name: 'warn-container', status: 'warning' })
-  const unknown = entity({ id: '3', kind: 'target', name: 'unknown-target', status: 'unknown' })
+  const unknown = entity({ id: '3', kind: 'container', name: 'unknown-box', status: 'unknown' })
 
   it('lists critical, then warning, then unknown, whatever the input order', () => {
     expect(problemItems([unknown, warning, critical]).map((item) => item.title)).toEqual([
       'crit-server',
       'warn-container',
-      'unknown-target',
+      'unknown-box',
     ])
   })
 
@@ -172,7 +172,7 @@ describe('problemItems', () => {
     expect(problemItems([unknown, warning, offline]).map((item) => item.title)).toEqual([
       'pir-fs-01',
       'warn-container',
-      'unknown-target',
+      'unknown-box',
     ])
     // Critical entities, offline or not, tie: the order they came in decides.
     expect(problemItems([critical, offline]).map((item) => item.title)).toEqual([
@@ -192,13 +192,14 @@ describe('problemItems', () => {
     expect(problemItems([healthy, idle, critical])).toHaveLength(1)
   })
 
-  it('leaves out SNMP devices (the console reads no SNMP data yet), and sites and customers (roll-ups)', () => {
+  it('leaves out probe targets and SNMP devices (the console API serves neither), and sites and customers (roll-ups)', () => {
+    const target = entity({ id: '5', kind: 'target', name: 'wan', status: 'critical' })
     const device = entity({ id: '6', kind: 'device', name: 'switch', status: 'critical' })
     const site = entity({ id: '7', kind: 'site', name: 'Site', status: 'critical' })
     const customer = entity({ id: '8', kind: 'customer', name: 'Customer', status: 'critical' })
-    expect(problemItems([device, site, customer, warning]).map((item) => item.title)).toEqual([
-      'warn-container',
-    ])
+    expect(
+      problemItems([target, device, site, customer, warning]).map((item) => item.title),
+    ).toEqual(['warn-container'])
   })
 
   it('keeps the worst few and gives them ids that cannot collide with the entity list', () => {

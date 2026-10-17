@@ -43,6 +43,8 @@ export interface HistoryOptionInput {
   tokens: ChartTokens
   /** The plot container's height in CSS px. Omitted: the minimum geometry. */
   height?: number
+  /** The warning limit to draw, and whose it is. Omitted: the console's default. */
+  limit?: { warn: number; origin: 'server' | 'default' }
 }
 
 export function buildHistoryOption({
@@ -51,6 +53,7 @@ export function buildHistoryOption({
   hidden,
   tokens,
   height,
+  limit = { warn: RESOURCE_WARN_PERCENT, origin: 'default' },
 }: HistoryOptionInput): ChartOption {
   const { colors, fontFamily, scale } = tokens
   const px = (value: number) => value * scale
@@ -105,13 +108,13 @@ export function buildHistoryOption({
           label: {
             show: gridIndex === 0,
             position: 'insideStartTop',
-            formatter: `warn ${RESOURCE_WARN_PERCENT}% (UI default)`,
+            formatter: `warn ${limit.warn}% (${limit.origin === 'server' ? 'set on the server' : 'UI default'})`,
             color: colors.fgFaint,
             opacity: 1,
             fontFamily,
             fontSize: px(11),
           },
-          data: [{ yAxis: RESOURCE_WARN_PERCENT }],
+          data: [{ yAxis: limit.warn }],
         },
       },
     ]
