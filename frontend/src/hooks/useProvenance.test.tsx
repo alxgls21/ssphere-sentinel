@@ -32,15 +32,18 @@ describe('useProvenance', () => {
     })
   })
 
-  it('says NOT CONNECTED, not PLANNED and not NEEDS SETUP, for SNMP: stored, but not served to the console', () => {
-    const result = provenance('snmp')
+  it('says NOT CONNECTED, not PLANNED and not NEEDS SETUP, for the SNMP figures of the Overview: stored, but not served to the console', () => {
+    const result = provenance('snmp-overview')
     expect(result).toMatchObject({ planned: true, availability: 'not-connected' })
-    expect(result.note).toMatch(/configuring SNMP does not make data appear in this console/)
+    expect(result.note).toMatch(/the Overview does not count devices yet/)
   })
 
   it('is a placeholder only when nothing behind it can show real data', () => {
-    expect(provenance(['servers', 'snmp'])).toMatchObject({ planned: false, availability: null })
-    expect(provenance(['snmp', 'alerts'])).toMatchObject({
+    expect(provenance(['servers', 'snmp-overview'])).toMatchObject({
+      planned: false,
+      availability: null,
+    })
+    expect(provenance(['snmp-overview', 'alerts'])).toMatchObject({
       planned: true,
       availability: 'not-connected',
     })

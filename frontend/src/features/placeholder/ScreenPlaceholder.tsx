@@ -12,23 +12,6 @@ interface Gap {
 }
 
 const GAPS: Partial<Record<NavItem['id'], Gap>> = {
-  docker: {
-    missing: [
-      'An expected state or restart policy and the exit code in the Docker report, so a crashed container can be told from a finished job.',
-    ],
-    doc: 'docs/agent-deployment.md',
-  },
-  network: {
-    missing: [
-      'A console API for probe targets and their measurements.',
-      'Latency percentiles (p50, p95) per time bucket: the backend stores raw measurements and does not aggregate them.',
-    ],
-    doc: 'docs/agent-deployment.md',
-  },
-  snmp: {
-    missing: ['A console API for devices, interfaces and counters.'],
-    doc: 'docs/snmp.md',
-  },
   topology: {
     missing: [
       'A topology model: links between devices, servers and sites.',

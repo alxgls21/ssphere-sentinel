@@ -5,9 +5,10 @@ import { listAttention } from './attention'
 import { entityIndex, fleetLoad, healthBreakdown, scopeOptions, summarize } from './derive'
 import { buildServerSeries, listContainers, listServers, serverDetail } from './servers'
 import { buildEstate, scopeEstate, type Estate, type FleetProfile } from './fixtures'
+import { emptyCounts } from '@/lib/status'
 import { hash01, hashString } from './random'
 import type { MockScenario } from './scenario'
-import type { Clock } from './time'
+import { toIso, type Clock } from './time'
 
 export interface MockApiOptions {
   scenario?: MockScenario
@@ -137,6 +138,51 @@ export function createMockApi(options: MockApiOptions = {}): SentinelApi {
       scoped('listContainers', request, ({ fleet }, { now }) =>
         listContainers(fleet, now, request),
       ),
+
+    // The sample fleet monitors no network targets: an empty inventory, and no target to open.
+    listTargets: (request) =>
+      scoped('listTargets', request, (_estate, { now }) => ({
+        generatedAt: toIso(now),
+        items: [],
+        page: { number: 1, size: request?.pageSize ?? 50, total: 0, pages: 1 },
+        counts: emptyCounts(),
+        scopeTotal: 0,
+      })),
+
+    getTarget: (id, request) =>
+      respond('getTarget', request?.signal, () => {
+        throw new ApiError(`Target ${id} not found`, 404)
+      }),
+
+    getTargetSeries: (request) =>
+      respond('getTargetSeries', request.signal, () => {
+        throw new ApiError(`Target ${request.targetId} not found`, 404)
+      }),
+
+    // The sample fleet monitors no SNMP devices: an empty inventory, and no device to open.
+    listDevices: (request) =>
+      scoped('listDevices', request, (_estate, { now }) => ({
+        generatedAt: toIso(now),
+        items: [],
+        page: { number: 1, size: request?.pageSize ?? 50, total: 0, pages: 1 },
+        counts: emptyCounts(),
+        scopeTotal: 0,
+      })),
+
+    getDevice: (id, request) =>
+      respond('getDevice', request?.signal, () => {
+        throw new ApiError(`Device ${id} not found`, 404)
+      }),
+
+    getDeviceSeries: (request) =>
+      respond('getDeviceSeries', request.signal, () => {
+        throw new ApiError(`Device ${request.deviceId} not found`, 404)
+      }),
+
+    getInterfaceSeries: (request) =>
+      respond('getInterfaceSeries', request.signal, () => {
+        throw new ApiError(`Device ${request.deviceId} not found`, 404)
+      }),
 
     getServer: (id, request) =>
       respond('getServer', request?.signal, (clock) =>

@@ -1,6 +1,6 @@
 from django.urls import path, re_path
 
-from apps.console import containers, history, servers, views
+from apps.console import containers, devices, history, servers, targets, views
 from apps.console.http import not_found
 
 urlpatterns = [
@@ -12,6 +12,17 @@ urlpatterns = [
     path("servers/<uuid:server_id>/", servers.server_detail, name="console-server"),
     path("servers/<uuid:server_id>/series/", history.server_series, name="console-server-series"),
     path("containers/", containers.container_list, name="console-containers"),
+    path("targets/", targets.target_list, name="console-targets"),
+    path("targets/<uuid:target_id>/", targets.target_detail, name="console-target"),
+    path("targets/<uuid:target_id>/series/", targets.target_series, name="console-target-series"),
+    path("devices/", devices.device_list, name="console-devices"),
+    path("devices/<uuid:device_id>/", devices.device_detail, name="console-device"),
+    path("devices/<uuid:device_id>/series/", devices.device_series, name="console-device-series"),
+    path(
+        "devices/<uuid:device_id>/interfaces/<int:if_index>/series/",
+        devices.interface_series,
+        name="console-interface-series",
+    ),
     # Unknown URLs under the prefix are JSON too (the UI never sees an HTML 404).
     re_path(r"^", not_found),
 ]

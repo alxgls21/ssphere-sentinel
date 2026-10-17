@@ -1,6 +1,6 @@
 import type { SentinelApi } from '@/api/client'
 import type { ConsoleHttp } from '@/api/http'
-import type { ContainerList, Scope, ServerList } from '@/api/types'
+import type { ContainerList, Scope, ServerList, TargetList } from '@/api/types'
 import { OVERVIEW_PAGE_SIZE, attentionOf, healthOf, summaryOf } from '@/lib/overview'
 
 /** Requests for the same view that arrive together (the verdict, the queue, the health panel) share one answer. */
@@ -9,6 +9,7 @@ const SHARE_MS = 1500
 interface Worst {
   servers: ServerList
   containers: ContainerList
+  targets: TargetList
 }
 
 /** Rejects with an AbortError when `signal` aborts, as a request of its own would. */
@@ -51,9 +52,11 @@ export function createConsoleApi(http: ConsoleHttp): SentinelApi {
       page: 1,
       pageSize: OVERVIEW_PAGE_SIZE,
     } as const
-    const promise = Promise.all([http.listServers(query), http.listContainers(query)]).then(
-      ([servers, containers]) => ({ servers, containers }),
-    )
+    const promise = Promise.all([
+      http.listServers(query),
+      http.listContainers(query),
+      http.listTargets(query),
+    ]).then(([servers, containers, targets]) => ({ servers, containers, targets }))
     const entry = { key, at: now, promise }
     shared = entry
     // A failure is not shared: the next request asks again.
@@ -69,22 +72,38 @@ export function createConsoleApi(http: ConsoleHttp): SentinelApi {
     getFleetLoad: (options) => http.getFleetLoad(options),
     listServers: (options) => http.listServers(options),
     listContainers: (options) => http.listContainers(options),
+    listTargets: (options) => http.listTargets(options),
+    getTarget: (id, options) => http.getTarget(id, options),
+    getTargetSeries: (options) => http.getTargetSeries(options),
+    listDevices: (options) => http.listDevices(options),
+    getDevice: (id, options) => http.getDevice(id, options),
+    getDeviceSeries: (options) => http.getDeviceSeries(options),
+    getInterfaceSeries: (options) => http.getInterfaceSeries(options),
     getServer: (id, options) => http.getServer(id, options),
     getServerSeries: (options) => http.getServerSeries(options),
     getOverviewSummary: async (options) => {
-      const { servers, containers } = await abortable(worstFirst(options?.scope), options?.signal)
-      return summaryOf(servers, containers)
+      const { servers, containers, targets } = await abortable(
+        worstFirst(options?.scope),
+        options?.signal,
+      )
+      return summaryOf(servers, containers, targets)
     },
     listAttention: async (options) => {
-      const { servers, containers } = await abortable(worstFirst(options?.scope), options?.signal)
-      return attentionOf(servers, containers, {
+      const { servers, containers, targets } = await abortable(
+        worstFirst(options?.scope),
+        options?.signal,
+      )
+      return attentionOf(servers, containers, targets, {
         includeIdle: options?.includeIdle,
         now: Date.parse(servers.generatedAt),
       })
     },
     getHealthBreakdown: async (options) => {
-      const { servers, containers } = await abortable(worstFirst(options?.scope), options?.signal)
-      return healthOf(servers, containers)
+      const { servers, containers, targets } = await abortable(
+        worstFirst(options?.scope),
+        options?.signal,
+      )
+      return healthOf(servers, containers, targets)
     },
     // Search across every entity is not built on the console API yet: the palette lists screens and actions only.
     getEntityIndex: async () => ({ generatedAt: new Date().toISOString(), items: [] }),

@@ -192,14 +192,22 @@ describe('problemItems', () => {
     expect(problemItems([healthy, idle, critical])).toHaveLength(1)
   })
 
-  it('leaves out probe targets and SNMP devices (the console API serves neither), and sites and customers (roll-ups)', () => {
-    const target = entity({ id: '5', kind: 'target', name: 'wan', status: 'critical' })
+  it('lists an SNMP device that needs attention, but not sites and customers (roll-ups)', () => {
     const device = entity({ id: '6', kind: 'device', name: 'switch', status: 'critical' })
     const site = entity({ id: '7', kind: 'site', name: 'Site', status: 'critical' })
     const customer = entity({ id: '8', kind: 'customer', name: 'Customer', status: 'critical' })
-    expect(
-      problemItems([target, device, site, customer, warning]).map((item) => item.title),
-    ).toEqual(['warn-container'])
+    expect(problemItems([device, site, customer, warning]).map((item) => item.title)).toEqual([
+      'switch',
+      'warn-container',
+    ])
+  })
+
+  it('lists a probe target that needs attention like a server or a container', () => {
+    const target = entity({ id: '5', kind: 'target', name: 'wan', status: 'critical' })
+    expect(problemItems([warning, target]).map((item) => item.title)).toEqual([
+      'wan',
+      'warn-container',
+    ])
   })
 
   it('keeps the worst few and gives them ids that cannot collide with the entity list', () => {

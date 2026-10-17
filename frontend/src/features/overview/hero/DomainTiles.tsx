@@ -104,6 +104,23 @@ export function ServersTile({ className }: TileProps) {
   )
 }
 
+export function TargetsTile({ className }: TileProps) {
+  return (
+    <DomainTile
+      label="Net targets"
+      features={['network', 'overview']}
+      route="network"
+      word="ok"
+      pick={({ targets }) => ({
+        value: targets.counts.healthy,
+        total: targets.total,
+        counts: targets.counts,
+      })}
+      className={className}
+    />
+  )
+}
+
 export function ContainersTile({ className }: TileProps) {
   return (
     <DomainTile

@@ -359,10 +359,9 @@ describe('hero', () => {
       }),
     ).toHaveAttribute('href', '/servers')
     expect(hero.getByRole('link', { name: /^Containers: 62 of 68 ok/ })).toBeInTheDocument()
-    expect(
-      hero.queryByRole('link', { name: /^(Net targets|Devices|Alerts)/ }),
-    ).not.toBeInTheDocument()
-    expect(hero.getAllByText('Not served by the console API')).toHaveLength(2)
+    expect(hero.getByRole('link', { name: /^Net targets: 0 of 0 ok/ })).toBeInTheDocument()
+    expect(hero.queryByRole('link', { name: /^(Devices|Alerts)/ })).not.toBeInTheDocument()
+    expect(hero.getAllByText('Not served by the console API')).toHaveLength(1)
     expect(hero.getAllByText('Not implemented in the backend')).toHaveLength(1)
   })
 

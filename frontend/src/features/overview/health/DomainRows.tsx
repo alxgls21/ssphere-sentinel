@@ -11,15 +11,12 @@ import { FeatureChip } from '@/ui/provenance/Chips'
 import { DomainTip } from './DomainTip'
 import { DOMAIN_NAME, isUncounted } from './healthModel'
 
-/** The feature each planned row stands for, and the words its dashed bar carries. */
-const PLANNED_ROW = {
-  targets: { feature: 'network', text: 'no probe data' },
-  snmp: { feature: 'snmp', text: 'no SNMP data' },
-} as const
+/** The one planned row: SNMP devices, which the console API does not serve. */
+const PLANNED_ROW = { feature: 'snmp-overview', text: 'no SNMP data' } as const
 
 function DomainRow({ domain }: { domain: DomainBreakdown }) {
   const { source } = useApi()
-  const planned = PLANNED_ROW[domain.domain === 'targets' ? 'targets' : 'snmp']
+  const planned = PLANNED_ROW
   // A planned row holds no figures and an uncounted one has nothing to break down: neither claims numbers.
   const detail =
     domain.planned || isUncounted(domain.counts) ? null : (

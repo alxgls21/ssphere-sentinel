@@ -1,5 +1,5 @@
-import { ContainersTile, ServersTile } from './DomainTiles'
-import { AlertsTile, DevicesTile, TargetsTile } from './PlannedTiles'
+import { ContainersTile, ServersTile, TargetsTile } from './DomainTiles'
+import { AlertsTile, DevicesTile } from './PlannedTiles'
 import { VerdictHero } from './VerdictHero'
 
 /**

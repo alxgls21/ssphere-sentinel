@@ -186,7 +186,9 @@ describe('EntityCells grid', () => {
       api: createTestApi({ source: 'http' }),
     })
     expect(cell('edge-gw-02, server, CRIT')).toBeInTheDocument()
-    expect(cell('acme-vpn:443, target, CRIT, mock data')).toBeInTheDocument()
+    // Targets and devices are the Network and SNMP features', which the console API serves.
+    expect(cell('acme-vpn:443, target, CRIT')).toBeInTheDocument()
+    expect(cell('sw-core, device, UNKN')).toBeInTheDocument()
   })
 
   it('lists servers worst first, then containers, targets and devices', () => {

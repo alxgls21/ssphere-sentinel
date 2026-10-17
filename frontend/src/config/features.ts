@@ -23,7 +23,9 @@ export type FeatureId =
   | 'servers'
   | 'docker'
   | 'network'
+  | 'network-overview'
   | 'snmp'
+  | 'snmp-overview'
   | 'topology'
   | 'alerts'
   | 'events'
@@ -84,20 +86,34 @@ export const FEATURES: Record<FeatureId, FeatureInfo> = {
   network: {
     id: 'network',
     label: 'ICMP / TCP',
+    backend: 'console-api',
+    connected: true,
+    note: 'The console API serves probe targets, their measurements and their history, and the Network screens read them.',
+  },
+  'network-overview': {
+    id: 'network-overview',
+    label: 'Fleet latency on the Overview',
     backend: 'stored',
     connected: false,
     placeholder: true,
-    note: 'The backend stores probe targets and measurements. The console API does not serve them yet.',
+    note: 'The console API serves each target and its history, but no fleet-wide latency aggregation, so the Overview draws no latency chart.',
   },
   snmp: {
     id: 'snmp',
     label: 'SNMP',
+    backend: 'console-api',
+    connected: true,
+    requires:
+      'an agent installed with the SNMP extra, a device with its SNMP settings and a credentials file on the agent host',
+    note: 'The console API serves SNMP devices, their polls and interfaces, and the SNMP screens read them.',
+  },
+  'snmp-overview': {
+    id: 'snmp-overview',
+    label: 'SNMP on the Overview',
     backend: 'stored',
     connected: false,
     placeholder: true,
-    requires:
-      'an agent installed with the SNMP extra, a device with its SNMP settings and a credentials file on the agent host',
-    note: 'The agent can collect SNMP and the backend stores it. The console API does not serve it, so configuring SNMP does not make data appear in this console.',
+    note: 'The console API serves each SNMP device, but the Overview does not count devices yet, so it shows no SNMP figure.',
   },
   topology: {
     id: 'topology',
@@ -262,4 +278,11 @@ export const FEATURE_OF_ENTITY: Record<'server' | 'container' | 'target' | 'devi
  * data. Probe targets, SNMP, alerts and events are not in the list: no screen shows a figure for
  * them, only a statement that they are not available.
  */
-export const DATA_FEATURES: readonly FeatureId[] = ['overview', 'servers', 'docker', 'site-links']
+export const DATA_FEATURES: readonly FeatureId[] = [
+  'overview',
+  'servers',
+  'docker',
+  'network',
+  'snmp',
+  'site-links',
+]

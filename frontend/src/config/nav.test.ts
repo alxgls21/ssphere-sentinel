@@ -27,6 +27,8 @@ describe('navigation registry', () => {
       'overview',
       'servers',
       'docker',
+      'network',
+      'snmp',
     ])
   })
 

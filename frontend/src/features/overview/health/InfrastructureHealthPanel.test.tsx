@@ -183,6 +183,27 @@ describe('InfrastructureHealthPanel', () => {
       expect(within(header()).getByText(/^live/)).toBeInTheDocument()
     })
 
+    it('shows the targets row as counted, with figures, and only SNMP as not connected', async () => {
+      const withTargets = breakdown({
+        domains: DOMAINS.map((d) => (d.domain === 'snmp' ? { ...d, counts: counts({}) } : d)),
+      })
+      renderApp(<InfrastructureHealthPanel />, { api: overHttp(withTargets) })
+      await screen.findByText('SERVERS')
+      expect(within(rowOf('NET TARGETS')).queryByText('Not connected')).toBeNull()
+      expect(
+        within(rowOf('NET TARGETS')).getByRole('img', { name: /critical/i }),
+      ).toBeInTheDocument()
+      expect(within(rowOf('SNMP DEVS')).getByText('Not connected')).toBeInTheDocument()
+      expect(within(header()).getByText(/^live/)).toBeInTheDocument()
+    })
+
+    it('stays mock over http while the Network feature is not connected, since targets mix in', async () => {
+      overrides.set('network', { connected: false })
+      renderApp(<InfrastructureHealthPanel />, { api: overHttp() })
+      await screen.findByText('SERVERS')
+      expect(within(header()).getByText(/^mock/)).toBeInTheDocument()
+    })
+
     it('marks the rows of what the console API does not serve, with no figure in them', async () => {
       const planned = breakdown({
         domains: DOMAINS.map((d) =>
@@ -227,9 +248,9 @@ describe('InfrastructureHealthPanel', () => {
       expect(within(region()).getByText('sample data')).toBeInTheDocument()
     })
 
-    it('marks only the SNMP row as not connected while SNMP is the one feature not connected', async () => {
+    it('marks only the SNMP row as not connected while the SNMP of the Overview is the one feature not connected', async () => {
       overrides.connectAll()
-      overrides.set('snmp', { connected: false })
+      overrides.set('snmp-overview', { connected: false })
       renderApp(<InfrastructureHealthPanel />, { api: overHttp() })
       await screen.findByText('SERVERS')
       expect(within(header()).getByText(/^live/)).toBeInTheDocument()
@@ -240,7 +261,7 @@ describe('InfrastructureHealthPanel', () => {
 
     it('keeps the SNMP row marked while the backend only stores SNMP, whatever the registry claims', async () => {
       overrides.connectAll()
-      overrides.set('snmp', { connected: true })
+      overrides.set('snmp-overview', { connected: true })
       renderApp(<InfrastructureHealthPanel />, { api: overHttp() })
       await screen.findByText('SERVERS')
       expect(within(rowOf('SNMP DEVS')).getByText('Not connected')).toBeInTheDocument()

@@ -22,19 +22,19 @@ describe('Panel', () => {
     expect(screen.queryByText('Planned')).not.toBeInTheDocument()
   })
 
-  it('says NOT CONNECTED, with the reason as its footer, for SNMP: stored but not served to the console', () => {
+  it('says NOT CONNECTED, with the reason as its footer, for the SNMP of the Overview: stored but not served to the console', () => {
     renderApp(
-      <Panel title="SNMP devices" features="snmp">
+      <Panel title="SNMP on the Overview" features="snmp-overview">
         x
       </Panel>,
     )
-    const region = screen.getByRole('region', { name: 'SNMP devices' })
+    const region = screen.getByRole('region', { name: 'SNMP on the Overview' })
     expect(region).toHaveAttribute('data-planned', 'true')
     expect(screen.getByText('Not connected')).toBeInTheDocument()
     expect(screen.queryByText('Planned')).not.toBeInTheDocument()
     expect(screen.queryByText('Needs setup')).not.toBeInTheDocument()
     // Not "not implemented", and not "needs setup": the backend stores it, the console API does not serve it.
-    expect(region).toHaveTextContent('configuring SNMP does not make data appear in this console')
+    expect(region).toHaveTextContent('the Overview does not count devices yet')
     expect(region).not.toHaveTextContent('Not implemented in the backend yet')
   })
 
@@ -110,11 +110,11 @@ describe('Panel', () => {
 
     it('says "not connected", not "planned", for what the backend stores but the console API does not serve', () => {
       renderApp(
-        <Panel title="Network latency" features="network" scope="1h">
+        <Panel title="SNMP on the Overview" features="snmp-overview" scope="1h">
           x
         </Panel>,
       )
-      const region = screen.getByRole('region', { name: 'Network latency' })
+      const region = screen.getByRole('region', { name: 'SNMP on the Overview' })
       expect(region).toHaveAttribute('data-planned', 'true')
       expect(screen.getByText('Not connected to the console yet')).toBeInTheDocument()
       expect(screen.queryByText('Planned')).not.toBeInTheDocument()

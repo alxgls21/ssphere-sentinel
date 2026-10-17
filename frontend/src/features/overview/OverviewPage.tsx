@@ -82,7 +82,7 @@ export default function OverviewPage() {
               <Panel
                 title="Network latency"
                 index={2}
-                features="network"
+                features="network-overview"
                 scope="1h"
                 className={PLACE.latency}
               />

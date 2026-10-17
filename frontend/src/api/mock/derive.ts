@@ -39,6 +39,8 @@ export function summarize({ fleet }: Estate, now: number): OverviewSummary {
       total: fleet.containers.length,
       counts: countStatuses(fleet.containers.map(containerHealthOf)),
     },
+    // The sample fleet monitors no network targets: none is counted, none is made up.
+    targets: { total: 0, counts: emptyCounts() },
   }
 }
 
@@ -140,7 +142,7 @@ export function healthBreakdown({ fleet }: Estate, now: number): HealthBreakdown
         label: 'CONTAINERS',
         counts: countStatuses(fleet.containers.map(containerHealthOf)),
       },
-      { domain: 'targets', label: 'NET TARGETS', counts: emptyCounts(), planned: true },
+      { domain: 'targets', label: 'NET TARGETS', counts: emptyCounts() },
       { domain: 'snmp', label: 'SNMP DEVS', counts: emptyCounts(), planned: true },
     ],
     sites,

@@ -1,6 +1,6 @@
-export { ContainersTile, ServersTile } from './DomainTiles'
+export { ContainersTile, ServersTile, TargetsTile } from './DomainTiles'
 export { HeroStrip } from './HeroStrip'
-export { AlertsTile, DevicesTile, TargetsTile } from './PlannedTiles'
+export { AlertsTile, DevicesTile } from './PlannedTiles'
 export { PlannedBar, StatTile, type StatTileProps, type TileContent } from './StatTile'
 export { VerdictBar } from './VerdictBar'
 export { VerdictHero } from './VerdictHero'

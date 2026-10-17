@@ -18,8 +18,8 @@ cannot say that.
   24h in 1, 1, 5 and 15 minute buckets, `null` where a bucket has no sample. That gap
   means no sample arrived. Heartbeats go on when the telemetry section is missing or
   dropped, so a gap is reporting continuity, not availability, and the console never
-  calls it uptime. `NetworkMeasurement` (a success flag per probe) and `DevicePoll`
-  (reachability per SNMP poll) are stored, 30 days by default, and not served. There is
+  calls it uptime. `NetworkMeasurement` is served per target by `targets/<id>/` and its
+  series, and `DevicePoll` (reachability per SNMP poll) is stored, 30 days by default, and served by `devices/<id>/` and its series. There is
   no state-transition log and no availability aggregate for any entity. The uptime in the
   Servers list is the host's own uptime counter, a different fact.
 - **Missing.** A per-entity state history (entity, state, since) or a per-bucket
@@ -45,14 +45,13 @@ cannot say that.
 
 - **Exists.** SNMP `InterfaceSample`: per interface and poll, the raw `in_octets` and
   `out_octets` counters, the deltas with `interval_seconds`, the `delta_state` (valid,
-  first sample, reboot, reset, gap) and `speed_bps`, kept 30 days by default. It is stored
-  and not served: the console API has no SNMP endpoint and the console does not read SNMP
-  yet. Nothing else carries throughput: server telemetry is CPU, RAM and disk, and a
-  probe measurement is latency and loss.
-- **Missing.** Console API endpoints to list devices and interfaces under the scope
-  rules, and a series per interface: bits per second in and out per bucket, from the
-  deltas, `null` where the `delta_state` says the delta is not valid or no sample arrived,
-  with the interface speed.
+  first sample, reboot, reset, gap) and `speed_bps`, kept 30 days by default. The console
+  API serves the latest rates of each interface with the device and a series per interface
+  (`devices/<id>/interfaces/<ifIndex>/series/`): bits per second in and out per bucket,
+  `null` where the `delta_state` says the delta is not valid or no sample arrived, with the
+  interface speed. The SNMP screen draws them. Nothing else carries throughput: server
+  telemetry is CPU, RAM and disk, and a probe measurement is latency and loss. The Overview
+  does not read them yet.
 - **Missing.** Throughput of the monitored hosts themselves, if wanted: the agent would
   have to report interface counters, which it does not.
 - **Console.** A `Sparkline` per interface in bits per second, on a domain from 0 to the

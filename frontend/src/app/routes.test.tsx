@@ -14,6 +14,18 @@ vi.mock('@/features/servers/ServersListPage', () => ({
 vi.mock('@/features/servers/ServerDetailPage', () => ({
   default: () => <p>server detail screen</p>,
 }))
+vi.mock('@/features/network/NetworkPage', () => ({
+  default: () => <p>network screen</p>,
+}))
+vi.mock('@/features/network/TargetDetailPage', () => ({
+  default: () => <p>target screen</p>,
+}))
+vi.mock('@/features/snmp/SnmpPage', () => ({
+  default: () => <p>snmp screen</p>,
+}))
+vi.mock('@/features/snmp/DeviceDetailPage', () => ({
+  default: () => <p>device screen</p>,
+}))
 vi.mock('@/features/docker/DockerPage', () => ({
   default: () => <p>docker screen</p>,
 }))
@@ -51,6 +63,26 @@ describe('AppRoutes', () => {
     expect(screen.getByRole('link', { name: 'Docker' })).toHaveAttribute('aria-current', 'page')
   })
 
+  it('lazy-loads the Network inventory and a target page inside the shell', async () => {
+    const first = renderShell(<AppRoutes />, { route: '/network' })
+    expect(await within(main()).findByText('network screen')).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'Network' })).toHaveAttribute('aria-current', 'page')
+    first.unmount()
+    renderShell(<AppRoutes />, { route: '/network/6f1c0d2e-5a1b-4c1d-9a55-0d6c9f6c3c11' })
+    expect(await within(main()).findByText('target screen')).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'Network' })).toHaveAttribute('aria-current', 'page')
+  })
+
+  it('lazy-loads the SNMP inventory and a device page inside the shell', async () => {
+    const first = renderShell(<AppRoutes />, { route: '/snmp' })
+    expect(await within(main()).findByText('snmp screen')).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'SNMP' })).toHaveAttribute('aria-current', 'page')
+    first.unmount()
+    renderShell(<AppRoutes />, { route: '/snmp/6f1c0d2e-5a1b-4c1d-9a55-0d6c9f6c3c11' })
+    expect(await within(main()).findByText('device screen')).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'SNMP' })).toHaveAttribute('aria-current', 'page')
+  })
+
   it('routes every screen that is not designed yet to its placeholder', async () => {
     for (const item of NAV_ITEMS.filter((nav) => !nav.designed)) {
       const { unmount } = renderShell(<AppRoutes />, { route: item.path })
@@ -64,11 +96,11 @@ describe('AppRoutes', () => {
   })
 
   it('keeps a screen’s own sub-paths with its screen', async () => {
-    renderShell(<AppRoutes />, { route: '/network/some-host' })
+    renderShell(<AppRoutes />, { route: '/topology/some-host' })
     expect(
-      await within(main()).findByRole('heading', { level: 1, name: 'Network' }),
+      await within(main()).findByRole('heading', { level: 1, name: 'Topology' }),
     ).toBeInTheDocument()
-    expect(screen.getByRole('link', { name: 'Network' })).toHaveAttribute('aria-current', 'page')
+    expect(screen.getByRole('link', { name: /^Topology/ })).toHaveAttribute('aria-current', 'page')
   })
 
   it('titles each page from NAV_ITEMS', async () => {

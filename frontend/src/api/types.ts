@@ -156,21 +156,22 @@ export interface SentinelEvent {
 export type EntityKind = 'server' | 'container' | 'target' | 'device'
 
 /**
- * Headline counts for the verdict, the sidebar badges and the tiles. Only what the console API
- * counts: servers and containers. Probe targets, SNMP devices, alerts and incidents have no
- * answer here, and none is made up.
+ * Headline counts for the verdict and the tiles. Only what the console API counts: servers,
+ * containers and probe targets, each with the API's own total and counts over the whole scope.
+ * SNMP devices, alerts and incidents have no answer here, and none is made up.
  */
 export interface OverviewSummary {
   generatedAt: Iso
   /** `total` is every server in scope; `counts` is by health status, with the offline share where known. */
   servers: { total: number; counts: StatusCounts }
   containers: { total: number; counts: StatusCounts }
+  targets: { total: number; counts: StatusCounts }
 }
 
 export type AttentionSeverity = 'critical' | 'warning' | 'unknown' | 'idle'
 
 export interface AttentionItem {
-  kind: 'server' | 'container'
+  kind: 'server' | 'container' | 'target'
   id: string
   name: string
   severity: AttentionSeverity
@@ -185,7 +186,7 @@ export interface AttentionItem {
   siteName?: string
   /** When the problem is known to have started or last been seen. null = no timestamp exists. */
   ageIso: Iso | null
-  ageBasis: 'last-seen' | 'failing-since' | null
+  ageBasis: 'last-seen' | 'last-measured' | 'failing-since' | null
 }
 
 export interface AttentionOptions extends RequestOptions {
@@ -417,4 +418,372 @@ export interface ServerSeries {
   cpu: (number | null)[]
   memory: (number | null)[]
   disk: (number | null)[]
+}
+
+/* ---------------------------------------------------------- network targets */
+
+export type TargetProtocol = 'icmp' | 'tcp'
+
+/**
+ * Why the console API gave a target its health, in its own terms:
+ *   disabled         the target is switched off (idle)
+ *   no_agent         no agent is assigned to measure it (unknown)
+ *   agent_offline    its agent is disabled or has stopped reporting (unknown)
+ *   no_measurement   nothing has been measured yet (unknown)
+ *   stale            the newest measurement is too old to describe the present (unknown)
+ *   failing          the latest measurements all failed (critical)
+ *   failed           the latest measurement failed (warning)
+ *   latency, loss    it answered, but slowly or lossily (warning)
+ *   ok               it answered within the limits (healthy)
+ */
+export type TargetReason =
+  | 'disabled'
+  | 'no_agent'
+  | 'agent_offline'
+  | 'no_measurement'
+  | 'stale'
+  | 'failing'
+  | 'failed'
+  | 'latency'
+  | 'loss'
+  | 'ok'
+
+/** The agent that measures a target, when one is assigned and its server is visible to the user. */
+export interface TargetAgent {
+  id: string
+  name: string
+  /** `online`, `offline`, or `unknown` when it has never been seen. */
+  status: 'online' | 'offline' | 'unknown'
+  lastSeenAt: Iso | null
+  /** The server the agent runs on: only given where the user may see it, so a link needs no more check. */
+  serverId: string
+  serverName: string
+}
+
+export interface TargetConfig {
+  id: string
+  name: string
+  address: string
+  protocol: TargetProtocol
+  /** The TCP port; null for ICMP. */
+  port: number | null
+  enabled: boolean
+  intervalSeconds: number
+  timeoutSeconds: number
+  circuitId: string | null
+  siteId: string | null
+  /** An agent is assigned, whether or not the user may see its server. */
+  agentAssigned: boolean
+  agent: TargetAgent | null
+}
+
+/**
+ * One round of an agent's probes. `success`: at least one probe was answered. `latencyMs`: the mean
+ * round trip of the ones that were (null when none was). `lossPercent`: the share that was not; for
+ * an ICMP target that is lost packets, for a TCP target failed connection attempts.
+ */
+export interface TargetMeasurement {
+  measuredAt: Iso
+  receivedAt: Iso
+  success: boolean
+  latencyMs: number | null
+  lossPercent: number
+  probeCount: number
+  successfulProbes: number
+  failureReason: string | null
+}
+
+export interface TargetListItem {
+  target: TargetConfig
+  /** The newest measurement by when it was taken, whatever its age; null if never measured. */
+  latest: TargetMeasurement | null
+  /** There is a latest measurement and it is no longer current: it takes no part in `health`. */
+  stale: boolean
+  health: HealthStatus
+  reason: TargetReason
+  customerName?: string
+  siteName?: string
+}
+
+export type TargetStatusFilter = 'all' | 'critical' | 'warning' | 'unknown' | 'idle' | 'healthy'
+export type TargetSortKey = 'status' | 'name' | 'latency' | 'loss' | 'measured'
+
+export interface TargetListOptions extends RequestOptions {
+  /** Words, every one of which must appear in the name, address, circuit id, site or customer. */
+  q?: string
+  status?: TargetStatusFilter
+  sort?: TargetSortKey
+  dir?: SortDirection
+  /** 1-based. */
+  page?: number
+  pageSize?: number
+}
+
+export interface TargetList {
+  generatedAt: Iso
+  items: TargetListItem[]
+  page: PageInfo
+  /** Per health status over the scope and the search, not the status filter. */
+  counts: StatusCounts
+  /** Targets in the scope, whatever the search. */
+  scopeTotal: number
+}
+
+/**
+ * What the last 24 hours observed. `percent` is the share of the measurements taken that succeeded
+ * (null without any): an observation, not an SLA or an uptime guarantee. `coveragePercent` says how
+ * much of the window the agent measured at all, against the measurements its interval would give.
+ */
+export interface TargetAvailability {
+  from: Iso
+  to: Iso
+  measurements: number
+  successful: number
+  percent: number | null
+  expectedMeasurements: number
+  coveragePercent: number | null
+}
+
+export interface TargetDetail {
+  generatedAt: Iso
+  item: TargetListItem
+  /** The newest measurements, newest first. */
+  measurements: TargetMeasurement[]
+  availability24h: TargetAvailability
+}
+
+export interface TargetSeriesOptions extends Pick<RequestOptions, 'signal'> {
+  targetId: string
+  range: RangeKey
+}
+
+/**
+ * A target's history, one entry per completed bucket (parallel arrays, oldest first). `latencyMs` and
+ * `latencyMaxMs` are the mean and the highest latency of the measurements that succeeded; `lossPercent`
+ * their mean loss; all are null where a bucket has no such measurement. `measurements` and `failed`
+ * are counts (0 for an empty bucket): a failed measurement is counted in `failed`, never as 100% loss.
+ * A target never measured has empty arrays.
+ */
+export interface TargetSeries {
+  generatedAt: Iso
+  bucketMs: number
+  t: number[]
+  latencyMs: (number | null)[]
+  latencyMaxMs: (number | null)[]
+  lossPercent: (number | null)[]
+  measurements: number[]
+  failed: number[]
+}
+
+/* -------------------------------------------------------------- SNMP devices */
+
+export type DeviceType = 'router' | 'switch' | 'firewall' | 'other'
+export type SnmpVersion = '2c' | '3'
+
+/**
+ * Why the console API gave a device its health:
+ *   disabled       the device is switched off (idle)
+ *   no_agent       no agent is assigned to poll it (unknown)
+ *   agent_offline  its agent is disabled or has stopped reporting (unknown)
+ *   no_poll        it has never been polled (unknown)
+ *   stale          the latest poll is too old to describe the present (unknown)
+ *   unreachable    the latest poll could not reach it (critical)
+ *   ok             the latest poll reached it (healthy)
+ * A device's interfaces never change its health: a switch with unused ports down is healthy.
+ */
+export type DeviceReason =
+  'disabled' | 'no_agent' | 'agent_offline' | 'no_poll' | 'stale' | 'unreachable' | 'ok'
+
+/**
+ * Why an interface has its health:
+ *   device_unavailable  its device is not healthy, so the stored status is last-known (unknown)
+ *   absent              not in the device's latest complete listing (unknown)
+ *   admin_down          switched off on purpose (idle)
+ *   up                  administratively and operationally up (healthy)
+ *   down                administratively up but operationally down (warning)
+ *   other               testing, dormant, notPresent, unknown (unknown)
+ */
+export type InterfaceReason =
+  'device_unavailable' | 'absent' | 'admin_down' | 'up' | 'down' | 'other'
+
+/** The agent that polls a device, as for a target: only where its server is visible to the user. */
+export type DeviceAgent = TargetAgent
+
+export interface DeviceConfig {
+  id: string
+  name: string
+  type: DeviceType
+  address: string
+  enabled: boolean
+  siteId: string | null
+  snmpVersion: SnmpVersion
+  port: number
+  pollIntervalSeconds: number
+  timeoutSeconds: number
+  retries: number
+  agentAssigned: boolean
+  agent: DeviceAgent | null
+}
+
+/** The latest poll of a device, kept whatever its age. */
+export interface DeviceState {
+  reachable: boolean
+  /** The poll error word (`timeout`, `unreachable`, `auth_failure`, ...), as the agent reported it. */
+  error: string | null
+  responseMs: number | null
+  uptimeSeconds: number | null
+  sysName: string | null
+  sysDescr: string | null
+  sysObjectId: string | null
+  lastPollAt: Iso
+  lastSuccessAt: Iso | null
+  lastDiscoveryAt: Iso | null
+  receivedAt: Iso | null
+}
+
+export interface DeviceListItem {
+  device: DeviceConfig
+  /** The latest poll; null if the device has never been polled. */
+  state: DeviceState | null
+  /** There is a latest poll and it is no longer current: it takes no part in `health`. */
+  stale: boolean
+  health: HealthStatus
+  reason: DeviceReason
+  /** The present interfaces counted by their own health. */
+  interfaces: { total: number; counts: StatusCounts }
+  customerName?: string
+  siteName?: string
+}
+
+export type DeviceStatusFilter = 'all' | 'critical' | 'warning' | 'unknown' | 'idle' | 'healthy'
+export type DeviceSortKey = 'status' | 'name' | 'response' | 'polled'
+
+export interface DeviceListOptions extends RequestOptions {
+  /** Words, every one of which must appear in the name, address, sysName, site or customer. */
+  q?: string
+  status?: DeviceStatusFilter
+  sort?: DeviceSortKey
+  dir?: SortDirection
+  /** 1-based. */
+  page?: number
+  pageSize?: number
+}
+
+export interface DeviceList {
+  generatedAt: Iso
+  items: DeviceListItem[]
+  page: PageInfo
+  /** Per health status over the scope and the search, not the status filter. */
+  counts: StatusCounts
+  /** SNMP devices in the scope, whatever the search. */
+  scopeTotal: number
+}
+
+export interface DevicePoll {
+  measuredAt: Iso
+  receivedAt: Iso
+  reachable: boolean
+  responseMs: number | null
+  error: string | null
+}
+
+/** Why a sample gives no rate, the first of these that holds. */
+export type InvalidReason = 'delta_state' | 'interval' | 'implausible' | 'stale'
+
+/**
+ * The rates of an interface's latest sample, as the console API calculated them from the agent's
+ * deltas. When `valid` is false every rate is null, never 0, and `invalidReason` says why.
+ * Utilization is null where the speed is not known, though the bps stand; a rate is null where
+ * the device lacks that counter.
+ */
+export interface InterfaceRates {
+  measuredAt: Iso
+  /** `ok`, `speed_changed` (both valid), or why the deltas are not (`first`, `reboot`, `reset`, `gap`). */
+  deltaState: string
+  octetsBits: number | null
+  intervalSeconds: number | null
+  valid: boolean
+  invalidReason: InvalidReason | null
+  inBps: number | null
+  outBps: number | null
+  inUtilizationPercent: number | null
+  outUtilizationPercent: number | null
+  inErrorsPerSec: number | null
+  outErrorsPerSec: number | null
+  inDiscardsPerSec: number | null
+  outDiscardsPerSec: number | null
+}
+
+export interface DeviceInterface {
+  ifIndex: number
+  name: string
+  descr: string | null
+  alias: string | null
+  /** The IANA ifType number. */
+  type: number
+  /** Null when the device does not report a speed. */
+  speedBps: number | null
+  /** IF-MIB words: `up`, `down`, `testing`, ... */
+  adminStatus: string
+  operStatus: string
+  operStatusChangedAt: Iso | null
+  health: HealthStatus
+  reason: InterfaceReason
+  /** The latest sample's rates; null if the interface was never sampled. */
+  rates: InterfaceRates | null
+}
+
+export interface DeviceDetail {
+  generatedAt: Iso
+  item: DeviceListItem
+  /** The newest polls, newest first. */
+  polls: DevicePoll[]
+  /** The present interfaces, by ifIndex. */
+  interfaces: DeviceInterface[]
+}
+
+export interface DeviceSeriesOptions extends Pick<RequestOptions, 'signal'> {
+  deviceId: string
+  range: RangeKey
+}
+
+export interface InterfaceSeriesOptions extends DeviceSeriesOptions {
+  ifIndex: number
+}
+
+/**
+ * A device's poll history, one entry per completed bucket (parallel arrays, oldest first).
+ * `responseMs` is the mean response time of the reachable polls, null where a bucket has none.
+ * `reachablePolls` and `failedPolls` are counts (0 for an empty bucket). A device never polled has
+ * empty arrays.
+ */
+export interface DeviceSeries {
+  generatedAt: Iso
+  bucketMs: number
+  t: number[]
+  responseMs: (number | null)[]
+  reachablePolls: number[]
+  failedPolls: number[]
+}
+
+/**
+ * An interface's history, one entry per completed bucket (parallel arrays, oldest first): the means
+ * and maxima of the valid samples in it, each sample judged by itself. A bucket with no valid sample
+ * is null, never 0; `validSamples` and `invalidSamples` count what the bucket held. An interface
+ * never sampled has empty arrays.
+ */
+export interface InterfaceSeries {
+  generatedAt: Iso
+  bucketMs: number
+  t: number[]
+  inBps: (number | null)[]
+  outBps: (number | null)[]
+  inBpsMax: (number | null)[]
+  outBpsMax: (number | null)[]
+  inErrorsPerSec: (number | null)[]
+  outErrorsPerSec: (number | null)[]
+  inDiscardsPerSec: (number | null)[]
+  outDiscardsPerSec: (number | null)[]
+  validSamples: number[]
+  invalidSamples: number[]
 }

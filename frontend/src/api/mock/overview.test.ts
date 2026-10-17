@@ -74,8 +74,13 @@ describe('consistency across panels', () => {
         expect(domain('servers')?.counts).toEqual(summary.servers.counts)
         expect(domain('containers')?.counts).toEqual(summary.containers.counts)
         expect(domain('servers')?.planned).toBeUndefined()
-        // No backend serves these two: they carry no figure, not even a zero that reads as "all fine".
-        expect(domain('targets')).toMatchObject({ planned: true, label: 'NET TARGETS' })
+        // The sample fleet monitors no target: its targets row is counted, and empty.
+        expect(domain('targets')).toMatchObject({
+          label: 'NET TARGETS',
+          counts: summary.targets.counts,
+        })
+        expect(domain('targets')?.planned).toBeUndefined()
+        // No backend serves SNMP: it carries no figure, not even a zero that reads as "all fine".
         expect(domain('snmp')).toMatchObject({ planned: true, label: 'SNMP DEVS' })
       })
 
@@ -139,7 +144,7 @@ describe('consistency across panels', () => {
       idle: 0,
       offline: 1,
     })
-    expect(summary).not.toHaveProperty('targets')
+    expect(summary.targets).toEqual({ total: 0, counts: expect.objectContaining({ healthy: 0 }) })
     expect(summary).not.toHaveProperty('devices')
   })
 })
