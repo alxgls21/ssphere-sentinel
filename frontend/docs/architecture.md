@@ -130,9 +130,16 @@ panel --useLiveResource(id, key, fetch)--> useApi() --> SentinelApi --> console 
   worst first of each (one page of 200, sorted by status) and derives the summary, the
   attention queue and the health breakdown from those two answers (`lib/overview.ts`, pure).
   The verdict, the queue and the health panel ask at the same moment and share one pair of
-  requests. Totals and per-status counts are the API's own; the console never recounts a
-  page as if it were the fleet. A failed request rejects: it is that panel's error, and
-  nothing stands in for it.
+  requests. Totals and per-status counts are the API's own and cover the whole scope; the console
+  never recounts a page as if it were the fleet. What is made of the rows is exact only for the part
+  of the fleet the rows cover, and says so: the queue counts the problems it cannot list
+  (`AttentionResult.omitted`) and the idle containers beyond its rows (`hiddenIdle`), and the sites
+  carry a `siteCoverage`. `all`: both lists fit in one page, so every site is whole. `problems`:
+  they do not, but every server and container that needs attention is in the rows, so each site lists
+  those (healthy and idle ones are not counted per site). `none`: the problems alone exceed the rows,
+  so no site is totalled and the panel says so. Exact per-site totals for a larger fleet need a
+  per-site count from the console API (see _Docker screen_). A failed request rejects: it is that
+  panel's error, and nothing stands in for it.
 - **Incidents** would not be a resource either: an incident timeline is derived in the console
   from an event log (`features/overview/events/incidentModel.ts`). The backend has no event
   log, so no screen mounts it; the components are kept for when one exists.
@@ -224,6 +231,35 @@ Presentational thresholds (80/95 %, 2 % loss, 150 ms) live in
 used instead and labelled "set on the server". When the backend gains a capability, or a screen is connected to it,
 change one registry entry.
 
+## Docker screen
+
+`SentinelApi.listContainers` is one page of the containers of every visible server, and the
+console API does the work: `q` (words, every one in the name, image, Docker id, server, site or
+customer), `status` (`all`, `critical`, `warning`, `unknown`, `idle`, `healthy`), `sort`
+(`status`, `name`, `server`, `started`) with `dir`, `page` and `pageSize` (50 here, 200 at most),
+the topbar scope as `customer` and `site`, and `server` for one host. Nothing else is sent: the
+screen has no other sort, filter or column that the API cannot answer. Each row is the API's
+`{container, status, serverName, customerName?, siteName?}`: `container` has the id
+(`<server id>:<Docker id>`), `serverId`, `name`, `image`, `state`, `health` and `startedAt`, and
+`status` is the health the server decided. The response's `counts` (by status over the scope, the
+host and the search, not the status filter) are what the chips say, and `scopeTotal` the header.
+The query lives in the URL (`?q=&status=&sort=&dir=&page=&server=`); `focus=<container id>`, which
+the Overview's queue opens, shows the host of that container with the row marked.
+
+A container whose host is not reporting, whose Docker is unavailable or whose Docker report is out
+of date is served as `unknown` (state and health), because what is stored is last-known. The row
+says "unknown" with that explanation and shows no start; the list does not carry the host's status,
+so it never says which of the three it is, and never shows a stale state as current. The panel's
+own freshness tag still applies to the list as a whole. The inventory is `docker` in the registry,
+which is `live` because its only panel reads the API; the Containers panel of a server (its detail)
+stays `servers`, and links to this list limited to that host.
+
+What the console API does not give, and the screen therefore does not show: a per-container
+timestamp other than `startedAt`, resource metrics, restart counts, exit codes, the host's status in
+a container row, and per-site counts. A per-site aggregation (for every site: its servers and its
+containers by status, with the names of the worst few) would let the Overview total sites for a
+fleet larger than one page; until the API has it the Overview says what it can and cannot total.
+
 ## Servers screen
 
 `SentinelApi` gains three methods: `listServers` (one page of the servers in scope that match
@@ -312,8 +348,8 @@ BrowserRouter > ModeContext > AuthProvider > ApiProvider > LimitsProvider > Pref
 
 ## Routing and navigation
 
-All eight screens are routed from day one. **Overview** and **Servers** (`/servers`,
-`/servers/:id`) are designed; the others render an explicit placeholder. `config/nav.ts` drives the sidebar, the
+All eight screens are routed from day one. **Overview**, **Servers** (`/servers`,
+`/servers/:id`) and **Docker** (`/docker`) are designed; the others render an explicit placeholder. `config/nav.ts` drives the sidebar, the
 palette, the `g <key>` go-to chords and route titles.
 
 Responsive: Tailwind breakpoints `sm 40rem`, `md 48rem`, `lg 64rem`, `xl 80rem`,

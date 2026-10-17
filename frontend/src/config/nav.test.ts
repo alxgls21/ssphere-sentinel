@@ -26,6 +26,7 @@ describe('navigation registry', () => {
     expect(NAV_ITEMS.filter((item) => item.designed).map((item) => item.id)).toEqual([
       'overview',
       'servers',
+      'docker',
     ])
   })
 

@@ -6,7 +6,6 @@ import { ApiError } from '@/api/errors'
 import { createMockApi } from '@/api/mock/client'
 import type { ServerTelemetry } from '@/api/types'
 import { fakeCharts, resetFakeCharts } from '@/charts/testing/fakeEcharts'
-import { FEATURES } from '@/config/features'
 import { registryOverrides } from '@/config/testing'
 import { createTestApi, renderApp } from '@/test/render'
 import ServerDetailPage from './ServerDetailPage'
@@ -440,11 +439,19 @@ describe('ServerDetailPage over the console API', () => {
     expect(within(summary).getByText(/^mock/)).toBeInTheDocument()
   })
 
-  it('tags the containers of the server live with the server, without making Docker connected', async () => {
+  it('tags the containers of the server live with the server', async () => {
     page('srv-ath-db-01', await apiWith({ stale: false }))
     const containers = await screen.findByRole('region', { name: 'Containers' })
     expect(within(containers).getByText(/^live/)).toBeInTheDocument()
-    expect(FEATURES.docker.connected).toBe(false)
+  })
+
+  it('links the containers of the server to the Docker inventory limited to this host', async () => {
+    page('srv-ath-db-01', await apiWith({ stale: false }))
+    const containers = await screen.findByRole('region', { name: 'Containers' })
+    expect(within(containers).getByRole('link', { name: /Docker/ })).toHaveAttribute(
+      'href',
+      '/docker?server=srv-ath-db-01',
+    )
   })
 
   it('shows the failure, not another server, when the server cannot be read', async () => {

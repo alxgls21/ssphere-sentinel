@@ -35,6 +35,7 @@ function renderApp(route = '/', width = DESKTOP) {
         <Route index element={<p>overview page</p>} />
         <Route path="servers" element={<p>servers page</p>} />
         <Route path="docker" element={<p>docker page</p>} />
+        <Route path="network" element={<p>network placeholder</p>} />
         <Route path="loading" element={<NeverLoads />} />
         <Route path="boom" element={<Boom />} />
       </Route>
@@ -308,7 +309,7 @@ describe('AppShell: demo data', () => {
   })
 
   it('does not say it on a screen that has no data yet: it only shows its placeholder', () => {
-    renderApp('/docker')
+    renderApp('/network')
     expect(screen.queryByRole('complementary', { name: 'Demo data' })).toBeNull()
   })
 

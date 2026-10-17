@@ -142,6 +142,27 @@ describe('the panel', () => {
     expect(region).not.toHaveAttribute('data-planned')
   })
 
+  it('counts the problems it cannot list and says where all of them are', async () => {
+    const queue = queueApi({ ...resultOf(referenceItems()), omitted: 41 })
+    renderQueue(<Page />, { api: queue.api })
+    await screen.findByRole('table', { name: 'Needs attention' })
+    const region = screen.getByRole('region', { name: 'Needs attention' })
+    // 9 listed and 41 that exist but are not in the rows the console API returns.
+    expect(within(region).getByText('50')).toBeInTheDocument()
+    expect(within(region).getByText(/41 more need attention and are not listed/)).toBeVisible()
+    expect(within(region).getByRole('link', { name: 'Servers' })).toHaveAttribute(
+      'href',
+      '/servers',
+    )
+    expect(within(region).getByRole('link', { name: 'Docker' })).toHaveAttribute('href', '/docker')
+  })
+
+  it('says nothing about omitted rows when the queue is whole', async () => {
+    await renderLoaded()
+    expect(screen.queryByText(/not listed/)).toBeNull()
+    expect(screen.getByText(/j\/k move/)).toBeInTheDocument()
+  })
+
   it('moves focus to the selected row when the panel itself is focused (digit key 1)', async () => {
     await renderLoaded()
     act(() => screen.getByRole('region', { name: 'Needs attention' }).focus())

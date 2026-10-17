@@ -68,6 +68,7 @@ export function createConsoleApi(http: ConsoleHttp): SentinelApi {
     getScopeOptions: (options) => http.getScopeOptions(options?.signal),
     getFleetLoad: (options) => http.getFleetLoad(options),
     listServers: (options) => http.listServers(options),
+    listContainers: (options) => http.listContainers(options),
     getServer: (id, options) => http.getServer(id, options),
     getServerSeries: (options) => http.getServerSeries(options),
     getOverviewSummary: async (options) => {

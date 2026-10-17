@@ -196,8 +196,13 @@ export interface AttentionResult {
   generatedAt: Iso
   /** Sorted: severity desc, newest first, then name. */
   items: AttentionItem[]
-  /** Idle items left out of `items` (shown behind a "+N hidden" toggle). */
+  /** Idle containers left out of `items`: not asked for, or beyond the rows one request returns. */
   hiddenIdle: number
+  /**
+   * Problems (critical, warning, unknown) that exist but are not in `items`, because the lists
+   * the queue is built from return only the worst rows of each. Absent or 0: the queue is whole.
+   */
+  omitted?: number
 }
 
 /**
@@ -267,11 +272,20 @@ export interface SiteBreakdown {
   entities: SiteEntity[]
 }
 
+/**
+ * What the per-site rows rest on. `all`: every server and container is in them. `problems`: only
+ * the ones that need attention are (every one of them is, but healthy and idle ones are not
+ * counted per site). `none`: the problems alone do not fit the rows the API returns, so no
+ * per-site figure is given. Absent means `all`.
+ */
+export type SiteCoverage = 'all' | 'problems' | 'none'
+
 export interface HealthBreakdown {
   generatedAt: Iso
   domains: DomainBreakdown[]
   /** Worst site first. */
   sites: SiteBreakdown[]
+  siteCoverage?: SiteCoverage
 }
 
 /** Every searchable thing, for the command palette. */
@@ -303,6 +317,10 @@ export interface ContainerListItem extends ServerContainer {
 }
 
 export interface ContainerListOptions extends RequestOptions {
+  /** Words, every one of which must appear in the name, image, Docker id, server, site or customer. */
+  q?: string
+  /** Only the containers of this server (its id). */
+  server?: string
   status?: 'all' | 'critical' | 'warning' | 'unknown' | 'idle' | 'healthy'
   sort?: 'status' | 'name' | 'server' | 'started'
   dir?: SortDirection
@@ -315,9 +333,9 @@ export interface ContainerList {
   generatedAt: Iso
   items: ContainerListItem[]
   page: PageInfo
-  /** Per health status over the scope. */
+  /** Per health status over the scope, the server and the search, not the status filter: what each filter chip would show. */
   counts: StatusCounts
-  /** Containers in the scope. */
+  /** Containers in the scope (and of the server asked for), whatever the search. */
   scopeTotal: number
 }
 

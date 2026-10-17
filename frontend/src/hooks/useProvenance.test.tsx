@@ -66,18 +66,18 @@ describe('useProvenance', () => {
       }).result.current.provenance
 
     it('is never live from the adapter alone', () => {
-      expect(withSource('http', 'docker')).toBe('mock')
-      expect(withSource('http', ['servers', 'docker', 'network'])).toBe('mock')
+      expect(withSource('http', 'customers')).toBe('mock')
+      expect(withSource('http', ['servers', 'customers', 'network'])).toBe('mock')
       // Even the servers, which the console reads, are not live where demo data is mixed in.
-      expect(withSource('http', ['servers', 'docker'])).toBe('mock')
+      expect(withSource('http', ['servers', 'customers'])).toBe('mock')
     })
 
     it('is live only when every feature behind it is connected and real', () => {
       expect(withSource('http', 'servers')).toBe('live')
       expect(withSource('http', ['servers', 'overview'])).toBe('live')
-      expect(withSource('http', ['servers', 'docker'])).toBe('mock')
-      overrides.set('docker', { connected: true })
-      expect(withSource('http', ['servers', 'docker'])).toBe('live')
+      expect(withSource('http', ['servers', 'customers'])).toBe('mock')
+      overrides.set('customers', { connected: true })
+      expect(withSource('http', ['servers', 'customers'])).toBe('live')
     })
 
     it('is mock under a mock adapter, whatever the registry says', () => {

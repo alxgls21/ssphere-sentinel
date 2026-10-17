@@ -78,8 +78,8 @@ export const FEATURES: Record<FeatureId, FeatureInfo> = {
     id: 'docker',
     label: 'Docker',
     backend: 'console-api',
-    connected: false,
-    note: 'The console API serves containers with their server. This screen shows demo data until it is connected to it.',
+    connected: true,
+    note: 'The console API serves containers with their server, their state and their health, and the Docker screen reads them.',
   },
   network: {
     id: 'network',
@@ -251,7 +251,7 @@ export const PROVENANCE_SPOKEN: Record<Provenance, string | null> = {
 /** The feature whose data an entity of this kind is. */
 export const FEATURE_OF_ENTITY: Record<'server' | 'container' | 'target' | 'device', FeatureId> = {
   server: 'servers',
-  // The containers an entity cell shows are the overview's: the Docker screen itself is not built.
+  // The containers an entity cell shows are the overview's counts (the Docker screen reads its own list).
   container: 'overview',
   target: 'network',
   device: 'snmp',
@@ -262,4 +262,4 @@ export const FEATURE_OF_ENTITY: Record<'server' | 'container' | 'target' | 'devi
  * data. Probe targets, SNMP, alerts and events are not in the list: no screen shows a figure for
  * them, only a statement that they are not available.
  */
-export const DATA_FEATURES: readonly FeatureId[] = ['overview', 'servers', 'site-links']
+export const DATA_FEATURES: readonly FeatureId[] = ['overview', 'servers', 'docker', 'site-links']

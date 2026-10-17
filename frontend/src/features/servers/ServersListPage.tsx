@@ -1,7 +1,6 @@
 import { useEffect } from 'react'
 import { Navigate, useSearchParams } from 'react-router'
 import { useApi } from '@/api/context'
-import type { PageInfo } from '@/api/types'
 import { useLive } from '@/app/live'
 import { usePrefs } from '@/app/prefs'
 import { useViewTo } from '@/app/viewSearch'
@@ -10,10 +9,11 @@ import { useDebouncedValue } from '@/hooks/useDebouncedValue'
 import { useLiveResource } from '@/hooks/useLiveResource'
 import { useMediaQuery } from '@/hooks/useMediaQuery'
 import { formatInteger } from '@/lib/format'
+import { ListSkeleton, Pager } from '@/ui/ListParts'
 import { Panel } from '@/ui/Panel'
 import { Button, Chip, SearchField, Select, type SelectOption } from '@/ui/controls'
 import { limitsOrigin, useResourceLimits } from '@/ui/meters'
-import { EmptyState, Skeleton } from '@/ui/states'
+import { EmptyState } from '@/ui/states'
 import { StatusGlyph } from '@/ui/status'
 import { ServerCards } from './ServerCards'
 import { ServersTable } from './ServersTable'
@@ -39,52 +39,8 @@ const SORT_OPTIONS: readonly SelectOption<SortKey>[] = SORT_KEYS.map((key) => ({
 const FILTER_GLYPH: Partial<Record<StatusFilter, 'critical' | 'warning' | 'unknown' | 'healthy'>> =
   { critical: 'critical', warning: 'warning', unknown: 'unknown', healthy: 'healthy' }
 
-const SKELETON_ROWS = 8
-
-function ListSkeleton() {
-  return (
-    <div aria-hidden="true">
-      {Array.from({ length: SKELETON_ROWS }, (_, index) => (
-        <div key={index} className="flex h-(--row-h) items-center px-3">
-          <Skeleton className="h-3 w-full" />
-        </div>
-      ))}
-    </div>
-  )
-}
-
 /** How long the search must hold still before it is asked for: a request per keystroke is noise. */
 const SEARCH_SETTLE_MS = 250
-
-interface PagerProps {
-  page: PageInfo
-  shown: number
-  onPage: (number: number) => void
-}
-
-/** Where this page sits among the matches, and the way to the others. */
-function Pager({ page, shown, onPage }: PagerProps) {
-  const first = (page.number - 1) * page.size + 1
-  const last = first + shown - 1
-  return (
-    <nav aria-label="Pages" className="ml-auto flex shrink-0 items-center gap-2">
-      <span className="type-data tnum" aria-live="polite">
-        {shown > 0 ? `${first}–${last} of ${formatInteger(page.total)} · ` : ''}
-        page {page.number} of {page.pages}
-      </span>
-      <Button size="sm" disabled={page.number <= 1} onClick={() => onPage(page.number - 1)}>
-        Previous
-      </Button>
-      <Button
-        size="sm"
-        disabled={page.number >= page.pages}
-        onClick={() => onPage(page.number + 1)}
-      >
-        Next
-      </Button>
-    </nav>
-  )
-}
 
 /**
  * Servers: every monitored host, worst first, a page at a time. Search, status filter,

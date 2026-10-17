@@ -275,6 +275,103 @@ describe('attentionOf', () => {
   })
 })
 
+describe('what the worst-first rows cannot reach', () => {
+  /** Many more servers and containers than the rows hold: the counts are the API's, the rows are a page. */
+  const big = (
+    problemsOnPage: number,
+    extra: { serversTotal: number; containersTotal: number },
+  ) => {
+    const items = Array.from({ length: problemsOnPage }, (_, n) =>
+      serverItem(`srv-${String(n).padStart(3, '0')}`, 'critical'),
+    )
+    const servers = serverList(items, {
+      counts: { ...emptyCounts(), critical: 250, healthy: extra.serversTotal - 250 },
+      scopeTotal: extra.serversTotal,
+      page: { number: 1, size: 200, total: extra.serversTotal, pages: 2 },
+    })
+    const boxes = containerList([containerItem('c', 'warning', 'srv-000')], {
+      counts: { ...emptyCounts(), warning: 1, healthy: extra.containersTotal - 1 },
+      scopeTotal: extra.containersTotal,
+      page: { number: 1, size: 200, total: extra.containersTotal, pages: 1 },
+    })
+    return { servers, boxes }
+  }
+
+  it('counts the problems the queue does not list, from the API’s own counts', () => {
+    const { servers, boxes } = big(200, { serversTotal: 600, containersTotal: 1 })
+    const result = attentionOf(servers, boxes, { now: NOW })
+    expect(result.items).toHaveLength(201)
+    // 250 critical servers and 1 warning container exist; 200 + 1 are listed.
+    expect(result.omitted).toBe(50)
+  })
+
+  it('says nothing is omitted when every problem is listed', () => {
+    const result = attentionOf(serverList(STORY_SERVERS), containerList(STORY_CONTAINERS), {
+      now: NOW,
+    })
+    expect(result).not.toHaveProperty('omitted')
+  })
+
+  it('keeps the idle containers beyond the rows hidden, even when idle ones are asked for', () => {
+    const idle = containerItem('certbot', 'idle', 'ath-app-01', { state: 'exited' })
+    const containers = containerList([idle], {
+      counts: { ...emptyCounts(), idle: 5, healthy: 20 },
+      scopeTotal: 25,
+    })
+    const asked = attentionOf(serverList([]), containers, { includeIdle: true, now: NOW })
+    expect(asked.items).toHaveLength(1)
+    expect(asked.hiddenIdle).toBe(4)
+    expect(attentionOf(serverList([]), containers, { now: NOW }).hiddenIdle).toBe(5)
+  })
+
+  it('gives every site its figures when both lists are whole', () => {
+    expect(healthOf(serverList(STORY_SERVERS), containerList(STORY_CONTAINERS))).not.toHaveProperty(
+      'siteCoverage',
+    )
+  })
+
+  it('lists only the problems of a site when the lists are cut but every problem is in hand', () => {
+    const servers = serverList([serverItem('bad', 'critical'), serverItem('fine', 'healthy')], {
+      counts: { ...emptyCounts(), critical: 1, healthy: 99 },
+      scopeTotal: 100,
+    })
+    const containers = containerList([containerItem('worker', 'warning', 'bad')], {
+      counts: { ...emptyCounts(), warning: 1, healthy: 49 },
+      scopeTotal: 50,
+    })
+    const health = healthOf(servers, containers)
+    expect(health.siteCoverage).toBe('problems')
+    expect(health.sites).toHaveLength(1)
+    // The healthy server in the rows is not counted either: its site's healthy members are not known.
+    expect(health.sites[0]?.entities.map((entity) => entity.name)).toEqual(['bad', 'worker@bad'])
+    // The domain counts stay the API's, whole.
+    expect(health.domains[0]?.counts.healthy).toBe(99)
+    expect(health.domains[1]?.counts.healthy).toBe(49)
+  })
+
+  it('gives no per-site figure when the problems alone do not fit the rows', () => {
+    const { servers, boxes } = big(200, { serversTotal: 600, containersTotal: 1 })
+    const health = healthOf(servers, boxes)
+    expect(health.siteCoverage).toBe('none')
+    expect(health.sites).toEqual([])
+    expect(health.domains[0]?.counts.critical).toBe(250)
+  })
+
+  it('gives no per-site figure when a problem runs on a host beyond the rows', () => {
+    const servers = serverList([serverItem('bad', 'critical')], {
+      counts: { ...emptyCounts(), critical: 1, healthy: 99 },
+      scopeTotal: 100,
+    })
+    const containers = containerList([containerItem('worker', 'warning', 'elsewhere')], {
+      counts: { ...emptyCounts(), warning: 1, healthy: 9 },
+      scopeTotal: 10,
+    })
+    const health = healthOf(servers, containers)
+    expect(health.siteCoverage).toBe('none')
+    expect(health.sites).toEqual([])
+  })
+})
+
 describe('healthOf', () => {
   const health = () => healthOf(serverList(STORY_SERVERS), containerList(STORY_CONTAINERS))
 

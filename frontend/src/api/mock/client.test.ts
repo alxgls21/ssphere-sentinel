@@ -20,6 +20,7 @@ const CALLS: Record<string, Call> = {
   getFleetLoad: (api, signal) => api.getFleetLoad({ metric: 'cpu', signal }),
   getHealthBreakdown: (api, signal) => api.getHealthBreakdown({ signal }),
   getEntityIndex: (api, signal) => api.getEntityIndex({ signal }),
+  listContainers: (api, signal) => api.listContainers({ signal }),
 }
 const METHODS = Object.keys(CALLS)
 

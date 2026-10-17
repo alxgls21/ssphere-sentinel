@@ -106,6 +106,7 @@ describe('OverviewPage', () => {
         'getServer',
         'getServerSeries',
         'listAttention',
+        'listContainers',
         'listServers',
         'source',
       ].sort(),

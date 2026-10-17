@@ -60,7 +60,7 @@ export const NAV_ITEMS: readonly NavItem[] = [
     chord: 'd',
     description: 'Container inventory, state and health',
     feature: 'docker',
-    designed: false,
+    designed: true,
   },
   {
     id: 'network',

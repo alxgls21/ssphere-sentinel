@@ -7,7 +7,7 @@ import {
   useState,
   type MouseEvent,
 } from 'react'
-import { useLocation, useNavigate } from 'react-router'
+import { Link, useLocation, useNavigate } from 'react-router'
 import { useApi } from '@/api/context'
 import { useLive } from '@/app/live'
 import { usePrefs } from '@/app/prefs'
@@ -64,7 +64,7 @@ function keyboardFocused(element: HTMLElement): boolean {
  * containers, worst first, as given by the API. Keyboard first
  * (j/k, Enter, y, f, r) and calm under live updates: while the operator is in
  * the table the order is locked and new snapshots wait behind a pill (see
- * useOrderLock). Demo data until the screen is connected to the console API.
+ * useOrderLock). It lists the worst rows the console API returns, and says so when more need attention.
  */
 export function AttentionQueuePanel({ className }: { className?: string }) {
   const api = useApi()
@@ -205,11 +205,26 @@ export function AttentionQueuePanel({ className }: { className?: string }) {
     </fieldset>
   )
 
+  const omitted = snapshot?.omitted ?? 0
   const footer = (
     <>
-      <span className="min-w-0 truncate pointer-coarse:hidden">
-        j/k move · Enter open · y copy · f filter
-      </span>
+      {omitted > 0 ? (
+        <span className="min-w-0 truncate">
+          {omitted} more need attention and are not listed:{' '}
+          <Link to={viewTo('/servers')} className="text-primary hover:text-primary-hover">
+            Servers
+          </Link>{' '}
+          and{' '}
+          <Link to={viewTo('/docker')} className="text-primary hover:text-primary-hover">
+            Docker
+          </Link>{' '}
+          list them all
+        </span>
+      ) : (
+        <span className="min-w-0 truncate pointer-coarse:hidden">
+          j/k move · Enter open · y copy · f filter
+        </span>
+      )}
       {snapshot && (snapshot.hiddenIdle > 0 || includeIdle) ? (
         <Button variant="ghost" size="sm" onClick={() => setIncludeIdle(!includeIdle)}>
           {includeIdle ? 'Hide idle' : `+${snapshot.hiddenIdle} hidden (idle)`}
@@ -241,7 +256,7 @@ export function AttentionQueuePanel({ className }: { className?: string }) {
       index={1}
       features={FEATURES}
       title="Needs attention"
-      count={snapshot ? counts.problems : undefined}
+      count={snapshot ? counts.problems + (snapshot.omitted ?? 0) : undefined}
       scope="NOW"
       actions={chips}
       refreshMs={pollMs}
