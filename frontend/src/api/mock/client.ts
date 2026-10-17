@@ -8,6 +8,7 @@ import { buildEstate, scopeEstate, type Estate, type FleetProfile } from './fixt
 import { emptyCounts } from '@/lib/status'
 import { hash01, hashString } from './random'
 import type { MockScenario } from './scenario'
+import { mockTopology } from './topology'
 import { toIso, type Clock } from './time'
 
 export interface MockApiOptions {
@@ -194,5 +195,54 @@ export function createMockApi(options: MockApiOptions = {}): SentinelApi {
         const { server } = serverDetail(estateAt(clock).fleet, request.serverId, clock.now).item
         return buildServerSeries(server, request.range, clock.now)
       }),
+
+    // The sample fleet has no alert engine and records no incident: an empty list, no incident to
+    // open or acknowledge, and an engine that has never run. Nothing is made up.
+    listIncidents: (request) =>
+      scoped('listIncidents', request, (_estate, { now }) => ({
+        generatedAt: toIso(now),
+        items: [],
+        page: { number: 1, size: request?.pageSize ?? 50, total: 0, pages: 1 },
+        counts: { active: 0, acknowledged: 0, recovered: 0, closed: 0 },
+        scopeTotal: 0,
+      })),
+
+    getIncident: (id, request) =>
+      respond('getIncident', request?.signal, () => {
+        throw new ApiError(`Incident ${id} not found`, 404)
+      }),
+
+    acknowledgeIncident: (id, request) =>
+      respond('acknowledgeIncident', request?.signal, () => {
+        throw new ApiError(`Incident ${id} not found`, 404)
+      }),
+
+    getEngineStatus: (request) =>
+      respond('getEngineStatus', request?.signal, ({ now }) => ({
+        generatedAt: toIso(now),
+        state: 'never_started' as const,
+        stale: true,
+        staleAfterSeconds: 180,
+        intervalSeconds: null,
+        startedAt: null,
+        lastSuccessAt: null,
+        lastAttemptAt: null,
+        lastCycleMs: null,
+        lastError: null,
+        monitoringSince: null,
+      })),
+
+    getIncidentOverview: (request) =>
+      scoped('getIncidentOverview', request, (_estate, { now }) => ({
+        generatedAt: toIso(now),
+        open: 0,
+        active: 0,
+        acknowledged: 0,
+        critical: 0,
+        recent: [],
+      })),
+
+    getTopology: (request) =>
+      scoped('getTopology', request, ({ fleet }, { now }) => mockTopology(fleet, now, request)),
   }
 }

@@ -7,8 +7,8 @@ import { emptyCounts } from './status'
  *
  * Counts come ONLY from what the console API counts: servers, containers, probe targets and
  * SNMP devices, each by the health the API decided. A device's health is never worked out from
- * its interfaces. Alerts and events are not served, so neither feeds the verdict (it says so in
- * a tooltip).
+ * its interfaces. Events are not served, and incidents follow the health already counted, so neither
+ * feeds the verdict (it says so in a tooltip).
  *
  *   NO DATA   data older than 120 s, every resource failed, or nothing monitored
  *   CRITICAL  any critical entity

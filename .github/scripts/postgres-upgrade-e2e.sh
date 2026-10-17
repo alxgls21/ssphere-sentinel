@@ -54,13 +54,15 @@ sql() { docker compose exec -T db sh -c 'psql -U "$POSTGRES_USER" -d "$POSTGRES_
 server_version() { echo 'SHOW server_version_num;' | sql; }
 data_directory() { echo 'SHOW data_directory;' | sql; }
 
-# Exact row count of every table, to compare before and after.
+# Exact row count of every table, to compare before and after. Not those of the
+# alert engine, which writes on its own while it runs (its evaluation of the
+# seeded objects): the dump and restore carry them like any other table.
 table_counts() {
     sql <<'SQL'
 SELECT table_name || ' ' || (xpath('/row/c/text()',
     query_to_xml(format('SELECT count(*) AS c FROM %I', table_name), false, true, '')))[1]::text
 FROM information_schema.tables
-WHERE table_schema = 'public' AND table_type = 'BASE TABLE'
+WHERE table_schema = 'public' AND table_type = 'BASE TABLE' AND table_name NOT LIKE 'alerts\_%'
 ORDER BY 1;
 SQL
 }
@@ -147,7 +149,7 @@ step "Back up (documented procedure)"
 run_preflight - 0 "existing PostgreSQL 16 installation"
 docker compose up --detach --wait --wait-timeout 180
 table_counts | diff - "$work/counts-before" || fail "counts changed after the refused start"
-docker compose stop web
+docker compose stop web alert-engine notifier
 docker compose exec -T db sh -c 'pg_dump -U "$POSTGRES_USER" -d "$POSTGRES_DB" --format=custom' \
     > "$work/sentinel.dump"
 docker compose exec -T db sh -c 'pg_restore --list' < "$work/sentinel.dump" > /dev/null \
@@ -185,7 +187,7 @@ docker compose up --detach --wait --wait-timeout 180
 docker compose exec -T web python manage.py migrate --check
 assert_rehearsal_data "after the restore"
 .github/scripts/check-server.sh
-docker compose stop web
+docker compose stop web alert-engine notifier
 table_counts | diff -u "$work/counts-before" - || fail "row counts changed while the application ran"
 
 step "Roll back to the untouched PostgreSQL 16 volume (documented procedure)"

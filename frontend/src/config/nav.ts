@@ -88,9 +88,9 @@ export const NAV_ITEMS: readonly NavItem[] = [
     path: '/topology',
     icon: Waypoints,
     chord: 't',
-    description: 'Network map and outage impact',
+    description: 'What holds what, and which agent monitors what',
     feature: 'topology',
-    designed: false,
+    designed: true,
   },
   {
     id: 'alerts',
@@ -98,9 +98,9 @@ export const NAV_ITEMS: readonly NavItem[] = [
     path: '/alerts',
     icon: BellRing,
     chord: 'a',
-    description: 'Warnings, criticals and the event timeline',
+    description: 'Incidents the alert engine opened, and their acknowledgement',
     feature: 'alerts',
-    designed: false,
+    designed: true,
   },
   {
     id: 'customers',

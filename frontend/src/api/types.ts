@@ -806,3 +806,227 @@ export interface InterfaceSeries {
   validSamples: number[]
   invalidSamples: number[]
 }
+
+/* ---------------------------------------------------------------- topology */
+
+/**
+ * What a topology node is. `customer`, `site` and `group` only hold other nodes (`group` is the
+ * one synthetic "No site" holder); the rest are monitored entities with a health of their own.
+ */
+export type TopologyNodeKind =
+  'customer' | 'site' | 'group' | 'server' | 'container' | 'target' | 'device' | 'interface'
+
+/** The kinds the console API leaves out unless they are asked for. */
+export type TopologyInclude = 'containers' | 'interfaces'
+
+/** The agent installed on a server, as the topology reports it. */
+export interface TopologyAgent {
+  id: string
+  name: string
+  version: string | null
+  status: 'online' | 'offline' | 'unknown'
+  lastSeenAt: Iso | null
+}
+
+export interface TopologyNode {
+  /** `<kind>:<ref>`, or `group:unassigned`. */
+  id: string
+  kind: TopologyNodeKind
+  label: string
+  /** The node it belongs to (a site in its customer, a server on its site): grouping, never a link. */
+  parent: string | null
+  /** The console's health; null for the nodes that only hold others. */
+  health: HealthStatus | null
+  /** The id the other console endpoints take; null for the synthetic group. */
+  ref: string | null
+  /** Servers only: the agent installed on it, or null when it has none. */
+  agent: TopologyAgent | null
+  /** True for the "No site" group, which is not a record of its own. */
+  synthetic: boolean
+}
+
+/**
+ * Which server's agent measures what: it probes a network target or polls an SNMP device. This is
+ * monitoring responsibility, never a network link: the console knows no cabling or routing.
+ */
+export interface TopologyEdge {
+  id: string
+  /** The server whose agent does the measuring. */
+  source: string
+  /** The target or device it measures. */
+  target: string
+  kind: 'probes' | 'polls'
+}
+
+/** Of one kind: how many the scope holds, and how many of them this answer returned. */
+export interface TopologyCount {
+  visible: number
+  returned: number
+}
+
+/**
+ * The infrastructure graph of a scope, as recorded: who owns what, where it is, what runs on what
+ * and which agent measures what. Taken worst health first up to the limit, each node with every
+ * ancestor; `truncated` says that some of the scope was left out.
+ */
+export interface Topology {
+  generatedAt: Iso
+  /** Whether any edge is a physical link. The console API has none to give: always false. */
+  physicalLinksKnown: boolean
+  /** Ancestors before the nodes they hold. */
+  nodes: TopologyNode[]
+  edges: TopologyEdge[]
+  /** Only the kinds the answer covers: containers and interfaces when asked for, the group when one exists. */
+  counts: Partial<Record<TopologyNodeKind, TopologyCount>>
+  truncated: boolean
+}
+
+export interface TopologyOptions extends RequestOptions {
+  include?: readonly TopologyInclude[]
+  /** Nodes to return, parents included: 1 to 5000 (the console API's default is 2000). */
+  limit?: number
+}
+
+/* --------------------------------------------------------------- incidents */
+
+/**
+ * Where an incident stands. `active` and `acknowledged` are both open: acknowledging marks an
+ * incident as seen and nothing else. `recovered` and `closed` are ended: the condition cleared and
+ * the recovery was confirmed, or monitoring of the object ended (`closeReason`).
+ */
+export type IncidentStatus = 'active' | 'acknowledged' | 'recovered' | 'closed'
+
+export type AlertSeverity = 'critical' | 'warning'
+
+export type IncidentEntityKind = 'server' | 'container' | 'target' | 'device' | 'interface'
+
+/** The health a rule fired on. */
+export type IncidentConditionHealth = 'critical' | 'warning' | 'unknown'
+
+export type IncidentCloseReason =
+  | 'entity_removed'
+  | 'entity_disabled'
+  | 'entity_moved'
+  | 'out_of_scope'
+  | 'rule_disabled'
+  | 'rule_changed'
+
+export interface IncidentItem {
+  id: string
+  status: IncidentStatus
+  severity: AlertSeverity
+  /** The rule's condition when the incident opened. */
+  condition: { health: IncidentConditionHealth; reason: string | null }
+  /** `ref` is the id the other console endpoints take; `label` the object's name when the incident opened. */
+  entity: { kind: IncidentEntityKind; ref: string; label: string }
+  rule: { id: string; name: string }
+  siteId: string | null
+  customerName?: string
+  siteName?: string
+  /** When the condition began. */
+  startedAt: Iso
+  /** When it had held for the rule's activation time. */
+  openedAt: Iso
+  acknowledgedAt: Iso | null
+  acknowledgedBy: string | null
+  recoveredAt: Iso | null
+  closedAt: Iso | null
+  closeReason: IncidentCloseReason | null
+  /** This user may acknowledge it now: it is active and the account has the permission. */
+  canAcknowledge: boolean
+}
+
+export type IncidentStatusFilter =
+  'all' | 'open' | 'active' | 'acknowledged' | 'ended' | 'recovered' | 'closed'
+export type IncidentSeverityFilter = 'all' | AlertSeverity
+export type IncidentKindFilter = 'all' | IncidentEntityKind
+export type IncidentSortKey = 'opened' | 'started' | 'severity' | 'status' | 'name'
+
+export interface IncidentListOptions extends RequestOptions {
+  /** Words, every one of which must appear in the object's name or reference, the rule, the site or the customer. */
+  q?: string
+  status?: IncidentStatusFilter
+  severity?: IncidentSeverityFilter
+  kind?: IncidentKindFilter
+  sort?: IncidentSortKey
+  dir?: SortDirection
+  /** 1-based. */
+  page?: number
+  pageSize?: number
+}
+
+/** Incidents per status over the scope, the search, the severity and the kind: never the status filter. */
+export type IncidentCounts = Record<IncidentStatus, number>
+
+export interface IncidentList {
+  generatedAt: Iso
+  items: IncidentItem[]
+  page: PageInfo
+  counts: IncidentCounts
+  /** Incidents in the scope, whatever the search and filters. */
+  scopeTotal: number
+}
+
+export type IncidentEventKind =
+  'opened' | 'acknowledged' | 'recovery_started' | 'recovery_interrupted' | 'recovered' | 'closed'
+
+/** One step of an incident's history. `health` and `reason` are what was observed then, where anything was. */
+export interface IncidentStep {
+  at: Iso
+  kind: IncidentEventKind
+  health: HealthStatus | null
+  reason: string | null
+  /** The user name of whoever acknowledged. */
+  actor: string | null
+}
+
+export interface IncidentRule {
+  id: string
+  name: string
+  description: string
+  enabled: boolean
+}
+
+export interface IncidentDetail {
+  generatedAt: Iso
+  item: IncidentItem
+  rule: IncidentRule
+  /** The object still exists where this user may see it: its own page opens. */
+  entityVisible: boolean
+  /** In order, oldest first. */
+  timeline: IncidentStep[]
+}
+
+export type EngineState = 'running' | 'failed' | 'stale' | 'never_started'
+
+/** What the alert engine says about itself. Nothing is inferred from the incidents. */
+export interface EngineStatus {
+  generatedAt: Iso
+  state: EngineState
+  stale: boolean
+  staleAfterSeconds: number
+  intervalSeconds: number | null
+  startedAt: Iso | null
+  lastSuccessAt: Iso | null
+  lastAttemptAt: Iso | null
+  lastCycleMs: number | null
+  /** The category only, never the message. */
+  lastError: { at: Iso; category: 'database' | 'internal' } | null
+  /** Null while the engine finds the agents' heartbeats missing all at once. */
+  monitoringSince: Iso | null
+}
+
+/**
+ * The open incidents of a scope for the shell and the Overview: the counts are the API's, over the
+ * whole scope, and `recent` holds only the first few (critical first, then the newest).
+ */
+export interface IncidentOverview {
+  generatedAt: Iso
+  /** Active and acknowledged. */
+  open: number
+  active: number
+  acknowledged: number
+  /** Open and critical. */
+  critical: number
+  recent: IncidentItem[]
+}

@@ -4,7 +4,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { formatTime } from '@/lib/format'
 import { renderApp } from '@/test/render'
 import { EventLog } from './EventLog'
-import { FRESH, TAIL } from './testEvents'
+import { FRESH, TAIL } from '@/features/overview/events/testEvents'
 
 const log = () => screen.getByRole('log', { name: 'Recent events' })
 const lines = () => within(log()).getAllByRole('listitem')

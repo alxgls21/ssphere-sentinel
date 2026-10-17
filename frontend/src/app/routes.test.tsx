@@ -26,6 +26,12 @@ vi.mock('@/features/snmp/SnmpPage', () => ({
 vi.mock('@/features/snmp/DeviceDetailPage', () => ({
   default: () => <p>device screen</p>,
 }))
+vi.mock('@/features/alerts/AlertsPage', () => ({
+  default: () => <p>alerts screen</p>,
+}))
+vi.mock('@/features/alerts/IncidentDetailPage', () => ({
+  default: () => <p>incident screen</p>,
+}))
 vi.mock('@/features/docker/DockerPage', () => ({
   default: () => <p>docker screen</p>,
 }))
@@ -83,6 +89,16 @@ describe('AppRoutes', () => {
     expect(screen.getByRole('link', { name: 'SNMP' })).toHaveAttribute('aria-current', 'page')
   })
 
+  it('lazy-loads the Alerts list and an incident page inside the shell', async () => {
+    const first = renderShell(<AppRoutes />, { route: '/alerts' })
+    expect(await within(main()).findByText('alerts screen')).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: /^Alerts/ })).toHaveAttribute('aria-current', 'page')
+    first.unmount()
+    renderShell(<AppRoutes />, { route: '/alerts/6f1c0d2e-5a1b-4c1d-9a55-0d6c9f6c3c11' })
+    expect(await within(main()).findByText('incident screen')).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: /^Alerts/ })).toHaveAttribute('aria-current', 'page')
+  })
+
   it('routes every screen that is not designed yet to its placeholder', async () => {
     for (const item of NAV_ITEMS.filter((nav) => !nav.designed)) {
       const { unmount } = renderShell(<AppRoutes />, { route: item.path })
@@ -96,11 +112,11 @@ describe('AppRoutes', () => {
   })
 
   it('keeps a screen’s own sub-paths with its screen', async () => {
-    renderShell(<AppRoutes />, { route: '/topology/some-host' })
+    renderShell(<AppRoutes />, { route: '/customers/some-site' })
     expect(
-      await within(main()).findByRole('heading', { level: 1, name: 'Topology' }),
+      await within(main()).findByRole('heading', { level: 1, name: 'Customers & Sites' }),
     ).toBeInTheDocument()
-    expect(screen.getByRole('link', { name: /^Topology/ })).toHaveAttribute('aria-current', 'page')
+    expect(screen.getByRole('link', { name: /^Customers/ })).toHaveAttribute('aria-current', 'page')
   })
 
   it('titles each page from NAV_ITEMS', async () => {

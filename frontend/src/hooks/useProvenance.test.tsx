@@ -25,11 +25,8 @@ describe('useProvenance', () => {
   })
 
   it('is PLANNED when every feature behind it is unsupported', () => {
-    expect(provenance('alerts')).toMatchObject({ planned: true, availability: 'planned' })
-    expect(provenance(['alerts', 'events'])).toMatchObject({
-      planned: true,
-      availability: 'planned',
-    })
+    expect(provenance('events')).toMatchObject({ planned: true, availability: 'planned' })
+    expect(provenance(['events', 'servers'])).toMatchObject({ planned: false, availability: null })
   })
 
   it('says NOT CONNECTED, not PLANNED and not NEEDS SETUP, for the fleet latency of the Overview: stored, but not served to the console', () => {
@@ -43,7 +40,7 @@ describe('useProvenance', () => {
       planned: false,
       availability: null,
     })
-    expect(provenance(['network-overview', 'alerts'])).toMatchObject({
+    expect(provenance(['network-overview', 'events'])).toMatchObject({
       planned: true,
       availability: 'not-connected',
     })

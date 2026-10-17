@@ -4,6 +4,7 @@ import { useShell } from '@/app/shell'
 import { IconButton } from '@/ui/controls'
 import { FiltersMenu } from './topbar/FiltersMenu'
 import { FreshnessCursor } from './topbar/FreshnessChip'
+import { IncidentBell } from './topbar/IncidentBell'
 import { RefreshHairline } from './topbar/RefreshHairline'
 import { UserMenu } from './topbar/UserMenu'
 import { useScopeState } from './topbar/scope'
@@ -28,7 +29,7 @@ export function AppBar() {
         aria-haspopup="dialog"
         onClick={() => setMobileNavOpen(true)}
       />
-      <Wordmark />
+      <Wordmark nameYieldsOnPhones />
       <div className="ml-auto flex items-center gap-2">
         {demo ? <MockChip compact /> : null}
         <FiltersMenu state={scope} iconOnly />
@@ -39,6 +40,7 @@ export function AppBar() {
           aria-haspopup="dialog"
           onClick={openPalette}
         />
+        <IncidentBell />
         <UserMenu iconOnly />
         <FreshnessCursor />
       </div>

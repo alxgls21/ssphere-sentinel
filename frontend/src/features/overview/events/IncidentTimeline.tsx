@@ -3,13 +3,13 @@ import type { RangeKey, SentinelEvent } from '@/api/types'
 import { usePrefs } from '@/app/prefs'
 import { cn } from '@/lib/cn'
 import { formatClock } from '@/lib/format'
-import { countUnseen } from './eventModel'
+import { countUnseen } from '@/ui/events/eventModel'
 import { AXIS_BOX, IncidentLane, LANE_COLUMNS } from './IncidentLane'
 import { axisOf, buildIncidents, countIncidents, spanOf } from './incidentModel'
 import { dayClockOf, emptyText, spansDays, summaryText, timelineDescription } from './incidentText'
-import { lineTarget } from './lineKeys'
-import { Pill } from './Pill'
-import { useReadHold } from './useReadHold'
+import { lineTarget } from '@/ui/events/lineKeys'
+import { Pill } from '@/ui/events/Pill'
+import { useReadHold } from '@/ui/events/useReadHold'
 
 /**
  * The incidents among the events of a range, one 24px lane each on a shared time axis that ends

@@ -404,13 +404,11 @@ describe('empty query', () => {
     expect(within(goTo).getByRole('option', { name: /^Servers/ })).toHaveTextContent(
       'Shortcut g then s',
     )
+    // Every screen is built or backed by the console API: none is planned.
     const planned = within(goTo)
       .getAllByRole('option')
       .filter((option) => within(option).queryByText('Plan') !== null)
-    expect(planned.map((option) => option.querySelector('span')?.textContent)).toEqual([
-      'Topology',
-      'Alerts',
-    ])
+    expect(planned).toEqual([])
   })
 
   it('offers the actions with their shortcut hints', async () => {
@@ -834,25 +832,27 @@ describe('planned items', () => {
     const { user } = setup()
     await openLoaded(user)
     const planned = group('Planned')
-    expect(titles(planned)).toEqual(['Acknowledge alert', 'Open topology', 'Create alert rule'])
+    expect(titles(planned)).toEqual(['Create alert rule'])
     for (const option of within(planned).getAllByRole('option')) {
       expect(option).toHaveAttribute('aria-disabled', 'true')
       expect(option).toHaveTextContent('Planned')
     }
-    expect(within(planned).getByRole('option', { name: /^Acknowledge alert/ })).toHaveTextContent(
-      'The backend has no alert engine',
+    expect(within(planned).getByRole('option', { name: /^Create alert rule/ })).toHaveTextContent(
+      'Rules are managed in the admin, not in the console',
     )
   })
 
   it('stay selectable with the keyboard and explain themselves when run', async () => {
     const { spy, user } = setup()
     await openLoaded(user)
-    await user.type(combobox(), 'acknowledge')
+    await user.type(combobox(), 'alert rule')
     const [top] = options()
-    expect(top).toHaveAccessibleName(/^Acknowledge alert/)
+    expect(top).toHaveAccessibleName(/^Create alert rule/)
     expect(top).toHaveAttribute('aria-selected', 'true')
     await user.keyboard('{Enter}')
-    expect(spy.flashStatus).toHaveBeenCalledWith('Acknowledge alert: not implemented in backend')
+    expect(spy.flashStatus).toHaveBeenCalledWith(
+      'Create alert rule: not available in the console yet',
+    )
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
   })
 
@@ -860,7 +860,9 @@ describe('planned items', () => {
     const { spy, user } = setup()
     await openLoaded(user)
     await user.click(screen.getByRole('option', { name: /^Create alert rule/ }))
-    expect(spy.flashStatus).toHaveBeenCalledWith('Create alert rule: not implemented in backend')
+    expect(spy.flashStatus).toHaveBeenCalledWith(
+      'Create alert rule: not available in the console yet',
+    )
     expect(probe()).toMatch(/^\/\|/)
   })
 })

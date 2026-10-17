@@ -59,9 +59,10 @@ commits all of it or nothing, so an interrupted run leaves the state as it
 was (A, or B with the old passwords). It reads POSTGRES_DB,
 SENTINEL_DB_PASSWORD and SENTINEL_DB_MIGRATE_PASSWORD, from the environment
 or, with ``--compose-config``, as Compose gives them to the db, web and
-migrate services; then it refuses a configuration that gives web or migrate
-a password not its own. ``status`` reads the history and checks the
-invariants in a read-only transaction, and reads POSTGRES_DB.
+migrate services; then it refuses a configuration that gives web, migrate or
+a worker (the alert engine, the notifier) a password not its own. ``status``
+reads the history and checks the invariants in a read-only transaction, and
+reads POSTGRES_DB.
 
 An existing installation, whose tables belong to the bootstrap superuser,
 lists each of them, partitions included, with ``--adopt-table`` (``apply``
@@ -1525,12 +1526,17 @@ def status_program(database: str, *, nonce: str | None = None) -> Program:
     return Program(sql, nonce)
 
 
+# The services that log in like web, with the runtime login, when the configuration has them.
+COMPOSE_WORKERS = ("alert-engine", "notifier")
+
+
 def compose_settings(config: Mapping) -> dict[str, str | None]:
     """POSTGRES_DB and the two passwords as Docker Compose gives them to the db,
     web and migrate services (``docker compose config --format json``), so that
     the roles get exactly the passwords the services will log in with. Refuses
-    a configuration that gives web or migrate a password not its own; never
-    names a value."""
+    a configuration that gives web, migrate or a worker (COMPOSE_WORKERS) a
+    password not its own, or a worker another runtime password than web's;
+    never names a value."""
     services = config.get("services") if isinstance(config, Mapping) else None
     if not isinstance(services, Mapping) or not {"db", "web", "migrate"} <= set(services):
         raise InputError("the Compose configuration has no db, web and migrate services")
@@ -1546,10 +1552,14 @@ def compose_settings(config: Mapping) -> dict[str, str | None]:
         return found if isinstance(found, str) else ""
 
     owned = {"web": RUNTIME_PASSWORD_SETTING, "migrate": MIGRATION_PASSWORD_SETTING}
+    owned |= {service: RUNTIME_PASSWORD_SETTING for service in COMPOSE_WORKERS if service in services}
     for service, own in owned.items():
-        for name in (BOOTSTRAP_PASSWORD, *owned.values()):
+        for name in (BOOTSTRAP_PASSWORD, RUNTIME_PASSWORD_SETTING, MIGRATION_PASSWORD_SETTING):
             if name != own and value(service, name).strip():
                 raise InputError(f"the {service} service would get {name}, which belongs elsewhere (docs/server-deployment.md)")
+    for service in owned.keys() - {"web", "migrate"}:
+        if value(service, RUNTIME_PASSWORD_SETTING) != value("web", RUNTIME_PASSWORD_SETTING):
+            raise InputError(f"the {service} service would log in with another {RUNTIME_PASSWORD_SETTING} than web")
     database = value("db", DATABASE_SETTING)
     for service in owned:
         if value(service, DATABASE_SETTING) != database:

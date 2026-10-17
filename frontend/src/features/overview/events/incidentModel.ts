@@ -1,6 +1,6 @@
 import type { RangeKey, SentinelEvent, SubjectRef } from '@/api/types'
 import { RANGE_MS } from '@/lib/range'
-import { groupByParent } from './eventModel'
+import { groupByParent } from '@/ui/events/eventModel'
 
 /** The levels an incident opens at. */
 export type IncidentSeverity = 'warning' | 'critical'

@@ -21,12 +21,18 @@ export function EventLog({
   events,
   view,
   truncated = false,
+  label = 'Recent events',
+  description,
 }: {
   events: readonly SentinelEvent[]
   /** What the events are of (range and scope). A different view is shown at once, held or not. */
   view: string
   /** The events are only the newest of the range, not all of it. */
   truncated?: boolean
+  /** The log's accessible name. */
+  label?: string
+  /** What the log is, for a screen reader, where it is not the Overview's tail. */
+  description?: string
 }) {
   const { tz } = usePrefs()
   const descriptionId = useId()
@@ -66,14 +72,14 @@ export function EventLog({
   return (
     <div className="relative h-full min-h-30" {...handlers}>
       <span id={descriptionId} className="sr-only">
-        The text equivalent of the Timeline view: {truncated ? 'the newest events' : 'every event'}{' '}
-        of the range, newest first, with a recovery under the failure it closes.
+        {description ??
+          `The text equivalent of the Timeline view: ${truncated ? 'the newest events' : 'every event'} of the range, newest first, with a recovery under the failure it closes.`}
       </span>
       <div
         ref={scroller}
         role="log"
         aria-live="off"
-        aria-label="Recent events"
+        aria-label={label}
         aria-describedby={descriptionId}
         onScroll={(event) => setScrolled(event.currentTarget.scrollTop > 0)}
         className="absolute inset-0 overflow-y-auto overscroll-contain"

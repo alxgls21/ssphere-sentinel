@@ -1,6 +1,14 @@
 import type { SentinelApi } from '@/api/client'
 import type { ConsoleHttp } from '@/api/http'
-import type { ContainerList, DeviceList, Scope, ServerList, TargetList } from '@/api/types'
+import type {
+  ContainerList,
+  DeviceList,
+  IncidentList,
+  Scope,
+  ServerList,
+  TargetList,
+} from '@/api/types'
+import { incidentOverviewOf } from '@/lib/incidents'
 import { OVERVIEW_PAGE_SIZE, attentionOf, healthOf, summaryOf } from '@/lib/overview'
 
 /** Requests for the same view that arrive together (the verdict, the queue, the health panel) share one answer. */
@@ -11,6 +19,14 @@ interface Worst {
   containers: ContainerList
   targets: TargetList
   devices: DeviceList
+}
+
+/** Open incidents the Overview lists: the few that matter most, never a page of them. */
+export const OVERVIEW_INCIDENTS = 5
+
+interface OpenIncidents {
+  open: IncidentList
+  critical: IncidentList
 }
 
 /** Rejects with an AbortError when `signal` aborts, as a request of its own would. */
@@ -36,12 +52,40 @@ function abortable<T>(promise: Promise<T>, signal: AbortSignal | undefined): Pro
 /**
  * The console API as the whole SentinelApi. The Overview is servers, containers, probe targets and
  * SNMP devices: the worst first of each, from the same four list requests (one page each, shared
- * by every panel and refresh), and the counts the API gives. What the API does not serve (alerts,
- * events) has no method here and no figure anywhere: a failed request is that panel's error, and
- * nothing stands in for it.
+ * by every panel and refresh), and the counts the API gives. The open incidents are two more
+ * bounded requests, shared the same way: the first few by severity, and the critical ones counted.
+ * What the API does not serve (events) has no method here and no figure anywhere: a failed request
+ * is that panel's error, and nothing stands in for it.
  */
 export function createConsoleApi(http: ConsoleHttp): SentinelApi {
   let shared: { key: string; at: number; promise: Promise<Worst> } | null = null
+  let sharedIncidents: { key: string; at: number; promise: Promise<OpenIncidents> } | null = null
+
+  const openIncidents = (scope: Scope | undefined): Promise<OpenIncidents> => {
+    const key = JSON.stringify(scope ?? null)
+    const now = Date.now()
+    if (sharedIncidents && sharedIncidents.key === key && now - sharedIncidents.at < SHARE_MS) {
+      return sharedIncidents.promise
+    }
+    const promise = Promise.all([
+      http.listIncidents({
+        scope,
+        status: 'open',
+        sort: 'severity',
+        dir: 'desc',
+        page: 1,
+        pageSize: OVERVIEW_INCIDENTS,
+      }),
+      // Only its counts are read: the API counts per status over the whole scope, whatever the page.
+      http.listIncidents({ scope, status: 'open', severity: 'critical', page: 1, pageSize: 1 }),
+    ]).then(([open, critical]) => ({ open, critical }))
+    const entry = { key, at: now, promise }
+    sharedIncidents = entry
+    promise.catch(() => {
+      if (sharedIncidents === entry) sharedIncidents = null
+    })
+    return promise
+  }
 
   const worstFirst = (scope: Scope | undefined): Promise<Worst> => {
     const key = JSON.stringify(scope ?? null)
@@ -89,6 +133,15 @@ export function createConsoleApi(http: ConsoleHttp): SentinelApi {
     getInterfaceSeries: (options) => http.getInterfaceSeries(options),
     getServer: (id, options) => http.getServer(id, options),
     getServerSeries: (options) => http.getServerSeries(options),
+    getTopology: (options) => http.getTopology(options),
+    listIncidents: (options) => http.listIncidents(options),
+    getIncident: (id, options) => http.getIncident(id, options),
+    acknowledgeIncident: (id, options) => http.acknowledgeIncident(id, options),
+    getEngineStatus: (options) => http.getEngineStatus(options),
+    getIncidentOverview: async (options) => {
+      const { open, critical } = await abortable(openIncidents(options?.scope), options?.signal)
+      return incidentOverviewOf(open, critical)
+    },
     getOverviewSummary: async (options) => {
       const { servers, containers, targets, devices } = await abortable(
         worstFirst(options?.scope),

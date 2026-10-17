@@ -30,10 +30,13 @@ KINDS = ("runtime", "migration", "bootstrap", "django", "pepper")
 # A value this short is not a secret of the stack, and would match anything.
 MINIMUM_LENGTH = 16
 
+OWN = "own"
+
 # What each service may hold. migrate holds the application's keys because its settings need them at import
 # (sentinel/settings.py: manage.py migrate does not start without them). variables: the secret-like
 # variables it has, and what each is:
-# a kind of secret (its value is that secret) or "" (the variable is there, blank, on purpose).
+# a kind of secret (its value is that secret), "" (the variable is there, blank, on purpose) or OWN
+# (a secret that is the service's own and none of the stack's: the notifier's SMTP password).
 # Any other secret-like variable with a value is a finding.
 SERVICES = {
     "web": {
@@ -43,6 +46,7 @@ SERVICES = {
             "DJANGO_SECRET_KEY": "django",
             "AGENT_TOKEN_PEPPER": "pepper",
             "SENTINEL_DB_MIGRATE_PASSWORD": "",
+            "SENTINEL_SMTP_PASSWORD": "",
         },
     },
     "migrate": {
@@ -52,10 +56,34 @@ SERVICES = {
             "DJANGO_SECRET_KEY": "django",
             "AGENT_TOKEN_PEPPER": "pepper",
             "SENTINEL_DB_PASSWORD": "",
+            "SENTINEL_SMTP_PASSWORD": "",
         },
     },
     "db": {"kinds": {"bootstrap"}, "variables": {"POSTGRES_PASSWORD": "bootstrap"}},
+    # The workers log in as web does, and hold no SMTP password but the notifier's own.
+    "alert-engine": {
+        "kinds": {"runtime", "django", "pepper"},
+        "variables": {
+            "SENTINEL_DB_PASSWORD": "runtime",
+            "DJANGO_SECRET_KEY": "django",
+            "AGENT_TOKEN_PEPPER": "pepper",
+            "SENTINEL_DB_MIGRATE_PASSWORD": "",
+            "SENTINEL_SMTP_PASSWORD": "",
+        },
+    },
+    "notifier": {
+        "kinds": {"runtime", "django", "pepper"},
+        "variables": {
+            "SENTINEL_DB_PASSWORD": "runtime",
+            "DJANGO_SECRET_KEY": "django",
+            "AGENT_TOKEN_PEPPER": "pepper",
+            "SENTINEL_DB_MIGRATE_PASSWORD": "",
+            "SENTINEL_SMTP_PASSWORD": OWN,
+        },
+    },
 }
+# Services of a Compose profile: in the configuration only once the profile is enabled.
+OPTIONAL = {"notifier"}
 
 # What the files of an evidence directory are. Processes: one block for each process the container
 # has, "## <pid> <command line>" and then its environment, as the separate-roles-e2e.sh collects them.
@@ -66,8 +94,8 @@ PROCESSES = {
     "web.processes": ("web", "gunicorn", "SENTINEL_DB_ACCESS=runtime"),
     "db.processes": ("db", "postgres", "PG_MAJOR="),
 }
-ENVIRONMENTS = ("web.env", "migrate.env", "db.env")
-MOUNTS = ("web.mounts", "migrate.mounts", "db.mounts")
+ENVIRONMENTS = ("web.env", "migrate.env", "db.env", "alert-engine.env")
+MOUNTS = ("web.mounts", "migrate.mounts", "db.mounts", "alert-engine.mounts")
 EMPTY = ("web.files",)  # what must not exist, one path per line: nothing
 LOGS = "logs"
 
@@ -122,13 +150,15 @@ def judge_environment(service: str, environment: dict[str, str], secrets: dict[s
         elif expected == "":
             if value:
                 problems.append(f"{service}: {name} must be blank")
+        elif expected == OWN:
+            pass  # whatever it is, as long as it is no secret of the stack (below)
         elif value not in secrets[expected]:
             problems.append(f"{service}: {name} is not the {expected} secret")
         # Whatever the variable is, a secret that is not the service's own, or is retired, is a leak.
         for kind in holds(value, secrets, set(KINDS) - allowed["kinds"]):
             problems.append(f"{service}: {name} holds the {kind} secret")
     for name, expected in allowed["variables"].items():
-        if expected and name not in environment:
+        if expected and expected != OWN and name not in environment:
             problems.append(f"{service}: {name} is missing")
     return sorted(set(problems))
 
@@ -202,7 +232,7 @@ def isolation(directory: str, secrets_path: str) -> list[str]:
         for mount in mounts or []:
             kind = mount.get("Type")
             source = str(mount.get("Source", ""))
-            if kind == "tmpfs":  # scratch space in memory, which compose.yml gives web and migrate on purpose
+            if kind == "tmpfs":  # scratch space in memory, which compose.yml gives every Sentinel service on purpose
                 continue
             if service != "db" or kind != "volume" or re.search(r"\.env|\.bootstrap|\.migrate", source):
                 problems.append(f"{service}: mounts a {kind} that is not the database volume")
@@ -219,10 +249,10 @@ def config(text: str, secrets_path: str) -> list[str]:
         services = json.loads(text)["services"]
     except (ValueError, KeyError) as exc:
         raise Evidence(f"not a Compose configuration: {exc}") from None
-    if set(services) != set(SERVICES):
+    if not set(SERVICES) - OPTIONAL <= set(services) <= set(SERVICES):
         raise Evidence(f"the services are {sorted(services)}, not {sorted(SERVICES)}")
     problems = []
-    for service in SERVICES:
+    for service in sorted(set(services)):
         environment = {name: str(value) for name, value in (services[service].get("environment") or {}).items()
                        if value is not None}
         problems += judge_environment(service, environment, secrets)

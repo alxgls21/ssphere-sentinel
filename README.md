@@ -5,8 +5,10 @@ and lightweight host agents.
 
 > **Status:** early development. Interfaces and data contracts may still change.
 > The browser console is under active development and clearly labels sample or
-> unconnected data; see the [frontend guide](frontend/README.md). Alerting, SLA
-> reporting, and remote target configuration are not implemented.
+> unconnected data; see the [frontend guide](frontend/README.md). Alerting
+> covers health incidents, with optional email notifications; metric threshold
+> alerts, other notification channels, SLA reporting, and remote target
+> configuration are not implemented.
 
 ## What it monitors
 
@@ -115,6 +117,7 @@ Grant the development role `CREATEDB` only if Django's test runner should create
 
 ```bash
 python manage.py runserver
+python manage.py run_alert_engine    # incidents; in a second terminal
 ```
 
 Useful endpoints:
@@ -161,6 +164,7 @@ are:
 | Console sessions and thresholds | `SENTINEL_CONSOLE_*` and `SENTINEL_THRESHOLD_*` |
 | Agent URL, token, intervals, and local files | [`deploy/systemd/agent.env.example`](deploy/systemd/agent.env.example) |
 | SNMP devices, credentials, and queue limits | [SNMP configuration](docs/snmp.md#configuration) |
+| Incident emails (optional SMTP) | `SENTINEL_SMTP_*`, `SENTINEL_EMAIL_FROM`, `SENTINEL_CONSOLE_URL`; see [alerts and email](docs/server-deployment.md#alerts-and-email-notifications) |
 
 Production deployments must use HTTPS. Agent tokens are bearer credentials;
 they must not appear in URLs, logs, or committed files. See the
@@ -284,8 +288,16 @@ python manage.py purge_network_measurements
 python manage.py purge_absent_docker_containers
 python manage.py purge_snmp_data
 python manage.py purge_telemetry_samples
+python manage.py purge_incidents
+python manage.py purge_notifications
 python manage.py clearsessions
 ```
+
+Ended incidents are kept for `SENTINEL_INCIDENT_RETENTION_DAYS` with their
+history; open ones, and those with an email still to be sent, are never removed.
+The record of each email is kept for `SENTINEL_NOTIFICATION_RETENTION_DAYS`
+(and goes with its incident if that is sooner); an email not sent within
+`SENTINEL_NOTIFICATION_MAX_AGE_HOURS` is given up.
 
 Every purge command supports bounded batches; the Sentinel commands also support
 `--dry-run`. With Compose, run them through

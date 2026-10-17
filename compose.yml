@@ -30,6 +30,13 @@
 # service only, to resolve POSTGRES_PASSWORD. Each service blanks the password
 # it must not get, should it be in .env by mistake, and every Sentinel process
 # refuses to start with a password not its own (docs/server-deployment.md).
+#
+# alert-engine evaluates the alert rules and opens and recovers incidents; the
+# optional notifier (profile "notifications") emails them. Both run the
+# application image with the runtime login, like web, and never apply
+# migrations (SENTINEL_PROCESS=worker): they start with web and wait until the
+# migrations are applied, by web or, with the separate logins, by migrate.
+# The SMTP password reaches the notifier only (docs/server-deployment.md).
 
 include:
   - path: deploy/postgres/postgres-${SENTINEL_POSTGRES:-16}.yml
@@ -59,8 +66,9 @@ services:
       POSTGRES_HOST: db
       POSTGRES_PORT: 5432
       SENTINEL_DB_ACCESS: migrate
-      # The runtime login's password belongs to web only.
+      # The runtime login's password belongs to web and the workers only.
       SENTINEL_DB_PASSWORD: ""
+      SENTINEL_SMTP_PASSWORD: ""
     depends_on:
       db:
         condition: service_healthy
@@ -88,8 +96,10 @@ services:
       POSTGRES_PORT: 5432
       SENTINEL_DB_ACCESS: runtime
       # The migration login's password belongs to the migrate service only,
-      # even when it was put in .env by mistake.
+      # even when it was put in .env by mistake; the SMTP password to the
+      # notifier only.
       SENTINEL_DB_MIGRATE_PASSWORD: ""
+      SENTINEL_SMTP_PASSWORD: ""
     ports:
       - "${SENTINEL_HTTP_BIND:-0.0.0.0}:${SENTINEL_HTTP_PORT:-8000}:8000"
     depends_on:
@@ -107,4 +117,88 @@ services:
       - no-new-privileges:true
     # Gunicorn finishes in-flight requests for up to 30 seconds on SIGTERM.
     stop_grace_period: 40s
+    logging: *default-logging
+
+  alert-engine:
+    build: .
+    command: ["python", "manage.py", "run_alert_engine", "--liveness-file", "/tmp/sentinel-worker.alive"]
+    restart: unless-stopped
+    init: true
+    env_file:
+      - .env
+    environment:
+      POSTGRES_HOST: db
+      POSTGRES_PORT: 5432
+      SENTINEL_DB_ACCESS: runtime
+      SENTINEL_PROCESS: worker
+      SENTINEL_DB_MIGRATE_PASSWORD: ""
+      SENTINEL_SMTP_PASSWORD: ""
+    depends_on:
+      db:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+      # With the default SENTINEL_DB_ROLES web applies the migrations as it starts:
+      # the engine waits for them (a long migration must not fail `up`).
+      web:
+        condition: service_started
+    # Instead of the image's Gunicorn probe: each cycle of the engine must begin in time.
+    healthcheck:
+      test: ["CMD", "python", "-m", "apps.alerts.runtime", "/tmp/sentinel-worker.alive"]
+      interval: 30s
+      timeout: 5s
+      start_period: 60s
+      retries: 3
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    # SIGTERM ends the engine after the cycle in progress.
+    stop_grace_period: 60s
+    logging: *default-logging
+
+  notifier:
+    build: .
+    command: ["python", "manage.py", "run_notifier", "--liveness-file", "/tmp/sentinel-worker.alive"]
+    # Optional: COMPOSE_PROFILES=notifications in .env, with the SMTP settings.
+    profiles: ["notifications"]
+    restart: unless-stopped
+    init: true
+    env_file:
+      - .env
+    environment:
+      POSTGRES_HOST: db
+      POSTGRES_PORT: 5432
+      SENTINEL_DB_ACCESS: runtime
+      SENTINEL_PROCESS: worker
+      SENTINEL_DB_MIGRATE_PASSWORD: ""
+    depends_on:
+      db:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+      web:
+        condition: service_started
+    # Instead of the image's Gunicorn probe: each run, and each email, must begin in time.
+    healthcheck:
+      test: ["CMD", "python", "-m", "apps.alerts.runtime", "/tmp/sentinel-worker.alive"]
+      interval: 30s
+      timeout: 5s
+      start_period: 60s
+      retries: 3
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    # SIGTERM ends the notifier after the email in progress, which the SMTP
+    # timeouts bound (a dozen replies or so at the default 10 s, the first email
+    # of a run with STARTTLS and AUTH, then QUIT); the rest of its run is handed
+    # back. An email cut short is sent again after its lease.
+    stop_grace_period: 180s
     logging: *default-logging

@@ -6,8 +6,7 @@ import type { ContainerHealth, ContainerState, Customer, Site } from '@/api/type
  * this exists in the backend. fixtures.ts turns these tables into view-models
  * and adds the seeded bulk.
  *
- * Story the data tells (so every panel agrees and the future topology screen
- * has something real to show):
+ * Story the data tells (so every panel agrees, the topology included):
  *   - Piraeus Depot lost connectivity 14 minutes ago: its switch stopped
  *     answering SNMP, its gateway and VPN probes fail, and the file server
  *     stopped sending heartbeats (its containers are no longer observable).

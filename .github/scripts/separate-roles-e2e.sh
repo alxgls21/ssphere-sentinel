@@ -364,7 +364,7 @@ refused_web_start() {  # refused_web_start <name> <seconds> <message>: web, star
     restarts=$(docker inspect --format '{{.RestartCount}}' "$(container web)")
     [ "$restarts" -ge 1 ] || fail "web did not fail and start again: $name"
     grep -qF "$3" <<<"$(service_log web)" || fail "web did not say why: $3"
-    docker compose stop web
+    docker compose stop web alert-engine
 }
 unapply_admin() {  # the migrations of the admin app undone by the migrate login, so that there is something to apply
     docker compose run --rm --no-deps -T migrate python manage.py migrate admin zero > "$work/unapply.out" 2>&1 \
@@ -413,7 +413,7 @@ PROCESS_DUMP='for p in /proc/[0-9]*; do printf "## %s " "${p#/proc/}"; tr "\0" "
 check_isolation() {  # check_isolation <name>
     local dir="$work/evidence-$1" service id
     mkdir -p "$dir"
-    for service in web migrate db; do
+    for service in web migrate db alert-engine; do
         id=$(container "$service")
         [ -n "$id" ] || fail "no $service container"
         docker inspect --format '{{range .Config.Env}}{{println .}}{{end}}' "$id" > "$dir/$service.env"
@@ -467,7 +467,7 @@ scenario_move_credentials() {
     # Checks: the bootstrap password moves out of .env without changing the db service, and the
     # resolved configuration gives each service its own secrets only, with the shell of the
     # operator holding all three (nothing in the shell reaches web or migrate).
-    docker compose stop web
+    docker compose stop web alert-engine
     new_secret app
     new_secret migration
     separate_layout
@@ -635,7 +635,7 @@ scenario_legacy_settings_refused() {
     # by its old .env: web is refused at its first connection, before it applies anything (the
     # migrations of an app were undone first: they would be applied again if it got further).
     local applied restarts
-    docker compose stop web
+    docker compose stop web alert-engine
     unapply_admin
     applied=$(applied_migrations)
     grep -v -e '^SENTINEL_DB_ROLES=' -e '^SENTINEL_DB_PASSWORD=' -e '^SENTINEL_BOOTSTRAP_ENV_FILE=' \
@@ -653,7 +653,7 @@ scenario_legacy_settings_refused() {
     admin_stays_unapplied "a refused superuser login"
     [ "$(applied_migrations)" = "$applied" ] || fail "a refused superuser login changed the record of the migrations"
     if curl --silent --max-time 3 --output /dev/null http://127.0.0.1:8000/health/; then fail "web serves with the superuser login"; fi
-    docker compose stop web
+    docker compose stop web alert-engine
     cp "$work/env.separate" .env
     # The migrate service as it always runs: what was undone is applied again.
     docker compose run --rm --no-deps -T migrate > "$work/reapply.out" 2>&1 || { indented < "$work/reapply.out" >&2; fail "the migrations of admin could not be applied again"; }
@@ -751,7 +751,7 @@ scenario_activation_marker() {
     refused web "${MARKER_REFUSED_WEB[@]}"
     refused migrate "${MARKER_REFUSED_MIGRATE[@]}"
     record=$(echo "SELECT obj_description(oid, 'pg_namespace') FROM pg_namespace WHERE nspname = 'sentinel_restricted'" | sql)
-    docker compose stop web
+    docker compose stop web alert-engine
     # The record changed.
     echo "COMMENT ON SCHEMA sentinel_restricted IS 'e2e altered'" | sql
     refused_by "state C" scripts/postgres-roles.sh status
@@ -789,7 +789,7 @@ scenario_privilege_drift() {
     # accepted again, as it was.
     local database before verifiers_before applied variant name change undo expectation first=true
     database=$(value_of POSTGRES_DB)
-    docker compose stop web
+    docker compose stop web alert-engine
     unapply_admin
     before=$(fingerprint)
     verifiers_before=$(verifiers)
@@ -841,7 +841,7 @@ scenario_password_rotation() {
     sed -i "s|^SENTINEL_DB_PASSWORD=.*|SENTINEL_DB_PASSWORD=$app|" .env
     printf 'SENTINEL_DB_MIGRATE_PASSWORD=%s\n' "$migration" > .env.migrate
     cp .env "$work/env.separate"
-    docker compose stop web
+    docker compose stop web alert-engine
     before=$(fingerprint)
     committed
     [ "$(fingerprint)" = "$before" ] || fail "rotating the passwords changed a privilege"
@@ -869,7 +869,7 @@ scenario_interrupted_migration() {
     # fails and never starts web; the migration that was in flight left nothing behind, nothing
     # was weakened; the next start finishes the job.
     local before up
-    docker compose stop web
+    docker compose stop web alert-engine
     unapply_admin
     before=$(fingerprint)
     # A superuser session holds a lock that the creation of django_admin_log's foreign key needs.
@@ -913,7 +913,7 @@ scenario_failed_deployment_restart() {
     # privilege; once corrected, the same command completes it; the last state of the stack holds
     # each secret in its own container only, the wrong password in none.
     local before wrong
-    docker compose stop web
+    docker compose stop web alert-engine
     before=$(fingerprint)
     cp .env.migrate "$work/env.migrate.good"
     new_secret wrong

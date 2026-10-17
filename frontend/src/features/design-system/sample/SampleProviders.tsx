@@ -1,12 +1,14 @@
 import { useContext, useMemo, type ReactNode } from 'react'
 import { ApiContext } from '@/api/context'
 import type { OverviewSummary } from '@/api/types'
+import { AlertsContext } from '@/app/alerts'
 import { LiveContext } from '@/app/live'
 import { PrefsContext } from '@/app/prefs'
 import { ShellContext } from '@/app/shell'
 import { SummaryContext } from '@/app/summary'
 import { SAMPLE_SUMMARIES } from './data'
 import {
+  alertsState,
   FALLBACK_PREFS,
   GALLERY_API,
   GALLERY_SHELL,
@@ -33,9 +35,12 @@ export function SummaryScenario({
 }: SummaryScenarioProps) {
   const live = useMemo(() => liveControls(kind), [kind])
   const resource = useMemo(() => summaryResource(kind, summary), [kind, summary])
+  const alerts = useMemo(() => alertsState(kind), [kind])
   return (
     <LiveContext.Provider value={live}>
-      <SummaryContext.Provider value={resource}>{children}</SummaryContext.Provider>
+      <SummaryContext.Provider value={resource}>
+        <AlertsContext.Provider value={alerts}>{children}</AlertsContext.Provider>
+      </SummaryContext.Provider>
     </LiveContext.Provider>
   )
 }

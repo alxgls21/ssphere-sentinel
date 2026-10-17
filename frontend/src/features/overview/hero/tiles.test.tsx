@@ -5,8 +5,9 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { registryOverrides } from '@/config/testing'
 import { createTestApi } from '@/test/render'
 import { ContainersTile, DevicesTile, ServersTile, TargetsTile } from './DomainTiles'
-import { AlertsTile } from './PlannedTiles'
-import { counts, makeResource, makeSummary, renderHero } from './testing'
+import { engine, incident, overview } from '@/features/alerts/testing'
+import { AlertsTile } from './AlertsTile'
+import { counts, loaded, makeAlerts, makeResource, makeSummary, renderHero } from './testing'
 
 const overrides = registryOverrides()
 afterEach(() => {
@@ -295,30 +296,147 @@ describe('DevicesTile', () => {
   })
 })
 
-describe('the tiles of what the console API does not serve', () => {
-  it('says alerts are not implemented in the backend, with no count and no sample', () => {
-    const { container } = renderHero(<AlertsTile />)
-    expect(screen.queryByRole('link')).not.toBeInTheDocument()
-    expect(screen.getByText('Planned')).toBeInTheDocument()
-    expect(screen.getByText('Planned, not implemented')).toBeInTheDocument()
-    expect(screen.getByText('Not implemented in the backend')).toBeInTheDocument()
-    expect(screen.queryByText('sample')).not.toBeInTheDocument()
-    expect(screen.queryByText('mock')).not.toBeInTheDocument()
-    expect(container.querySelector('.type-kpi')).toBeNull()
-    expect(container).not.toHaveTextContent(/\d/)
+describe('AlertsTile', () => {
+  it('counts the open incidents from the API’s counts: open, critical, and the rest as warnings', () => {
+    renderHero(<AlertsTile />)
+    const link = screen.getByRole('link', {
+      name: 'Alerts: 7 open, 3 critical, 5 not acknowledged, mock data',
+    })
+    expect(link).toHaveAttribute('href', '/alerts')
+    expect(within(link).getByText('7')).toBeInTheDocument()
+    expect(link).toHaveTextContent('3 CRIT')
+    expect(link).toHaveTextContent('4 WARN')
+    expect(
+      within(link).getByRole('img', { name: 'Open incidents: 3 critical, 4 warning' }),
+    ).toBeInTheDocument()
   })
 
-  it('stays the same whatever the summary says, and whatever the API source is', () => {
+  it('counts an acknowledged incident as open: the figure is the API’s open count, not the unacknowledged one', () => {
+    renderHero(<AlertsTile />, {
+      alerts: makeAlerts({
+        overview: loaded(overview({ open: 4, active: 0, acknowledged: 4, critical: 1 })),
+      }),
+    })
+    const link = screen.getByRole('link', {
+      name: /^Alerts: 4 open, 1 critical, 0 not acknowledged/,
+    })
+    expect(within(link).getByText('4')).toBeInTheDocument()
+  })
+
+  it('takes the figures from the whole scope, whatever rows the Overview lists', () => {
+    renderHero(<AlertsTile />, {
+      alerts: makeAlerts({
+        overview: loaded(
+          overview({
+            open: 1234,
+            active: 1000,
+            acknowledged: 234,
+            critical: 99,
+            recent: [incident()],
+          }),
+        ),
+      }),
+    })
+    expect(
+      screen.getByRole('link', { name: /^Alerts: 1,?234 open, 99 critical/ }),
+    ).toBeInTheDocument()
+  })
+
+  it('says none are open, and is not a placeholder, when the API counts none and the engine runs', () => {
+    const { container } = renderHero(<AlertsTile />, {
+      alerts: makeAlerts({
+        overview: loaded(
+          overview({ open: 0, active: 0, acknowledged: 0, critical: 0, recent: [] }),
+        ),
+      }),
+    })
+    const link = screen.getByRole('link', {
+      name: 'Alerts: 0 open, 0 critical, 0 not acknowledged, mock data',
+    })
+    expect(link).toHaveTextContent('none open')
+    expect(link).not.toHaveTextContent('alert engine')
+    expect(container.querySelector('[data-planned]')).toBeNull()
+  })
+
+  it.each([
+    ['failed', 'alert engine failed'],
+    ['stale', 'alert engine stale'],
+    ['never_started', 'alert engine never started'],
+  ] as const)(
+    'says the engine is %s on the tile itself, so none open is not read as good news',
+    (state, words) => {
+      renderHero(<AlertsTile />, {
+        alerts: makeAlerts({
+          overview: loaded(
+            overview({ open: 0, active: 0, acknowledged: 0, critical: 0, recent: [] }),
+          ),
+          engine: loaded(engine(state)),
+        }),
+      })
+      const link = screen.getByRole('link', { name: new RegExp(words) })
+      // The tile draws it shorter than the spoken name, which keeps "alert engine".
+      expect(link).toHaveTextContent(words.replace('alert engine', 'engine'))
+      expect(link.querySelector('[data-status="healthy"]')).toBeNull()
+    },
+  )
+
+  it('says the engine’s state could not be read, and does not claim it runs', () => {
+    renderHero(<AlertsTile />, {
+      alerts: makeAlerts({
+        engine: { ...loaded(engine()), data: undefined, status: 'error', error: new Error('503') },
+      }),
+    })
+    expect(screen.getByRole('link', { name: /alert engine state unavailable/ })).toBeInTheDocument()
+  })
+
+  it('is live only over the console API with the alerts feature connected, and mock otherwise', () => {
     const live = renderHero(<AlertsTile />, { api: createTestApi({ source: 'http' }) })
-    expect(screen.getByText('Not implemented in the backend')).toBeInTheDocument()
-    expect(screen.queryByText('live')).not.toBeInTheDocument()
+    expect(screen.getByText('live')).toBeInTheDocument()
     live.unmount()
+    overrides.set('alerts', { connected: false })
+    renderHero(<AlertsTile />, { api: createTestApi({ source: 'http' }) })
+    expect(screen.queryByText('live')).toBeNull()
+  })
+
+  it('is mock over the sample API', () => {
+    renderHero(<AlertsTile />)
+    expect(screen.getByText('mock')).toBeInTheDocument()
+    expect(screen.queryByText('live')).toBeNull()
+  })
+
+  it('shows a skeleton while loading, and an error with Retry that reloads the shared figures', async () => {
+    const refetch = vi.fn()
+    renderHero(<AlertsTile />, {
+      alerts: makeAlerts({
+        overview: {
+          ...loaded(overview()),
+          status: 'error',
+          data: undefined,
+          error: new Error('503'),
+          updatedAt: null,
+          refetch,
+        },
+      }),
+    })
+    expect(screen.queryByRole('link')).not.toBeInTheDocument()
+    expect(screen.getByRole('alert')).toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: 'Retry loading Alerts' }))
+    expect(refetch).toHaveBeenCalledOnce()
+  })
+
+  it('keeps the last figures, dimmed and marked stale, when a refresh fails', () => {
+    renderHero(<AlertsTile />, {
+      alerts: makeAlerts({ overview: loaded(overview(), { error: new Error('flaky') }) }),
+    })
+    expect(screen.getByRole('link', { name: /^Alerts: 7 open.*, stale$/ })).toBeInTheDocument()
+  })
+
+  it('does not read the shared summary: its failure is not this tile’s', () => {
     renderHero(<AlertsTile />, {
       summary: makeResource({ status: 'error', data: undefined, error: new Error('503') }),
     })
-    // A failed summary is not a failed tile: nothing is read for it.
     expect(screen.queryByRole('alert')).not.toBeInTheDocument()
-    expect(screen.getByText('Not implemented in the backend')).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: /^Alerts: 7 open/ })).toBeInTheDocument()
   })
 })
 
@@ -331,7 +449,6 @@ describe('tile states from the shared summary', () => {
         <ContainersTile />
         <TargetsTile />
         <DevicesTile />
-        <AlertsTile />
       </>,
       { summary: makeResource({ status: 'loading', data: undefined, updatedAt: null }) },
     )
@@ -352,7 +469,6 @@ describe('tile states from the shared summary', () => {
         <ContainersTile />
         <TargetsTile />
         <DevicesTile />
-        <AlertsTile />
       </>,
       {
         summary: makeResource({

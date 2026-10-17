@@ -16,6 +16,13 @@ from datetime import timedelta
 
 from django.test import override_settings
 
+from apps.console.health import (
+    CONTAINER_REASONS,
+    HEALTH_NAMES,
+    SERVER_REASONS,
+    annotate_containers,
+    annotate_servers,
+)
 from apps.console.tests.helpers import (
     ConsoleDataTestCase,
     make_container,
@@ -59,6 +66,32 @@ def reference_server(seen_ago, stored, telemetry, *, telemetry_ago=None, warn=80
     if any(level >= warn for level in levels) or base == "warning":
         return status, "warning"
     return status, "healthy"
+
+
+def reference_server_reason(seen_ago, stored, telemetry, *, telemetry_ago=None, warn=80, crit=95):
+    """Which of the server rules decides its status (``health_reason``)."""
+    if seen_ago is None:
+        return "never_seen"
+    if seen_ago > OFFLINE_AFTER:
+        return "offline"
+    age = telemetry_ago if telemetry_ago is not None else seen_ago
+    levels = [js_round(value) for value in telemetry] if telemetry is not None and age <= OFFLINE_AFTER else None
+    if levels is not None and any(level >= warn for level in levels):
+        return "resources"
+    if stored == "warning":
+        return "status_warning"
+    return "ok" if levels is not None else "no_telemetry"
+
+
+def reference_container_reason(state, health, observable):
+    """Which of the container rules decides its status (``health_reason``)."""
+    if not observable:
+        return "not_observable"
+    if state == "running":
+        return {"unhealthy": "unhealthy", "starting": "starting"}.get(health, "running")
+    if state in ("exited", "created", "paused"):
+        return "stopped"
+    return state if state in ("dead", "restarting") else "other"
 
 
 def reference_container(state, health, observable):
@@ -194,6 +227,16 @@ class ServerHealthTests(ConsoleDataTestCase):
         }
         self.assertEqual(healths, {"cpu-hot": "critical", "mem-hot": "critical", "disk-hot": "critical", "disk-warm": "warning"})
 
+    def test_every_combination_says_which_rule_decided(self):
+        grid = self.build_grid()
+        rows = annotate_servers(Server.objects.all(), self.now).values("name", "severity", "health_reason")
+        for row in rows:
+            args = grid[row["name"]]
+            with self.subTest(server=row["name"], case=args):
+                self.assertEqual(row["health_reason"], reference_server_reason(*args))
+                self.assertEqual(HEALTH_NAMES[row["severity"]], reference_server(*args)[1])
+        self.assertEqual({row["health_reason"] for row in rows}, set(SERVER_REASONS))
+
 
 class ContainerHealthTests(ConsoleDataTestCase):
     def build_grid(self):
@@ -279,6 +322,16 @@ class ContainerHealthTests(ConsoleDataTestCase):
         self.assertEqual(detail["item"]["containers"]["counts"], expected_counts)
         self.assertEqual(detail["item"]["containers"]["total"], sum(expected_counts.values()))
         self.assertEqual(len(detail["containers"]), sum(expected_counts.values()))
+
+    def test_every_combination_says_which_rule_decided(self):
+        grid = self.build_grid()
+        rows = annotate_containers(DockerContainer.objects.filter(present=True), self.now).values("name", "severity", "health_reason")
+        for row in rows:
+            args = grid[row["name"]]
+            with self.subTest(container=row["name"]):
+                self.assertEqual(row["health_reason"], reference_container_reason(*args))
+                self.assertEqual(HEALTH_NAMES[row["severity"]], reference_container(*args))
+        self.assertEqual({row["health_reason"] for row in rows}, set(CONTAINER_REASONS))
 
     def test_absent_containers_are_not_served(self):
         server = make_server("host", now=self.now, cpu=None)

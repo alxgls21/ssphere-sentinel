@@ -99,11 +99,11 @@ const STATES: readonly StateSample[] = [
   },
   {
     state: 'Planned',
-    note: 'The backend has no alert engine: dashed frame, PLANNED chip and a sentence saying so. The panel holds no rows and no figure, not even a sample.',
+    note: 'The backend has no event log: dashed frame, PLANNED chip and a sentence saying so. The panel holds no rows and no figure, not even a sample.',
     panel: {
-      title: 'Active alerts',
-      features: 'alerts',
-      plannedNote: 'Alert engine not implemented.',
+      title: 'Recent events',
+      features: 'events',
+      plannedNote: 'Event log not implemented.',
     },
   },
   {

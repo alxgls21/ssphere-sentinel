@@ -1,6 +1,7 @@
 import { useMediaQuery } from '@/hooks/useMediaQuery'
 import { Panel } from '@/ui/Panel'
 import { PanelBoundary } from '@/ui/PanelBoundary'
+import { ActiveAlertsPanel } from './alerts/ActiveAlertsPanel'
 import { HeroStrip, VerdictBar } from './hero'
 import { InfrastructureHealthPanel } from './health'
 import { FleetLoadPanel } from './load'
@@ -10,7 +11,7 @@ import { AttentionQueuePanel } from './queue/AttentionQueuePanel'
 /**
  * The Overview, read in a fixed order: the verdict (0-2 s), the Needs
  * attention queue and tiles (2-10 s), context charts and health (10-60 s),
- * then the PLANNED alerts and events (background).
+ * then the active alerts and the PLANNED events (background).
  *
  * Geometry (rem, 1rem = 16px) at the 1440x900 reference, no page scroll:
  *   strip 7.5 + gap 0.75 + main 42.25 = 50.5 (808px = 832px viewport - 24px page padding)
@@ -39,17 +40,14 @@ const PLACE = {
   latency: 'min-h-[20.25rem] max-md:order-5 md:col-span-6 xl:col-span-1 xl:min-h-0',
   load: 'min-h-[20.25rem] max-md:order-4 md:col-span-6 xl:col-span-1 xl:min-h-0',
   health: 'min-h-[19.25rem] max-md:order-3 md:col-span-12 lg:col-span-4 xl:col-span-1 xl:min-h-0',
-  alerts: 'min-h-[10.375rem] lg:col-span-4 xl:col-span-1',
+  alerts: 'min-h-[10.375rem] max-md:order-6 md:col-span-12 lg:col-span-4 xl:col-span-1',
   events: 'min-h-[11.125rem] lg:col-span-4 xl:col-span-1',
 } as const
 
 export default function OverviewPage() {
   const lgUp = useMediaQuery('(min-width: 64rem)')
 
-  // Nothing real exists behind these: the panel says so and holds no figure (see Panel).
-  const alerts = (
-    <Panel title="Active alerts" index={5} features="alerts" className={PLACE.alerts} />
-  )
+  // Nothing real exists behind the events: the panel says so and holds no figure (see Panel).
   const events = (
     <Panel title="Recent events" index={6} features="events" className={PLACE.events} />
   )
@@ -101,14 +99,18 @@ export default function OverviewPage() {
             >
               <InfrastructureHealthPanel className={PLACE.health} />
             </PanelBoundary>
+            <PanelBoundary
+              title="Active alerts"
+              index={5}
+              features="alerts"
+              className={PLACE.alerts}
+            >
+              <ActiveAlertsPanel className={PLACE.alerts} />
+            </PanelBoundary>
             {lgUp ? (
-              <>
-                {alerts}
-                {events}
-              </>
+              events
             ) : (
-              <PlannedAccordion className="max-md:order-6 md:col-span-12" count={2}>
-                {alerts}
+              <PlannedAccordion className="max-md:order-7 md:col-span-12" count={1}>
                 {events}
               </PlannedAccordion>
             )}

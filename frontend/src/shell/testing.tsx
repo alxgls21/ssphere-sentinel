@@ -94,12 +94,14 @@ interface ShellRenderOptions {
   api?: Partial<SentinelApi>
   route?: string
   pollMs?: number
+  /** Include the shared alert figures (the topbar indicator reads them): stub the two alert methods. */
+  withAlerts?: boolean
 }
 
 /** Renders inside the app's providers plus the shell's own (sidebar, overlays, announcer). */
 export function renderShell(
   ui: ReactElement,
-  { summary = makeSummary(), api, route, pollMs }: ShellRenderOptions = {},
+  { summary = makeSummary(), api, route, pollMs, withAlerts = false }: ShellRenderOptions = {},
 ) {
   return renderApp(<ShellProvider>{ui}</ShellProvider>, {
     api: createTestApi({
@@ -110,5 +112,6 @@ export function renderShell(
     route,
     pollMs,
     withSummary: true,
+    withAlerts,
   })
 }

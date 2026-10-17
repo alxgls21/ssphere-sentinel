@@ -1460,6 +1460,31 @@ class ComposeConfigTests(SimpleTestCase):
                 for secret in (RUNTIME, MIGRATION, self.BOOTSTRAP):
                     self.assertNotIn(secret, err)
 
+    def test_the_workers_log_in_like_web(self):
+        def with_workers(**overrides):
+            config = self.config()
+            for worker in db_roles.COMPOSE_WORKERS:
+                environment = {**config["services"]["web"]["environment"], **overrides.get(worker, {})}
+                config["services"][worker] = {"environment": environment}
+            return config
+
+        self.assertEqual(db_roles.compose_settings(with_workers())["SENTINEL_DB_PASSWORD"], RUNTIME)
+        cases = (
+            ({"POSTGRES_PASSWORD": self.BOOTSTRAP}, "the {} service would get POSTGRES_PASSWORD"),
+            ({"SENTINEL_DB_MIGRATE_PASSWORD": MIGRATION}, "the {} service would get SENTINEL_DB_MIGRATE_PASSWORD"),
+            ({"SENTINEL_DB_PASSWORD": MIGRATION}, "the {} service would log in with another SENTINEL_DB_PASSWORD than web"),
+            ({"SENTINEL_DB_PASSWORD": ""}, "the {} service would log in with another SENTINEL_DB_PASSWORD than web"),
+            ({"POSTGRES_DB": "other"}, "POSTGRES_DB of the {} service differs"),
+        )
+        for worker in db_roles.COMPOSE_WORKERS:
+            for overrides, message in cases:
+                with self.subTest(worker=worker, message=message):
+                    status, out, err = self.run_with([], with_workers(**{worker: overrides}))
+                    self.assertEqual((status, out), (2, ""))
+                    self.assertIn(f"sentinel-roles: {message.format(worker)}", err)
+                    for secret in (RUNTIME, MIGRATION, self.BOOTSTRAP):
+                        self.assertNotIn(secret, err)
+
     def test_a_configuration_without_the_services_or_their_passwords_is_refused(self):
         without_web = self.config()
         del without_web["services"]["web"]

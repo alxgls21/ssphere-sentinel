@@ -12,8 +12,10 @@ through the console API behind an API port.
   `scope/`, `auth/login/`, `auth/logout/`), the servers (`servers/`, `servers/<id>/`,
   `servers/<id>/series/`), the containers (`containers/`) and the network targets (`targets/`,
   `targets/<id>/`, `targets/<id>/series/`) and the SNMP devices (`devices/`, `devices/<id>/`,
-  `devices/<id>/series/`, `devices/<id>/interfaces/<ifIndex>/series/`). The Servers, Docker, Network and
-  SNMP screens, Fleet load and the Overview read them. It serves no alerts, incidents or events, and no
+  `devices/<id>/series/`, `devices/<id>/interfaces/<ifIndex>/series/`), the incidents (`incidents/`,
+  `incidents/<id>/`, `incidents/<id>/acknowledge/`) and the alert engine's state
+  (`alerts/engine-status/`). The Servers, Docker, Network, SNMP and Alerts screens, Fleet load, the
+  top bar and the Overview read them. It serves no events, and no
   fleet-wide probe aggregate: wherever one of those would be drawn, the UI says it is not
   served and shows no figure (see _Honest labelling_ below).
 - No unfinished feature may look operational, and no figure may be made up for one.
@@ -64,12 +66,13 @@ frontend/
     lib/                  pure helpers: status (health and its offline presentation), thresholds, verdict, format, freshness
     styles/               tokens.css (the only place colors are written), base CSS
     ui/                   design-system primitives
-      controls/ meters/ entity-cells/ status/ states/ provenance/ Panel.tsx
+      controls/ meters/ entity-cells/ status/ states/ provenance/ incidents/ events/ Panel.tsx
     charts/               ECharts setup, theme from the tokens, ChartFrame, shared time-series pieces
     shell/                app frame: sidebar, top bar, status bar, command palette, sheets
     features/
-      overview/           hero/ queue/ load/ health/ (latency/ and events/ hold components for
-                          data the console API does not serve yet; the Overview does not mount them)
+      overview/           hero/ queue/ load/ health/ alerts/ (latency/ holds components for data the
+                          console API does not serve yet; the Overview does not mount them)
+      alerts/             incident list (table, cards, filters), incident page (summary, timeline), acknowledge
       servers/            list (table, cards, search/filter/sort) and detail (summary with sparklines, history chart, containers)
       placeholder/        honest "not designed yet" screens
       design-system/      dev-only gallery at /_ds
@@ -145,16 +148,17 @@ panel --useLiveResource(id, key, fetch)--> useApi() --> SentinelApi --> console 
   so no site is totalled and the panel says so. Exact per-site totals for a larger fleet need a
   per-site count from the console API (see _Docker screen_). A failed request rejects: it is that
   panel's error, and nothing stands in for it.
-- **Incidents** would not be a resource either: an incident timeline is derived in the console
-  from an event log (`features/overview/events/incidentModel.ts`). The backend has no event
-  log, so no screen mounts it; the components are kept for when one exists.
+- **Incidents** are the alert engine's own records, served as they are (see _Alerts screen_). The
+  lane timeline that derives incidents from an event log (`features/overview/events/incidentModel.ts`)
+  is a different thing and stays unmounted: the backend has no event log. The log's lines
+  (`ui/events/`) are shared, and draw one incident's recorded steps on its page.
 - Types in `api/types.ts` are the UI's own view-models. When the backend ships
   read endpoints, write an HTTP client that maps their payloads onto them; no
   screen changes.
 - The sample fleet is deterministic (seeded, time-keyed): values are stable across
   refreshes and screenshots are reproducible, yet drift so the console feels live. It holds
-  servers and containers only: it invents no targets, devices, alerts or events (its target list
-  is empty and its summary counts none).
+  servers and containers only: it invents no targets, devices, incidents or events (its target list
+  is empty, its summary counts none, it records no incident and its alert engine has never run).
 
 ### State that lives in the URL
 
@@ -335,6 +339,59 @@ from the devices and in the interfaces' own words (up, down, admin down, unknown
 device in scope is in the rows (`complete`), and otherwise headed "the first N devices of M" with a
 sentence saying it is not a total for the scope. When the scope has no device, there is no
 interface figure at all.
+
+## Alerts screen
+
+`SentinelApi` has five incident methods. `listIncidents` is one page, with `q` over the object,
+the rule, the site and the customer; `status` (`open` is active and acknowledged, `ended` is
+recovered and closed, or one status); `severity`; `kind` (server, container, target, device,
+interface); `sort` by `severity`, `status`, `opened`, `started` or `name`; `dir`; `page`; `pageSize`
+(50 here, 200 at most); and the topbar scope. `getIncident` is the incident with its rule, whether
+the object is still visible to this user (`entityVisible`) and its recorded timeline. `acknowledgeIncident`
+posts through the same transport as every write (the session's CSRF token, refreshed once when it
+goes stale) and answers with the incident as it now is. `getEngineStatus` is the alert engine's own
+state: `running`, `failed`, `stale` or `never_started`. `getIncidentOverview` is what the Overview
+and the top bar read (below).
+
+Statuses stay apart by word and mark: **active** (open, not yet seen), **acknowledged** (seen, and
+still open), **recovered** (ended: the condition cleared and the recovery was confirmed) and
+**closed** (ended without a recovery, with the reason: the object was removed, disabled or moved,
+or the rule was disabled or changed). Severity (critical, warning) is a column of its own. The
+status chips carry the API's counts, per status over the scope and the search (never the rows on
+the page): `OPEN` and `HISTORY` are sums of those counts, and `scopeTotal` is the header's total.
+The query lives in the URL (`?q=&status=&severity=&kind=&sort=&dir=&page=`, the opening view is
+`status=open`, the worst first); the way back from an incident restores it.
+
+Acknowledging is the one write, and is offered only where the API says `canAcknowledge`: the
+incident is active and the account has the permission. It marks an incident as seen and nothing
+else; nothing in the console resolves or closes one. Each outcome is worded: acknowledged, already
+acknowledged by someone else (the API keeps the first), 403 (no permission), 404 (gone or hidden), 409
+(already ended) and a network failure (where it is not known whether it went through). The
+incident shown afterwards is the API's answer, and the list and the shell's count are read again.
+
+The incident page links its object to its own page only when the API says the user may see it
+(`entityVisible`): a server, target or device on its page, a container on the Docker list focused on
+it, an interface on its device's page with that interface chosen. Otherwise it says the object no
+longer exists or may not be seen, and prints no reference. Every time is the API's. The timeline is
+drawn with the Overview's log lines (`ui/events/EventLog`): the opening, with every later step nested
+under it, each at its recorded time.
+
+`getIncidentOverview` is two bounded requests, shared by every reader that arrives together: the
+first five open incidents by severity (critical first, then the newest), and a page of one whose
+counts say how many open incidents are critical. Open is active and acknowledged, over the whole
+scope; the figures are the API's, and the rows only the few that matter most. One `AlertsProvider`
+fetches it, with the engine's state, for the whole signed-in shell: the top bar's indicator, the
+Overview's Alerts tile and Active alerts panel, and the Alerts screen's engine banner read the same
+resources, so they cannot disagree. Open incidents are not added to the verdict: they follow the
+health already counted.
+
+An engine that is not running is said wherever incidents are counted: the banner on the Alerts
+screen, a line in the Overview's panel and the tile, and a mark and words in the top bar's
+accessible name. `never_started` is drawn as unknown, never as healthy, and an empty list from an
+engine that is not confirmed running says that it does not mean everything is healthy. A state
+that cannot be read is an error with Retry, not a blank. The sample fleet records no incident and
+its engine has never run; a failed request is always that panel's error, and nothing stands in
+for it.
 
 ## Docker screen
 
@@ -526,10 +583,11 @@ from it on purpose:
   with a contract test rather than per-chart wiring.
 - **Not built (deferred in the spec)**: wall mode, density modes, the inspector
   drawer, "NEW" tags.
-- **The Overview counts servers, containers, probe targets and SNMP devices.** The spec's queue,
-  verdict, tiles and health also cover alerts, and its panels [2], [5] and [6] draw a latency
-  chart, active alerts and recent events. The console API serves none of those (and no fleet-wide
-  latency aggregate, only each target's own history), so their tiles and panels carry a statement
+- **The Overview counts servers, containers, probe targets and SNMP devices, and shows the open
+  incidents apart.** The spec's queue, verdict, tiles and health also cover alerts; the open
+  incidents have a tile and a panel [5] of their own and are not added to the verdict. Its panels
+  [2] and [6] draw a latency chart and recent events. The console API serves neither (and no
+  fleet-wide latency aggregate, only each target's own history), so those panels carry a statement
   and no figure, and the verdict is "of the servers, containers, targets and devices counted". Tiles show
   the ok count of the total (`13/16 ok`), not online or running, because that is what the API's
   counts say. A queue row for a target is worded from the API's reason and dated by its newest

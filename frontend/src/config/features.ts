@@ -109,16 +109,17 @@ export const FEATURES: Record<FeatureId, FeatureInfo> = {
   topology: {
     id: 'topology',
     label: 'Topology',
-    backend: 'unsupported',
-    connected: false,
-    note: 'Topology and outage-impact analysis are not implemented in the backend.',
+    backend: 'console-api',
+    connected: true,
+    note: 'The console API serves what is recorded: which customer and site holds what, what runs on which server and which agent monitors which target or device. It knows no cabling or routing, so the map draws no physical links and works out no outage impact.',
   },
   alerts: {
     id: 'alerts',
     label: 'Alerts',
-    backend: 'unsupported',
-    connected: false,
-    note: 'The alert engine is not implemented in the backend, so there are no alerts to show.',
+    backend: 'console-api',
+    connected: true,
+    requires: 'the alert engine running, and at least one enabled alert rule',
+    note: 'The console API serves the incidents the alert engine opens and the engine’s own state; the Alerts screen, the topbar indicator and the Overview read them. Incidents are acknowledged here and end when the engine confirms a recovery.',
   },
   events: {
     id: 'events',
@@ -266,8 +267,8 @@ export const FEATURE_OF_ENTITY: Record<'server' | 'container' | 'target' | 'devi
 
 /**
  * The features whose figures the screens show. While any is not live, the app as a whole shows demo
- * data. Probe targets, SNMP, alerts and events are not in the list: no screen shows a figure for
- * them, only a statement that they are not available.
+ * data. Events are not in the list: no screen shows a figure for them, only a statement that they
+ * are not available.
  */
 export const DATA_FEATURES: readonly FeatureId[] = [
   'overview',
@@ -275,5 +276,7 @@ export const DATA_FEATURES: readonly FeatureId[] = [
   'docker',
   'network',
   'snmp',
+  'topology',
+  'alerts',
   'site-links',
 ]

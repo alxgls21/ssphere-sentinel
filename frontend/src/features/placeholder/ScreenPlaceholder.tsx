@@ -12,18 +12,6 @@ interface Gap {
 }
 
 const GAPS: Partial<Record<NavItem['id'], Gap>> = {
-  topology: {
-    missing: [
-      'A topology model: links between devices, servers and sites.',
-      'Outage-impact analysis built on it.',
-    ],
-  },
-  alerts: {
-    missing: [
-      'An alert engine with rules, acknowledgement and notification.',
-      'An event log of state changes: servers keep telemetry history, but nothing records when a status changed.',
-    ],
-  },
   customers: {
     missing: [
       'A console API for devices and for per-site detail (customers and sites are listed already).',

@@ -25,6 +25,9 @@ ENTRYPOINT = ROOT / "entrypoint.sh"
 WAIT = "-m sentinel.database wait"
 MIGRATE = "manage.py migrate --noinput"
 VERIFY = "-m sentinel.database verify"
+# The alert engine's command in compose.yml, as the python stand-in records it.
+WORKER = ("python", "manage.py", "run_alert_engine", "--liveness-file", "/tmp/sentinel-worker.alive")
+ENGINE = " ".join(WORKER[1:])
 
 PYTHON_STUB = """#!/bin/sh
 echo "python $*" >> "$STUB_CALLS"
@@ -192,6 +195,70 @@ class EntrypointTests(unittest.TestCase):
                 result = self.run_entrypoint(command, fail=fail, **environment)
                 self.assertNotEqual(result.returncode, 0)
                 self.assertEqual(self.recorded(), calls)
+
+    def test_a_legacy_worker_waits_and_starts_without_migrating(self):
+        # web applies the migrations; the worker starts after it (compose.yml) and never migrates.
+        for environment in ({}, {"SENTINEL_DB_ACCESS": "runtime"}, {"SENTINEL_DB_ROLES": "legacy"}):
+            with self.subTest(environment=environment):
+                result = self.run_entrypoint(*WORKER, SENTINEL_PROCESS="worker", **environment)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(self.recorded(), [WAIT, ENGINE])
+                self.assertIn("entrypoint: worker: the web service applies the migrations", result.stderr)
+                self.assertNotIn("applying database migrations", result.stderr)
+
+    def test_a_separate_worker_waits_verifies_and_starts_without_migrating(self):
+        result = self.run_entrypoint(
+            *WORKER, SENTINEL_PROCESS="worker", SENTINEL_DB_ROLES="separate", SENTINEL_DB_ACCESS="runtime"
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(self.recorded(), [WAIT, VERIFY, ENGINE])
+        result = self.run_entrypoint(
+            *WORKER, fail="verify", SENTINEL_PROCESS="worker", SENTINEL_DB_ROLES="separate", SENTINEL_DB_ACCESS="runtime"
+        )
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual(self.recorded(), [WAIT, VERIFY])
+
+    def test_a_worker_never_runs_with_the_migration_login_or_applies_migrations(self):
+        for roles in ("legacy", "separate"):
+            for command in (WORKER, ("apply-migrations",)):
+                with self.subTest(roles=roles, command=command[0]):
+                    result = self.run_entrypoint(
+                        *command, SENTINEL_PROCESS="worker", SENTINEL_DB_ROLES=roles, SENTINEL_DB_ACCESS="migrate"
+                    )
+                    self.assertEqual(result.returncode, 2)
+                    self.assertEqual(self.recorded(), [])
+                    self.assertIn("a worker runs with the runtime login", result.stderr)
+                    self.assertNotIn("nothing to do", result.stderr)
+            with self.subTest(roles=roles, command="apply-migrations", access="runtime"):
+                result = self.run_entrypoint(
+                    "apply-migrations", SENTINEL_PROCESS="worker", SENTINEL_DB_ROLES=roles, SENTINEL_DB_ACCESS="runtime"
+                )
+                self.assertEqual(result.returncode, 2)
+                self.assertEqual(self.recorded(), [])
+
+    def test_a_worker_with_a_password_not_its_own_stops_before_anything_runs(self):
+        for environment in (
+            {"SENTINEL_DB_ROLES": "separate", "POSTGRES_PASSWORD": "bootstrap-secret"},
+            {"SENTINEL_DB_ROLES": "separate", "SENTINEL_DB_MIGRATE_PASSWORD": "migration-secret"},
+        ):
+            with self.subTest(environment=sorted(environment)):
+                result = self.run_entrypoint(*WORKER, SENTINEL_PROCESS="worker", **environment)
+                self.assertEqual(result.returncode, 2)
+                self.assertEqual(self.recorded(), [])
+                for secret in ("bootstrap-secret", "migration-secret"):
+                    self.assertNotIn(secret, result.stdout + result.stderr)
+
+    def test_an_unknown_process_stops_before_anything_runs(self):
+        for value in ("engine", "Worker", ""):
+            with self.subTest(value=value):
+                result = self.run_entrypoint("gunicorn", SENTINEL_PROCESS=value)
+                if value == "":
+                    # Unset and empty are the same to the shell: web, as before.
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    continue
+                self.assertEqual(result.returncode, 2)
+                self.assertEqual(self.recorded(), [])
+                self.assertIn("SENTINEL_PROCESS must be web or worker", result.stderr)
 
     def test_the_command_replaces_the_shell(self):
         # exec keeps Gunicorn as the process that receives the stop signal.

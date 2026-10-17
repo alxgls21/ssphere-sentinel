@@ -6,6 +6,8 @@ import type { SentinelApi } from '@/api/client'
 import { ApiContext } from '@/api/context'
 import { createTestApi } from '@/test/render'
 import type { OverviewSummary, StatusCounts } from '@/api/types'
+import { AlertsContext, type AlertsState } from '@/app/alerts'
+import { engine, overview } from '@/features/alerts/testing'
 import { LiveContext, LiveStore, type LiveControls } from '@/app/live'
 import { ShellContext, type ShellApi } from '@/app/shell'
 import { SummaryContext } from '@/app/summary'
@@ -69,8 +71,27 @@ export function makeShell(announce: ShellApi['announce'] = vi.fn()): ShellApi {
   }
 }
 
+/** A resource that has loaded, as a test holds it. */
+export function loaded<T>(data: T, over: Partial<Resource<T>> = {}): Resource<T> {
+  return {
+    status: 'success',
+    data,
+    error: null,
+    isRefreshing: false,
+    updatedAt: Date.now(),
+    refetch: vi.fn(),
+    ...over,
+  }
+}
+
+/** The shared alert figures: seven open incidents, the engine running. */
+export function makeAlerts(over: Partial<AlertsState> = {}): AlertsState {
+  return { overview: loaded(overview()), engine: loaded(engine()), ...over }
+}
+
 interface Contexts {
   summary: Resource<OverviewSummary>
+  alerts: AlertsState
   api: SentinelApi
   store: LiveStore
   pollMs: number
@@ -81,7 +102,7 @@ interface Contexts {
 /** The same contexts as the app, as a plain function so this file exports no component. */
 function withContexts(
   children: ReactNode,
-  { summary, api, store, pollMs, paused, shell }: Contexts,
+  { summary, alerts, api, store, pollMs, paused, shell }: Contexts,
 ): ReactElement {
   const live: LiveControls = {
     pollMs,
@@ -96,7 +117,9 @@ function withContexts(
       <ApiContext.Provider value={api}>
         <LiveContext.Provider value={live}>
           <ShellContext.Provider value={shell}>
-            <SummaryContext.Provider value={summary}>{children}</SummaryContext.Provider>
+            <SummaryContext.Provider value={summary}>
+              <AlertsContext.Provider value={alerts}>{children}</AlertsContext.Provider>
+            </SummaryContext.Provider>
           </ShellContext.Provider>
         </LiveContext.Provider>
       </ApiContext.Provider>
@@ -106,6 +129,7 @@ function withContexts(
 
 interface HarnessOptions {
   summary?: Resource<OverviewSummary>
+  alerts?: AlertsState
   api?: SentinelApi
   /** Poll interval seen by the live layer. */
   pollMs?: number
@@ -119,12 +143,12 @@ interface HarnessOptions {
  * shell would have spoken.
  */
 export function renderHero(ui: ReactElement, options: HarnessOptions = {}) {
-  const { api = createTestApi(), pollMs = 1000, paused = false } = options
+  const { api = createTestApi(), pollMs = 1000, paused = false, alerts = makeAlerts() } = options
   const store = new LiveStore()
   const announce = vi.fn()
   const shell = makeShell(announce)
   const wrap = (summary: Resource<OverviewSummary>) =>
-    withContexts(ui, { summary, api, store, pollMs, paused, shell })
+    withContexts(ui, { summary, alerts, api, store, pollMs, paused, shell })
   const result = render(wrap(options.summary ?? makeResource()))
   return {
     ...result,

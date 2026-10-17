@@ -9,6 +9,7 @@ import { AuthProvider } from './auth/AuthProvider'
 import { createConsoleApi } from './consoleApi'
 import { useAuth } from './auth/auth'
 import { createSessionSignals } from './auth/signals'
+import { AlertsProvider } from './AlertsProvider'
 import { LiveProvider } from './LiveProvider'
 import { ModeContext } from './mode'
 import { PrefsProvider } from './PrefsProvider'
@@ -68,7 +69,9 @@ function SessionScope({ children }: { children: ReactNode }) {
   return (
     <LiveProvider>
       <SummaryProvider>
-        <ShellProvider>{children}</ShellProvider>
+        <AlertsProvider>
+          <ShellProvider>{children}</ShellProvider>
+        </AlertsProvider>
       </SummaryProvider>
     </LiveProvider>
   )

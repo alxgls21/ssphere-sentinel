@@ -18,6 +18,9 @@ const NetworkPage = lazy(() => import('@/features/network/NetworkPage'))
 const TargetDetailPage = lazy(() => import('@/features/network/TargetDetailPage'))
 const SnmpPage = lazy(() => import('@/features/snmp/SnmpPage'))
 const DeviceDetailPage = lazy(() => import('@/features/snmp/DeviceDetailPage'))
+const TopologyPage = lazy(() => import('@/features/topology/TopologyPage'))
+const AlertsPage = lazy(() => import('@/features/alerts/AlertsPage'))
+const IncidentDetailPage = lazy(() => import('@/features/alerts/IncidentDetailPage'))
 
 // Development only: in a production build the condition is a constant, so the gallery
 // (and its chunk) is dropped entirely.
@@ -27,7 +30,7 @@ const DesignSystemPage = import.meta.env.DEV
 
 /**
  * Everything but /login needs a signed-in user (RequireAuth). Every screen in NAV_ITEMS is routed from day one. The designed ones (Overview,
- * Servers, Docker, Network, SNMP) have their own routes; the rest render an honest placeholder. A
+ * Servers, Docker, Network, SNMP, Alerts) have their own routes; the rest render an honest placeholder. A
  * placeholder's own sub-paths stay with its screen, hence the trailing /*.
  */
 export function AppRoutes() {
@@ -42,6 +45,11 @@ export function AppRoutes() {
             <Route path=":id" element={<ServerDetailPage />} />
           </Route>
           <Route path="docker" element={<DockerPage />} />
+          <Route path="topology" element={<TopologyPage />} />
+          <Route path="alerts">
+            <Route index element={<AlertsPage />} />
+            <Route path=":id" element={<IncidentDetailPage />} />
+          </Route>
           <Route path="snmp">
             <Route index element={<SnmpPage />} />
             <Route path=":id" element={<DeviceDetailPage />} />

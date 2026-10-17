@@ -1,5 +1,6 @@
 import type { SentinelApi } from '@/api/client'
-import type { OverviewSummary } from '@/api/types'
+import type { EngineStatus, IncidentOverview, OverviewSummary } from '@/api/types'
+import type { AlertsState } from '@/app/alerts'
 import { LiveStore, type LiveControls } from '@/app/live'
 import { DEFAULT_PREFS, type PrefsApi } from '@/app/prefs'
 import type { ShellApi } from '@/app/shell'
@@ -35,6 +36,12 @@ export const GALLERY_API: SentinelApi = {
   getInterfaceSeries: refuse('getInterfaceSeries'),
   getServer: refuse('getServer'),
   getServerSeries: refuse('getServerSeries'),
+  getTopology: refuse('getTopology'),
+  listIncidents: refuse('listIncidents'),
+  getIncident: refuse('getIncident'),
+  acknowledgeIncident: refuse('acknowledgeIncident'),
+  getEngineStatus: refuse('getEngineStatus'),
+  getIncidentOverview: refuse('getIncidentOverview'),
 }
 
 /** Used only when the page is mounted without the app's PrefsProvider. */
@@ -95,6 +102,55 @@ export function summaryResource(
     case 'error':
       return { ...base, status: 'error', error: new Error('Request failed: 503') }
   }
+}
+
+/**
+ * The shared alert figures a scenario puts on screen, in the state of the summary. The sample fleet
+ * has no alert engine and records no incident: none is open, and the engine has never run.
+ */
+export function alertsState(kind: ScenarioKind): AlertsState {
+  const base = { data: undefined, error: null, isRefreshing: false, updatedAt: null, refetch: noop }
+  const overview: IncidentOverview = {
+    generatedAt: new Date(SAMPLE_TIME).toISOString(),
+    open: 0,
+    active: 0,
+    acknowledged: 0,
+    critical: 0,
+    recent: [],
+  }
+  const engine: EngineStatus = {
+    generatedAt: new Date(SAMPLE_TIME).toISOString(),
+    state: 'never_started',
+    stale: true,
+    staleAfterSeconds: 180,
+    intervalSeconds: null,
+    startedAt: null,
+    lastSuccessAt: null,
+    lastAttemptAt: null,
+    lastCycleMs: null,
+    lastError: null,
+    monitoringSince: null,
+  }
+  const resource = <T>(data: T): Resource<T> => {
+    switch (kind) {
+      case 'ready':
+      case 'no-data':
+        return { ...base, data, updatedAt: SAMPLE_TIME, status: 'success' }
+      case 'refresh-failed':
+        return {
+          ...base,
+          data,
+          updatedAt: SAMPLE_TIME,
+          status: 'success',
+          error: new Error('Request failed: 503'),
+        }
+      case 'loading':
+        return { ...base, status: 'loading' }
+      case 'error':
+        return { ...base, status: 'error', error: new Error('Request failed: 503') }
+    }
+  }
+  return { overview: resource(overview), engine: resource(engine) }
 }
 
 /**

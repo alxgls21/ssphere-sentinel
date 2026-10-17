@@ -8,6 +8,7 @@ import { AuthContext, type AuthApi } from '@/app/auth/auth'
 import { LiveProvider } from '@/app/LiveProvider'
 import { PrefsProvider } from '@/app/PrefsProvider'
 import { ShellContext, type ShellApi } from '@/app/shell'
+import { AlertsProvider } from '@/app/AlertsProvider'
 import { SummaryProvider } from '@/app/SummaryProvider'
 
 const unstubbed = (name: string) => () =>
@@ -34,6 +35,12 @@ export function createTestApi(overrides: Partial<SentinelApi> = {}): SentinelApi
     getInterfaceSeries: unstubbed('getInterfaceSeries'),
     getServer: unstubbed('getServer'),
     getServerSeries: unstubbed('getServerSeries'),
+    getTopology: unstubbed('getTopology'),
+    listIncidents: unstubbed('listIncidents'),
+    getIncident: unstubbed('getIncident'),
+    acknowledgeIncident: unstubbed('acknowledgeIncident'),
+    getEngineStatus: unstubbed('getEngineStatus'),
+    getIncidentOverview: unstubbed('getIncidentOverview'),
     ...overrides,
   }
 }
@@ -77,6 +84,8 @@ interface RenderAppOptions {
   route?: InitialEntry
   /** Include the shared SummaryProvider (needs getOverviewSummary stubbed). */
   withSummary?: boolean
+  /** Include the shared AlertsProvider (needs getIncidentOverview and getEngineStatus stubbed). */
+  withAlerts?: boolean
   /** Poll interval; the default never fires during a test. */
   pollMs?: number
   /** Provide a ShellContext (panels call useShell for announce / flashStatus). Pass your own to assert on it. */
@@ -92,6 +101,7 @@ export function renderApp(
     api = createTestApi(),
     route = '/',
     withSummary = false,
+    withAlerts = false,
     pollMs = 3_600_000,
     withShell = false,
     auth = createFakeAuth(),
@@ -100,7 +110,8 @@ export function renderApp(
   const shell = withShell === true ? createFakeShell() : withShell || null
 
   function Wrapper({ children }: { children: ReactNode }) {
-    const content = withSummary ? <SummaryProvider>{children}</SummaryProvider> : children
+    const alerted = withAlerts ? <AlertsProvider>{children}</AlertsProvider> : children
+    const content = withSummary ? <SummaryProvider>{alerted}</SummaryProvider> : alerted
     return (
       <MemoryRouter initialEntries={[route]}>
         <AuthContext.Provider value={auth}>

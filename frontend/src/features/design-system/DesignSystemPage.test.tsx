@@ -280,7 +280,7 @@ describe('panel states', () => {
       'Infrastructure health',
       'Docker hosts',
       'Probe targets',
-      'Active alerts',
+      'Recent events',
       'Servers',
     ]) {
       expect(region(name)).toBeInTheDocument()
@@ -291,13 +291,13 @@ describe('panel states', () => {
     renderPage()
     expect(region('Fleet load')).toHaveAttribute('aria-keyshortcuts', '3')
     expect(within(region('Fleet load')).getByText('mock · 15s')).toBeInTheDocument()
-    expect(region('Active alerts')).toHaveAttribute('data-planned', 'true')
-    expect(within(region('Active alerts')).getByText('Planned')).toBeInTheDocument()
-    expect(within(region('Active alerts')).queryByText(/^mock/)).not.toBeInTheDocument()
+    expect(region('Recent events')).toHaveAttribute('data-planned', 'true')
+    expect(within(region('Recent events')).getByText('Planned')).toBeInTheDocument()
+    expect(within(region('Recent events')).queryByText(/^mock/)).not.toBeInTheDocument()
     // Nothing is behind it, so it holds no sample row either.
-    expect(within(region('Active alerts')).queryByText('edge-gw-02')).not.toBeInTheDocument()
+    expect(within(region('Recent events')).queryByText('edge-gw-02')).not.toBeInTheDocument()
     expect(
-      within(region('Active alerts')).getByText('Not implemented in the backend'),
+      within(region('Recent events')).getByText('Not implemented in the backend'),
     ).toBeVisible()
   })
 
@@ -350,7 +350,7 @@ describe('hero', () => {
     expect(stale.querySelector('.opacity-60')).not.toBeNull()
   })
 
-  it('draws the tiles: the counted domains are links, the alerts tile holds no figure and no link', () => {
+  it('draws the tiles: every domain is a link, and the sample fleet has no device or incident to count', () => {
     renderPage()
     const hero = within(section('Hero'))
     expect(
@@ -362,9 +362,12 @@ describe('hero', () => {
     expect(hero.getByRole('link', { name: /^Net targets: 0 of 0 ok/ })).toBeInTheDocument()
     // The sample fleet monitors no device: the tile counts none and invents none.
     expect(hero.getByRole('link', { name: /^Devices: 0 of 0 ok/ })).toBeInTheDocument()
-    expect(hero.queryByRole('link', { name: /^Alerts/ })).not.toBeInTheDocument()
+    // ... and no alert engine: no incident is open, and the tile says the engine has never run.
+    const alerts = hero.getByRole('link', { name: /^Alerts: 0 open/ })
+    expect(alerts).toHaveAttribute('href', '/alerts')
+    expect(alerts).toHaveAccessibleName(/alert engine never started/)
     expect(hero.queryByText('Not served by the console API')).not.toBeInTheDocument()
-    expect(hero.getAllByText('Not implemented in the backend')).toHaveLength(1)
+    expect(hero.queryByText('Not implemented in the backend')).not.toBeInTheDocument()
   })
 
   it('shows a tile loading, failed and stale', () => {

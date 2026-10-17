@@ -1,6 +1,7 @@
 import type {
   ContainerListOptions,
   DeviceListOptions,
+  IncidentListOptions,
   PageInfo,
   ServerListOptions,
   StatusCounts,
@@ -8,7 +9,12 @@ import type {
 } from '../types'
 import { record, whole } from './parse'
 
-type ListOptions = ServerListOptions | ContainerListOptions | TargetListOptions | DeviceListOptions
+type ListOptions =
+  | ServerListOptions
+  | ContainerListOptions
+  | TargetListOptions
+  | DeviceListOptions
+  | IncidentListOptions
 
 /** The shared list query contract; endpoint-specific filters stay in their adapter. */
 export function listQuery(options: ListOptions): Record<string, string | undefined> {
