@@ -23,7 +23,7 @@ from agent.measurement_queue import MeasurementQueue
 from agent.network_delivery import NetworkDelivery
 from agent.snmp_delivery import SnmpDelivery
 from agent.snmp_payload import sanitize_poll
-from agent.tests.test_measurement_queue import Clock, measurement
+from agent.tests.queue_helpers import Clock, measurement
 
 # Django's default DATA_UPLOAD_MAX_MEMORY_SIZE (2.5 MiB). settings.py does not
 # override it, so a request body of more bytes is refused with HTTP 400

@@ -4,7 +4,6 @@ import type {
   FleetLoad,
   FleetLoadOptions,
   HealthStatus,
-  PageInfo,
   Server,
   ServerContainer,
   ServerDetail,
@@ -15,16 +14,17 @@ import type {
   ServerSeriesOptions,
   ServerStatus,
   ServerTelemetry,
-  StatusCounts,
 } from '../types'
+import { listQuery, parseCounts, parsePage } from './lists'
 import {
   array,
-  bad,
   flag,
+  nullableNumber,
   nullableText,
   nullableTime,
   number,
   oneOf,
+  parallel,
   record,
   text,
   time,
@@ -57,18 +57,6 @@ const CONTAINER_HEALTH: readonly ContainerHealth[] = [
   'none',
   'unknown',
 ]
-
-export function parseCounts(raw: unknown): StatusCounts {
-  const row = record(raw)
-  const count = (key: HealthStatus) => whole(row[key])
-  return {
-    healthy: count('healthy'),
-    warning: count('warning'),
-    critical: count('critical'),
-    unknown: count('unknown'),
-    idle: count('idle'),
-  }
-}
 
 function parseTelemetry(raw: unknown): ServerTelemetry | null {
   if (raw === null) return null
@@ -114,16 +102,6 @@ function parseItem(raw: unknown): ServerListItem {
   }
 }
 
-export function parsePage(raw: unknown): PageInfo {
-  const row = record(raw)
-  return {
-    number: whole(row.number, 1),
-    size: whole(row.size, 1),
-    total: whole(row.total),
-    pages: whole(row.pages, 1),
-  }
-}
-
 export function parseServerList(raw: unknown): ServerList {
   const row = record(raw)
   return {
@@ -164,33 +142,14 @@ export function parseServerDetail(raw: unknown): ServerDetail {
 export function parseServerSeries(raw: unknown): ServerSeries {
   const row = record(raw)
   const t = array(row.t).map(number)
-  const metric = (value: unknown): (number | null)[] => {
-    const values = array(value).map((sample) => (sample === null ? null : number(sample)))
-    if (values.length !== t.length) throw bad()
-    return values
-  }
+  const column = parallel(t)
   return {
     generatedAt: time(row.generatedAt),
     bucketMs: number(row.bucketMs),
     t,
-    cpu: metric(row.cpu),
-    memory: metric(row.memory),
-    disk: metric(row.disk),
-  }
-}
-
-/** The query string of a list request: what is left at its default is not sent. */
-function listQuery(options: ServerListOptions): Record<string, string | undefined> {
-  const q = options.q?.trim()
-  return {
-    customer: options.scope?.customerId ?? undefined,
-    site: options.scope?.siteId ?? undefined,
-    q: q ? q : undefined,
-    status: options.status && options.status !== 'all' ? options.status : undefined,
-    sort: options.sort,
-    dir: options.dir,
-    page: options.page === undefined ? undefined : String(options.page),
-    pageSize: options.pageSize === undefined ? undefined : String(options.pageSize),
+    cpu: column(row.cpu, nullableNumber),
+    memory: column(row.memory, nullableNumber),
+    disk: column(row.disk, nullableNumber),
   }
 }
 

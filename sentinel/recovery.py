@@ -91,7 +91,7 @@ import subprocess
 import sys
 import time
 from collections.abc import Callable, Iterator, Mapping, Sequence
-from contextlib import contextmanager
+from contextlib import ExitStack, contextmanager
 from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime
 from pathlib import Path
@@ -196,30 +196,25 @@ class Endpoint:
     def run(self, program: str, arguments: Sequence[str] = (), *, stdin: Path | bytes | None = None,
             stdout: Path | None = None) -> subprocess.CompletedProcess:
         argv, environment = self.command(program, arguments)
-        files = []
         try:
-            kwargs: dict = {}
-            if isinstance(stdin, Path):
-                files.append(open(stdin, "rb"))  # noqa: SIM115 - closed below
-                kwargs["stdin"] = files[-1]
-            elif stdin is not None:
-                kwargs["input"] = stdin
-            else:
-                kwargs["stdin"] = subprocess.DEVNULL
-            if stdout is not None:
-                descriptor = os.open(stdout, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
-                files.append(os.fdopen(descriptor, "wb"))
-                kwargs["stdout"] = files[-1]
-            else:
-                kwargs["stdout"] = subprocess.PIPE
-            return subprocess.run(argv, stderr=subprocess.PIPE, env=environment, check=False, **kwargs)
+            with ExitStack() as files:
+                kwargs: dict = {}
+                if isinstance(stdin, Path):
+                    kwargs["stdin"] = files.enter_context(stdin.open("rb"))
+                elif stdin is not None:
+                    kwargs["input"] = stdin
+                else:
+                    kwargs["stdin"] = subprocess.DEVNULL
+                if stdout is not None:
+                    descriptor = os.open(stdout, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+                    kwargs["stdout"] = files.enter_context(os.fdopen(descriptor, "wb"))
+                else:
+                    kwargs["stdout"] = subprocess.PIPE
+                return subprocess.run(argv, stderr=subprocess.PIPE, env=environment, check=False, **kwargs)
         except FileNotFoundError as exc:
             if exc.filename not in (None, argv[0]):
                 raise
             raise Failure(f"{argv[0]} is not installed or not on PATH") from exc
-        finally:
-            for file in files:
-                file.close()
 
     def psql(self, script: str) -> str:
         """What ``script`` prints (psql -At: rows only), or a Failure that names the error."""

@@ -7,11 +7,12 @@ from __future__ import annotations
 import itertools
 import os
 import re
-import stat
 import subprocess
 import tempfile
 import unittest
 from pathlib import Path
+
+from tests.deployment.helpers import write_executable
 
 ROOT = Path(__file__).resolve().parents[2]
 SCRIPT = ROOT / "scripts" / "postgres-preflight.sh"
@@ -68,9 +69,7 @@ class PreflightTests(unittest.TestCase):
         self.addCleanup(self.directory.cleanup)
         self.bin = Path(self.directory.name) / "bin"
         self.bin.mkdir()
-        docker = self.bin / "docker"
-        docker.write_text(FAKE_DOCKER)
-        docker.chmod(docker.stat().st_mode | stat.S_IXUSR)
+        write_executable(self.bin / "docker", FAKE_DOCKER)
         self.log = Path(self.directory.name) / "docker.log"
 
     def run_script(self, state="none", selected="16", args=(), **extra):

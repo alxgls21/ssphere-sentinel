@@ -43,7 +43,7 @@ from django.db.models import Q
 from django.utils import timezone
 
 from apps.agents.models import Agent
-from apps.core.validation import parse_timestamp, require_integer, require_number
+from apps.core.validation import parse_timestamp, parse_uuid, peek_uuid, require_integer, require_number
 from apps.inventory.models import Device
 from apps.snmp.models import (
     COUNTER_FIELDS,
@@ -300,7 +300,7 @@ def validate_snmp_payload(raw: Any, *, agent: Agent) -> ValidatedSnmpReport:
         {
             device_id
             for item in polls_raw
-            if (device_id := _peek_uuid(item, "device_id")) is not None
+            if (device_id := peek_uuid(item, "device_id")) is not None
         }
     )
     oldest_allowed = timezone.now() - poll_acceptance_window()
@@ -309,7 +309,7 @@ def validate_snmp_payload(raw: Any, *, agent: Agent) -> ValidatedSnmpReport:
     validated: list[ValidatedPoll] = []
     rejections: list[PollRejection] = []
     for item in polls_raw:
-        peeked = _peek_uuid(item, "poll_id")
+        peeked = peek_uuid(item, "poll_id")
         safe_id = str(peeked) if peeked is not None else None
         try:
             poll = _validate_poll(item, agent=agent, devices=devices, oldest_allowed=oldest_allowed)
@@ -338,8 +338,8 @@ def _validate_poll(
     if not isinstance(raw, dict):
         raise SnmpValidationError("each poll must be an object")
 
-    poll_id = _parse_uuid(raw.get("poll_id"), field="poll_id")
-    device_id = _parse_uuid(raw.get("device_id"), field="device_id")
+    poll_id = parse_uuid(raw.get("poll_id"), field="poll_id", error=SnmpValidationError)
+    device_id = parse_uuid(raw.get("device_id"), field="device_id", error=SnmpValidationError)
     _check_device(devices.get(device_id), agent)
 
     measured_at = parse_timestamp(
@@ -939,25 +939,6 @@ def _sample(interface: Interface, poll: ValidatedPoll, entry: ValidatedInterface
 
 
 # --- small helpers ----------------------------------------------------------
-
-
-def _peek_uuid(raw: Any, field_name: str) -> UUID | None:
-    """Best-effort UUID extraction used for lookups and safe echoing only."""
-    if not isinstance(raw, dict):
-        return None
-    try:
-        return _parse_uuid(raw.get(field_name), field=field_name)
-    except SnmpValidationError:
-        return None
-
-
-def _parse_uuid(value: Any, *, field: str) -> UUID:
-    if not isinstance(value, str) or not value.strip():
-        raise SnmpValidationError(f"{field} must be a UUID string")
-    try:
-        return UUID(value.strip())
-    except ValueError as exc:
-        raise SnmpValidationError(f"{field} must be a UUID string") from exc
 
 
 def _integer(value: Any, field: str, minimum: int, maximum: int) -> int:

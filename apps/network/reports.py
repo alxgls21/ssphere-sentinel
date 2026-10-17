@@ -12,7 +12,7 @@ from django.db import IntegrityError, transaction
 from django.utils import timezone
 
 from apps.agents.models import Agent
-from apps.core.validation import parse_timestamp, require_integer, require_number
+from apps.core.validation import parse_timestamp, parse_uuid, peek_uuid, require_integer, require_number
 from apps.network.models import NetworkMeasurement, NetworkTarget
 
 SUPPORTED_NETWORK_VERSION = 1
@@ -156,7 +156,7 @@ def validate_network_payload(
         {
             target_id
             for item in measurements_raw
-            if (target_id := _peek_uuid(item, "target_id")) is not None
+            if (target_id := peek_uuid(item, "target_id")) is not None
         }
     )
 
@@ -165,7 +165,7 @@ def validate_network_payload(
     validated: list[ValidatedMeasurement] = []
     rejections: list[MeasurementRejection] = []
     for item in measurements_raw:
-        peeked_id = _peek_uuid(item, "measurement_id")
+        peeked_id = peek_uuid(item, "measurement_id")
         safe_id = str(peeked_id) if peeked_id is not None else None
         try:
             measurement = _validate_measurement(
@@ -330,16 +330,6 @@ def _insert_individually(
             created_ids.append(str(item.measurement_id))
 
 
-def _peek_uuid(raw: Any, field: str) -> UUID | None:
-    """Best-effort UUID extraction used for lookups and safe echoing only."""
-    if not isinstance(raw, dict):
-        return None
-    try:
-        return _parse_uuid(raw.get(field), field=field)
-    except NetworkValidationError:
-        return None
-
-
 def _validate_measurement(
     raw: Any,
     *,
@@ -350,8 +340,8 @@ def _validate_measurement(
     if not isinstance(raw, dict):
         raise NetworkValidationError("each measurement must be an object")
 
-    measurement_id = _parse_uuid(raw.get("measurement_id"), field="measurement_id")
-    target_id = _parse_uuid(raw.get("target_id"), field="target_id")
+    measurement_id = parse_uuid(raw.get("measurement_id"), field="measurement_id", error=NetworkValidationError)
+    target_id = parse_uuid(raw.get("target_id"), field="target_id", error=NetworkValidationError)
 
     target = targets.get(target_id)
     if target is None:
@@ -438,15 +428,6 @@ def _validate_measurement(
         successful_probes=successful_probes,
         failure_reason=failure_reason,
     )
-
-
-def _parse_uuid(value: Any, *, field: str) -> UUID:
-    if not isinstance(value, str) or not value.strip():
-        raise NetworkValidationError(f"{field} must be a UUID string")
-    try:
-        return UUID(value.strip())
-    except ValueError as exc:
-        raise NetworkValidationError(f"{field} must be a UUID string") from exc
 
 
 def _require_int(raw: dict[str, Any], field: str, *, minimum: int, maximum: int) -> int:

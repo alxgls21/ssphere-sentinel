@@ -1,10 +1,7 @@
 import json
-import os
 import sqlite3
-import tempfile
 import unittest
 import uuid
-from pathlib import Path
 
 from agent.measurement_queue import (
     MAX_ITEM_ATTEMPTS,
@@ -13,38 +10,10 @@ from agent.measurement_queue import (
     QueueError,
 )
 from agent.snmp_payload import MAX_POLL_PAYLOAD_BYTES, SnmpPayloadError, sanitize_poll
+from agent.tests.queue_helpers import QueueTestCase, measurement, poll
 from agent.tests.snmp_helpers import SECRET
-from agent.tests.test_measurement_queue import Clock, measurement
 
 LIMITS = {"max_polls": 50, "max_interfaces": 2000, "max_bytes": 1_000_000}
-
-
-def poll(count=2, **overrides):
-    payload = {
-        "poll_id": str(uuid.uuid4()),
-        "device_id": str(uuid.uuid4()),
-        "measured_at": "2026-10-12T14:05:00+00:00",
-        "reachable": True,
-        "response_ms": 12.5,
-        "sys_uptime_ticks": 8123456,
-        "interfaces_complete": False,
-        "interfaces": [
-            {
-                "if_index": index,
-                "name": f"Gi0/{index}",
-                "admin_status": 1,
-                "oper_status": 1,
-                "counters": {
-                    "octets_bits": 64,
-                    "delta_state": "first",
-                    "raw": {"in_octets": 1, "out_octets": 2},
-                },
-            }
-            for index in range(1, count + 1)
-        ],
-    }
-    payload.update(overrides)
-    return payload
 
 
 class SanitizerTests(unittest.TestCase):
@@ -98,28 +67,7 @@ class SanitizerTests(unittest.TestCase):
         self.assertEqual((json.loads(payload)["error"], count), ("timeout", 0))
 
 
-class SnmpQueueTestCase(unittest.TestCase):
-    def setUp(self):
-        self._tmp = tempfile.TemporaryDirectory()
-        self.dir = Path(self._tmp.name)
-        os.chmod(self.dir, 0o700)
-        self.path = self.dir / "state" / "queue.sqlite3"
-        self.clock = Clock()
-        self.queues = []
-
-    def tearDown(self):
-        for queue in self.queues:
-            queue.close()
-        self._tmp.cleanup()
-
-    def open_queue(self, **kwargs):
-        kwargs.setdefault("wall_fn", self.clock)
-        queue = MeasurementQueue.open(self.path, **kwargs)
-        self.queues.append(queue)
-        return queue
-
-
-class PersistenceTests(SnmpQueueTestCase):
+class PersistenceTests(QueueTestCase):
     def test_polls_survive_a_restart_and_are_idempotent(self):
         first = self.open_queue()
         item = poll()
@@ -166,7 +114,7 @@ class PersistenceTests(SnmpQueueTestCase):
         self.assertEqual((queue.count(), queue.snmp_count()), (1, 0))
 
 
-class CompatibilityTests(SnmpQueueTestCase):
+class CompatibilityTests(QueueTestCase):
     def test_a_queue_file_from_an_agent_without_snmp_gets_the_new_table(self):
         self.path.parent.mkdir(mode=0o700)
         legacy = sqlite3.connect(self.path)
@@ -203,7 +151,7 @@ class CompatibilityTests(SnmpQueueTestCase):
         self.assertEqual(tables, {"pending_measurements", "pending_snmp"})
 
 
-class BoundTests(SnmpQueueTestCase):
+class BoundTests(QueueTestCase):
     def test_oldest_polls_are_dropped_beyond_the_count_limit(self):
         queue = self.open_queue(max_snmp_polls=3)
         items = [poll() for _ in range(5)]
@@ -303,7 +251,7 @@ class BoundTests(SnmpQueueTestCase):
         self.assertEqual(len(batch), 1)
 
 
-class RetryTests(SnmpQueueTestCase):
+class RetryTests(QueueTestCase):
     def test_mark_retry_backs_off_and_eventually_drops(self):
         queue = self.open_queue()
         item = poll()

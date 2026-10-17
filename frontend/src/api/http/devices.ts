@@ -21,20 +21,22 @@ import type {
   InvalidReason,
   SnmpVersion,
 } from '../types'
+import { listQuery, parseCounts, parsePage } from './lists'
 import {
   array,
   bad,
   flag,
+  nullableNumber,
   nullableText,
   nullableTime,
   number,
   oneOf,
+  parallel,
   record,
   text,
   time,
   whole,
 } from './parse'
-import { parseCounts, parsePage } from './servers'
 import type { Transport } from './transport'
 
 /**
@@ -68,8 +70,6 @@ const INTERFACE_REASON: readonly InterfaceReason[] = [
   'other',
 ]
 const INVALID_REASON: readonly InvalidReason[] = ['delta_state', 'interval', 'implausible', 'stale']
-
-const nullableNumber = (value: unknown): number | null => (value === null ? null : number(value))
 
 function parseAgent(raw: unknown): DeviceAgent | null {
   if (raw === null) return null
@@ -221,15 +221,6 @@ export function parseDeviceDetail(raw: unknown): DeviceDetail {
   }
 }
 
-/** Reads parallel arrays that must be as long as the time axis. */
-function parallel(t: readonly number[]) {
-  return <T>(value: unknown, read: (sample: unknown) => T): T[] => {
-    const values = array(value).map(read)
-    if (values.length !== t.length) throw bad()
-    return values
-  }
-}
-
 export function parseDeviceSeries(raw: unknown): DeviceSeries {
   const row = record(raw)
   const t = array(row.t).map(number)
@@ -262,21 +253,6 @@ export function parseInterfaceSeries(raw: unknown): InterfaceSeries {
     outDiscardsPerSec: column(row.outDiscardsPerSec, nullableNumber),
     validSamples: column(row.validSamples, (sample) => whole(sample)),
     invalidSamples: column(row.invalidSamples, (sample) => whole(sample)),
-  }
-}
-
-/** The query string of a list request: what is left at its default is not sent. */
-function listQuery(options: DeviceListOptions): Record<string, string | undefined> {
-  const q = options.q?.trim()
-  return {
-    customer: options.scope?.customerId ?? undefined,
-    site: options.scope?.siteId ?? undefined,
-    q: q ? q : undefined,
-    status: options.status && options.status !== 'all' ? options.status : undefined,
-    sort: options.sort,
-    dir: options.dir,
-    page: options.page === undefined ? undefined : String(options.page),
-    pageSize: options.pageSize === undefined ? undefined : String(options.pageSize),
   }
 }
 

@@ -11,6 +11,7 @@ import math
 from datetime import datetime, timedelta
 from datetime import timezone as dt_timezone
 from typing import Any
+from uuid import UUID
 
 from django.utils import timezone
 from django.utils.dateparse import parse_datetime
@@ -19,6 +20,26 @@ from django.utils.dateparse import parse_datetime
 MAX_FUTURE_SKEW = timedelta(minutes=5)
 # PostgreSQL bigint range (BigIntegerField).
 BIGINT_MAX = 2**63 - 1
+
+
+def parse_uuid(value: Any, *, field: str, error: type[Exception]) -> UUID:
+    """A UUID string, normalized without exposing the rejected raw value."""
+    if not isinstance(value, str) or not value.strip():
+        raise error(f"{field} must be a UUID string")
+    try:
+        return UUID(value.strip())
+    except ValueError as exc:
+        raise error(f"{field} must be a UUID string") from exc
+
+
+def peek_uuid(raw: Any, field: str) -> UUID | None:
+    """Best-effort extraction for bulk lookups and safe acknowledgement IDs."""
+    if not isinstance(raw, dict):
+        return None
+    try:
+        return parse_uuid(raw.get(field), field=field, error=ValueError)
+    except ValueError:
+        return None
 
 
 def parse_timestamp(

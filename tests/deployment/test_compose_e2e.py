@@ -22,6 +22,8 @@ import unittest
 from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
 
+from tests.deployment.helpers import load_workflow, logical_lines, write_executable
+
 ROOT = Path(__file__).resolve().parents[2]
 SCRIPTS = ROOT / ".github" / "scripts"
 SCRIPT = SCRIPTS / "separate-roles-e2e.sh"
@@ -390,10 +392,6 @@ COVERAGE = {
 SECRET_VARIABLES = ("app", "migration", "bootstrap", "wrong", "old_app", "old_migration")
 
 
-def logical_lines(text: str) -> list[str]:
-    return re.sub(r"\\\n\s*", " ", text).splitlines()
-
-
 class RehearsalScriptTests(unittest.TestCase):
     def setUp(self):
         self.script = SCRIPT.read_text()
@@ -525,8 +523,7 @@ esac
             base = Path(directory)
             (base / "bin").mkdir()
             docker = base / "bin" / "docker"
-            docker.write_text(self.FAKE)
-            docker.chmod(docker.stat().st_mode | stat.S_IXUSR)
+            write_executable(docker, self.FAKE)
             (base / "events").write_text(events)
             env = {"PATH": f"{base / 'bin'}:/usr/bin:/bin:{Path(sys.executable).parent}", "work": str(base),
                    "COMPOSE_PROJECT_NAME": "sentinel-test", "FAKE_EVENTS": str(base / "events"), "FAKE_UP_STATUS": str(up_status),
@@ -704,8 +701,7 @@ else:
             base = Path(directory)
             (base / "bin").mkdir()
             docker = base / "bin" / "docker"
-            docker.write_text(self.FAKE)
-            docker.chmod(docker.stat().st_mode | stat.S_IXUSR)
+            write_executable(docker, self.FAKE)
             ours = {"project": "sentinel-roles-e2e"}
             theirs = {"project": "someone-elses-stack"}
             (base / "state.json").write_text(json.dumps({
@@ -776,11 +772,7 @@ else:
 
 class SeparateRolesJobTests(unittest.TestCase):
     def setUp(self):
-        try:
-            import yaml
-        except ImportError:  # pragma: no cover - CI installs PyYAML
-            self.skipTest("PyYAML is not installed")
-        self.workflow = yaml.safe_load((ROOT / ".github" / "workflows" / "ci.yml").read_text())
+        self.workflow = load_workflow(self)
         self.job = self.workflow["jobs"]["separate-roles"]
         self.steps = self.job["steps"]
         self.runs = [step.get("run", "").strip() for step in self.steps]

@@ -86,6 +86,46 @@ class EndpointTests(SimpleTestCase):
             recovery.Endpoint().run("psql")
         self.assertIn("not installed", str(caught.exception))
 
+    def test_dump_streams_are_private_and_closed_after_success_or_failure(self):
+        for fail in (False, True):
+            with self.subTest(fail=fail), tempfile.TemporaryDirectory() as directory:
+                source, destination = Path(directory) / "source.dump", Path(directory) / "destination.dump"
+                source.write_bytes(b"dump contents")
+                streams = []
+
+                def run(argv, **kwargs):
+                    streams.extend((kwargs["stdin"], kwargs["stdout"]))
+                    self.assertTrue(all(not stream.closed for stream in streams))
+                    self.assertEqual(destination.stat().st_mode & 0o777, 0o600)
+                    if fail:
+                        raise OSError("program could not run")
+                    kwargs["stdout"].write(kwargs["stdin"].read())
+                    return subprocess.CompletedProcess(argv, 0, stderr=b"")
+
+                with mock.patch.object(recovery.subprocess, "run", side_effect=run):
+                    if fail:
+                        with self.assertRaisesMessage(OSError, "program could not run"):
+                            recovery.Endpoint().run("pg_restore", stdin=source, stdout=destination)
+                    else:
+                        result = recovery.Endpoint().run("pg_restore", stdin=source, stdout=destination)
+                        self.assertEqual(result.returncode, 0)
+                self.assertTrue(all(stream.closed for stream in streams))
+                self.assertEqual(destination.read_bytes(), b"" if fail else b"dump contents")
+
+    def test_an_existing_dump_is_not_overwritten_and_input_is_closed(self):
+        with tempfile.TemporaryDirectory() as directory:
+            source, destination = Path(directory) / "source.dump", Path(directory) / "destination.dump"
+            source.write_bytes(b"source")
+            destination.write_bytes(b"keep this dump")
+            stream = source.open("rb")
+            with mock.patch.object(Path, "open", return_value=stream), \
+                    mock.patch.object(recovery.subprocess, "run") as run:
+                with self.assertRaises(FileExistsError):
+                    recovery.Endpoint().run("pg_dump", stdin=source, stdout=destination)
+            self.assertTrue(stream.closed)
+            run.assert_not_called()
+            self.assertEqual(destination.read_bytes(), b"keep this dump")
+
 
 class WithheldTests(SimpleTestCase):
     def test_what_could_be_a_value_of_a_row_is_left_out(self):
