@@ -18,6 +18,7 @@ from unittest.mock import patch
 
 from agent import heartbeat, http_client
 from agent.config import Config
+from agent.docker_discovery import MAX_CONTAINERS
 from agent.errors import RequestTooLargeError
 from agent.http_client import MAX_REQUEST_BYTES, post_json, size_with_member
 from agent.network_delivery import DeliveryBatch
@@ -95,6 +96,28 @@ class DockerAtTheLimitTests(LimitTestCase):
         docker = docker_filling(MAX_REQUEST_BYTES)
         self.agent.beat(CONFIG, docker=lambda: docker)
         self.assertEqual(self.sections(), [{"telemetry", "docker"}])
+
+
+class DockerContainerCountTests(LimitTestCase):
+    """A report of more containers than Sentinel accepts in one is left out whole, however small it is."""
+
+    def test_a_report_of_the_most_containers_sentinel_accepts_is_sent(self):
+        docker = docker_section(MAX_CONTAINERS)
+        self.agent.beat(CONFIG, docker=lambda: docker)
+        self.assertEqual(self.sections(), [{"telemetry", "docker"}])
+        self.assertEqual(json.loads(self.server.bodies[0])["docker"], docker)
+        self.assertEqual(self.logged("ERROR"), [])
+
+    def test_one_container_more_leaves_the_report_out_whole(self):
+        docker = docker_section(MAX_CONTAINERS + 1)
+        self.assertLess(wire_size(docker), MAX_REQUEST_BYTES)  # only the count is at fault
+        self.agent.beat(CONFIG, docker=lambda: docker)
+        self.assertEqual(self.sections(), [{"telemetry"}])
+        self.assertEqual(self.agent.errors, [])  # the heartbeat itself went on
+        logged = self.logged("ERROR", "The Docker report cannot be sent")
+        self.assertEqual(len(logged), 1)
+        self.assertIn(f"it lists {MAX_CONTAINERS + 1} containers, more than the {MAX_CONTAINERS}", logged[0])
+        self.assert_every_request_within_the_limit()
 
 
 class DockerAtTheLimitWithoutSnmpTests(DockerAtTheLimitTests):

@@ -227,13 +227,13 @@ A heartbeat is never larger than 2,500,000 bytes. A container takes about 300
 bytes in the report (up to about 900 with the longest names and images), and
 Sentinel accepts up to 1,000 containers per host, so a report that Sentinel can use
 fits with room to spare, next to the telemetry and everything else the heartbeat
-carries. If one does not (thousands of containers, which Sentinel would reject
-anyway), the agent:
+carries. If one does not, or lists more than 1,000 containers (Sentinel would
+reject it whole, however small), the agent:
 
 - leaves the report out of that heartbeat **whole**. It never sends part of it:
   a partial snapshot would mark the containers it leaves out as absent;
 - logs `The Docker report cannot be sent: ...` as an error at every heartbeat,
-  with the size of the heartbeat and the limit;
+  with the size of the heartbeat or the number of containers, and the limit;
 - sends everything else as usual (liveness, telemetry, network measurements and
   SNMP polls); nothing queued is dropped.
 

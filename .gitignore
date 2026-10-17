@@ -2,6 +2,9 @@
 .env
 .env.*
 !.env.example
+# Copies of .env the deployment guide has you keep (env.legacy.backup, env.pg16.backup):
+# they hold every secret .env does
+*.backup
 
 # Python
 __pycache__/

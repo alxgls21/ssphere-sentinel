@@ -838,7 +838,8 @@ rejected with `retryable: false`, and keeps the others for a later heartbeat
 python manage.py purge_snmp_data [--days N] [--batch-size N] [--dry-run]
 ```
 
-Run it daily (see "Scheduling the cleanup" in the README). It deletes polls and
+Run it daily with the other cleanup commands ([Retention](server-deployment.md#retention)
+lists them all). It deletes polls and
 interface samples older than `SENTINEL_SNMP_RETENTION_DAYS` (default 30) in
 batches, then the interfaces that are absent from their device and have no
 samples left. Nothing runs automatically, and heartbeats never trigger it.

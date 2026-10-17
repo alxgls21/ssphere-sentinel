@@ -14,6 +14,9 @@ from typing import Any
 logger = logging.getLogger("sentinel_agent")
 
 DOCKER_PAYLOAD_VERSION = 1
+# The most containers Sentinel accepts in one report (MAX_CONTAINERS_PER_REPORT in
+# apps/infrastructure/docker_reports.py): it rejects a longer report whole.
+MAX_CONTAINERS = 1000
 
 STATUS_AVAILABLE = "available"
 STATUS_UNAVAILABLE = "unavailable"
