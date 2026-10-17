@@ -159,16 +159,13 @@ describe('availabilityOf', () => {
   })
 
   describe('a feature the backend does not implement', () => {
-    it.each(['topology', 'alerts', 'events'] as const)(
-      '%s is planned, whatever the source',
-      (id) => {
-        expect(availabilityOf(id, 'http')).toBe('planned')
-        expect(availabilityOf(id, 'mock')).toBe('planned')
-        expect(isPlanned(id)).toBe(true)
-        expect(isPlaceholder(id, 'http')).toBe(true)
-        expect(describeAvailability(id)).toBe('Not implemented in the backend')
-      },
-    )
+    it.each(['events'] as const)('%s is planned, whatever the source', (id) => {
+      expect(availabilityOf(id, 'http')).toBe('planned')
+      expect(availabilityOf(id, 'mock')).toBe('planned')
+      expect(isPlanned(id)).toBe(true)
+      expect(isPlaceholder(id, 'http')).toBe(true)
+      expect(describeAvailability(id)).toBe('Not implemented in the backend')
+    })
   })
 
   describe('a capability that is not known', () => {
@@ -195,7 +192,16 @@ describe('the registry as shipped', () => {
     const live = (Object.keys(FEATURES) as FeatureId[]).filter(
       (id) => availabilityOf(id, 'http') === 'live',
     )
-    expect(live).toEqual(['overview', 'servers', 'docker', 'network', 'snmp', 'site-links'])
+    expect(live).toEqual([
+      'overview',
+      'servers',
+      'docker',
+      'network',
+      'snmp',
+      'topology',
+      'alerts',
+      'site-links',
+    ])
   })
 
   it('is live nowhere on demo data, whatever is connected', () => {
@@ -212,14 +218,16 @@ describe('the registry as shipped', () => {
 
   it('counts as data only the features whose figures a screen shows', () => {
     expect([...DATA_FEATURES].sort()).toEqual([
+      'alerts',
       'docker',
       'network',
       'overview',
       'servers',
       'site-links',
       'snmp',
+      'topology',
     ])
-    for (const id of ['network-overview', 'alerts', 'events', 'topology'] as const) {
+    for (const id of ['network-overview', 'events'] as const) {
       expect(DATA_FEATURES).not.toContain(id)
     }
   })
@@ -244,9 +252,29 @@ describe('the registry as shipped', () => {
   })
 
   it('keeps the planned wording for what really is not implemented', () => {
-    expect(FEATURES.alerts.note).toMatch(/not implemented in the backend/)
-    expect(FEATURES.topology.note).toMatch(/not implemented in the backend/)
     expect(FEATURES.events.note).toMatch(/no event log/)
+  })
+
+  describe('alerts: served by the console API and read by the Alerts screen', () => {
+    it('is live over the console API, and never on demo data', () => {
+      expect(FEATURES.alerts.backend).toBe('console-api')
+      expect(availabilityOf('alerts', 'http')).toBe('live')
+      expect(availabilityOf('alerts', 'mock')).toBe('not-connected')
+      expect(isPlanned('alerts')).toBe(false)
+      expect(isPlaceholder('alerts', 'http')).toBe(false)
+    })
+
+    it('says what it serves, and that the engine must be running for it to have anything', () => {
+      expect(FEATURES.alerts.note).toMatch(/incidents the alert engine opens/)
+      expect(FEATURES.alerts.requires).toMatch(/alert engine running/)
+    })
+  })
+
+  it('says the topology draws no physical links and works out no outage impact', () => {
+    expect(availabilityOf('topology', 'http')).toBe('live')
+    expect(availabilityOf('topology', 'mock')).toBe('not-connected')
+    expect(FEATURES.topology.note).toMatch(/no physical links/)
+    expect(FEATURES.topology.note).toMatch(/no outage impact/)
   })
 
   it('gives every feature a one-sentence note', () => {

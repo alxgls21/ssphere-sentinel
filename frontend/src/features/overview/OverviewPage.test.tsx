@@ -4,8 +4,9 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { ConsoleHttp } from '@/api/http'
 import { createMockApi } from '@/api/mock/client'
 import { ApiError } from '@/api/errors'
-import type { ContainerList, DeviceList, ServerList, TargetList } from '@/api/types'
+import type { ContainerList, DeviceList, IncidentList, ServerList, TargetList } from '@/api/types'
 import { createConsoleApi } from '@/app/consoleApi'
+import { engine, incident, list as incidentList } from '@/features/alerts/testing'
 import { item as deviceItem } from '@/features/snmp/testing'
 import { OVERVIEW_PAGE_SIZE } from '@/lib/overview'
 import { emptyCounts } from '@/lib/status'
@@ -26,7 +27,15 @@ function stubViewport(wide: boolean) {
 
 function setup(wide = true, api = createMockApi({ delayMs: 0, now: () => NOW })) {
   stubViewport(wide)
-  return { api, ...renderApp(<OverviewPage />, { api, withSummary: true, withShell: true }) }
+  return {
+    api,
+    ...renderApp(<OverviewPage />, {
+      api,
+      withSummary: true,
+      withAlerts: true,
+      withShell: true,
+    }),
+  }
 }
 
 afterEach(() => vi.unstubAllGlobals())
@@ -34,6 +43,7 @@ afterEach(() => vi.unstubAllGlobals())
 // jsdom applies no CSS, so the wide hero and the phone bar are both in the DOM: use the hero.
 const strip = () => screen.getByRole('region', { name: 'Fleet summary' })
 const loaded = () => within(strip()).findByText('CRITICAL')
+const loadedStrip = () => within(strip()).findByRole('button', { name: /^Fleet status:/ })
 
 describe('OverviewPage', () => {
   it('shows the six panels and the summary strip, in reading order', async () => {
@@ -79,10 +89,10 @@ describe('OverviewPage', () => {
   it('marks the panels with no backend data as unavailable, and the real ones as mock over the sample API', async () => {
     setup()
     await loaded()
-    for (const name of ['Network latency', 'Active alerts', 'Recent events']) {
+    for (const name of ['Network latency', 'Recent events']) {
       expect(screen.getByRole('region', { name })).toHaveAttribute('data-planned', 'true')
     }
-    for (const name of ['Needs attention', 'Fleet load']) {
+    for (const name of ['Needs attention', 'Fleet load', 'Active alerts']) {
       const region = screen.getByRole('region', { name })
       expect(region).not.toHaveAttribute('data-planned')
       expect(within(region).getByText(/^mock/)).toBeInTheDocument()
@@ -92,7 +102,7 @@ describe('OverviewPage', () => {
   it('holds no figure, chart or sample row in the panels the console API cannot fill', async () => {
     setup()
     await loaded()
-    for (const name of ['Network latency', 'Active alerts', 'Recent events']) {
+    for (const name of ['Network latency', 'Recent events']) {
       const region = screen.getByRole('region', { name })
       expect(region.querySelector('canvas, svg[role="img"], table, [role="row"]')).toBeNull()
       expect(
@@ -105,21 +115,27 @@ describe('OverviewPage', () => {
     const api = createMockApi({ delayMs: 0, now: () => NOW })
     expect(Object.keys(api).sort()).toEqual(
       [
+        'acknowledgeIncident',
+        'getEngineStatus',
         'getEntityIndex',
         'getFleetLoad',
         'getHealthBreakdown',
         'getOverviewSummary',
         'getScopeOptions',
         'getServer',
+        'getIncident',
+        'getIncidentOverview',
         'getInterfaceSeries',
         'getServerSeries',
         'getDevice',
         'getDeviceSeries',
         'getTarget',
         'getTargetSeries',
+        'getTopology',
         'listAttention',
         'listContainers',
         'listDevices',
+        'listIncidents',
         'listTargets',
         'listServers',
         'source',
@@ -145,12 +161,14 @@ describe('OverviewPage', () => {
   it('folds the PLANNED panels into one collapsed section on a narrow screen', async () => {
     setup(false)
     await loaded()
-    const folded = screen.getByText(/Planned · backend not implemented \(2\)/)
+    const folded = screen.getByText(/Planned · backend not implemented \(1\)/)
     const section = folded.closest('details') as HTMLDetailsElement
     expect(section.open).toBe(false)
+    // The alerts are real, so they stay outside the fold; only the events are folded.
     expect(
-      within(section).getByRole('region', { name: 'Active alerts', hidden: true }),
-    ).toBeInTheDocument()
+      within(section).queryByRole('region', { name: 'Active alerts', hidden: true }),
+    ).toBeNull()
+    expect(screen.getByRole('region', { name: 'Active alerts' })).toBeInTheDocument()
     expect(
       within(section).getByRole('region', { name: 'Recent events', hidden: true }),
     ).toBeInTheDocument()
@@ -206,11 +224,13 @@ describe('OverviewPage over the console API, with SNMP devices', () => {
       listContainers: vi.fn(async () => quiet<ContainerList>(5)),
       listTargets: vi.fn(async () => quiet<TargetList>(0)),
       listDevices: vi.fn(listDevices),
+      listIncidents: vi.fn(async () => incidentList([])),
+      getEngineStatus: vi.fn(async () => engine()),
       getFleetLoad: vi.fn(async () => ({ generatedAt, rows: [], excluded: [] })),
     } as unknown as ConsoleHttp & { listDevices: ReturnType<typeof vi.fn> }
     stubViewport(true)
     const api = createConsoleApi(http)
-    renderApp(<OverviewPage />, { api, withSummary: true, withShell: true })
+    renderApp(<OverviewPage />, { api, withSummary: true, withAlerts: true, withShell: true })
     return http
   }
 
@@ -306,5 +326,214 @@ describe('OverviewPage over the console API, with SNMP devices', () => {
         dir: 'desc',
       }),
     )
+  })
+})
+
+describe('OverviewPage over the console API, with incidents', () => {
+  const generatedAt = new Date(Date.parse('2026-10-18T10:00:00Z')).toISOString()
+  const page = { number: 1, size: OVERVIEW_PAGE_SIZE, total: 0, pages: 1 }
+  const quiet = <T extends ServerList | ContainerList | TargetList | DeviceList>(healthy: number) =>
+    ({
+      generatedAt,
+      items: [],
+      page,
+      counts: { ...emptyCounts(), healthy },
+      scopeTotal: healthy,
+    }) as unknown as T
+
+  const critical = incident({ id: 'inc-c', label: 'pir-core', severity: 'critical' })
+  const acked = incident({
+    id: 'inc-a',
+    label: 'cdn-edge',
+    severity: 'critical',
+    status: 'acknowledged',
+    kind: 'target',
+    ref: 't1',
+  })
+  const warning = incident({ id: 'inc-w', label: 'api-02', severity: 'warning', health: 'warning' })
+
+  interface Served {
+    open?: IncidentList | Error
+    criticalCount?: IncidentList
+    engine?: ReturnType<typeof engine> | Error
+  }
+
+  function mount({
+    open = incidentList([critical, acked, warning], {
+      counts: { active: 5, acknowledged: 2, recovered: 9, closed: 4 },
+      scopeTotal: 20,
+    }),
+    criticalCount = incidentList([], {
+      counts: { active: 2, acknowledged: 1, recovered: 0, closed: 0 },
+    }),
+    engine: state = engine(),
+  }: Served = {}) {
+    const listIncidents = vi.fn(async (options: { severity?: string }) => {
+      const answer = options.severity === 'critical' ? criticalCount : open
+      if (answer instanceof Error) throw answer
+      return answer
+    })
+    const http = {
+      auth: {},
+      getScopeOptions: vi.fn(async () => ({ customers: [], sites: [] })),
+      listServers: vi.fn(async () => quiet<ServerList>(5)),
+      listContainers: vi.fn(async () => quiet<ContainerList>(5)),
+      listTargets: vi.fn(async () => quiet<TargetList>(0)),
+      listDevices: vi.fn(async () => quiet<DeviceList>(0)),
+      listIncidents,
+      getEngineStatus: vi.fn(async () => {
+        if (state instanceof Error) throw state
+        return state
+      }),
+      getFleetLoad: vi.fn(async () => ({ generatedAt, rows: [], excluded: [] })),
+    } as unknown as ConsoleHttp
+    stubViewport(true)
+    const api = createConsoleApi(http)
+    renderApp(<OverviewPage />, {
+      api,
+      withSummary: true,
+      withAlerts: true,
+      withShell: true,
+      route: '/?customer=acme',
+    })
+    return { listIncidents, http }
+  }
+
+  const panel = () => screen.getByRole('region', { name: 'Active alerts' })
+  const tile = () => within(strip()).findByRole('link', { name: /^Alerts: / })
+
+  it('counts the open incidents in the tile and the panel from the API’s counts over the whole scope', async () => {
+    mount()
+    expect(await tile()).toHaveAccessibleName('Alerts: 7 open, 3 critical, 5 not acknowledged')
+    expect(await within(panel()).findByText('open')).toBeInTheDocument()
+    expect(panel()).toHaveTextContent('7 open')
+    expect(panel()).toHaveTextContent('3 critical')
+    expect(panel()).toHaveTextContent('5 not acknowledged')
+  })
+
+  it('lists the first few, critical first, each opening its incident, and counts the rest as not listed', async () => {
+    mount()
+    const rows = await within(panel()).findByRole('list', { name: 'Recent important incidents' })
+    const links = within(rows).getAllByRole('link')
+    expect(links.map((link) => link.getAttribute('href'))).toEqual([
+      '/alerts/inc-c?customer=acme',
+      '/alerts/inc-a?customer=acme',
+      '/alerts/inc-w?customer=acme',
+    ])
+    expect(links[0]).toHaveTextContent('pir-core')
+    // Active and acknowledged stay apart, and an acknowledged one is listed as an open incident.
+    expect(links[0]).toHaveTextContent('ACTIVE')
+    expect(links[1]).toHaveTextContent('ACKNOWLEDGED')
+    // 7 are open and 3 are listed.
+    expect(panel()).toHaveTextContent('+4 more open')
+    expect(within(panel()).getByRole('link', { name: 'All alerts' })).toHaveAttribute(
+      'href',
+      '/alerts?customer=acme',
+    )
+  })
+
+  it('lists at most three rows, whatever the first page holds', async () => {
+    const many = Array.from({ length: 5 }, (_, n) => incident({ id: `m${n}`, label: `host-${n}` }))
+    mount({
+      open: incidentList(many, {
+        counts: { active: 40, acknowledged: 0, recovered: 0, closed: 0 },
+        scopeTotal: 40,
+      }),
+    })
+    const rows = await within(panel()).findByRole('list', { name: 'Recent important incidents' })
+    expect(within(rows).getAllByRole('link')).toHaveLength(3)
+    expect(panel()).toHaveTextContent('40 open')
+    expect(panel()).toHaveTextContent('+37 more open')
+  })
+
+  it('asks for two bounded pages in the topbar scope, and no incident one by one', async () => {
+    const { listIncidents } = mount()
+    await tile()
+    expect(listIncidents).toHaveBeenCalledTimes(2)
+    for (const [options] of listIncidents.mock.calls) {
+      expect(options).toMatchObject({
+        scope: { customerId: 'acme', siteId: null },
+        status: 'open',
+        page: 1,
+      })
+      expect((options as { pageSize: number }).pageSize).toBeLessThanOrEqual(5)
+    }
+  })
+
+  it('says no incident is open, without calling it good news, when the engine has never run', async () => {
+    mount({
+      open: incidentList([], {
+        counts: { active: 0, acknowledged: 0, recovered: 0, closed: 0 },
+        scopeTotal: 0,
+      }),
+      criticalCount: incidentList([]),
+      engine: engine('never_started'),
+    })
+    expect(await within(panel()).findByText(/No open incidents recorded/)).toHaveTextContent(
+      /does not mean everything is healthy/,
+    )
+    expect(panel()).toHaveTextContent('NEVER STARTED')
+    expect(await tile()).toHaveAccessibleName(/alert engine never started/)
+  })
+
+  it('says only that none is open, with the engine running', async () => {
+    mount({
+      open: incidentList([], {
+        counts: { active: 0, acknowledged: 0, recovered: 3, closed: 0 },
+        scopeTotal: 3,
+      }),
+      criticalCount: incidentList([]),
+    })
+    expect(await within(panel()).findByText('No open incidents.')).toBeInTheDocument()
+    expect(panel()).toHaveTextContent('alert engine running')
+    expect(panel()).not.toHaveTextContent('NEVER STARTED')
+  })
+
+  it.each([
+    ['failed', 'FAILED'],
+    ['stale', 'STALE'],
+  ] as const)('shows a %s engine in the panel, above the incidents', async (state, word) => {
+    mount({ engine: engine(state) })
+    expect(await within(panel()).findByText(word)).toBeInTheDocument()
+    expect(within(panel()).getByRole('list', { name: 'Recent important incidents' })).toBeVisible()
+  })
+
+  it('shows the failure in the panel and the tile, with no sample count, when the incidents cannot be read', async () => {
+    mount({ open: new ApiError('Incidents down', 503) })
+    expect(await within(panel()).findByRole('alert')).toHaveTextContent('Incidents down')
+    expect(within(strip()).queryByRole('link', { name: /^Alerts: / })).toBeNull()
+    expect(within(panel()).queryByRole('list')).toBeNull()
+  })
+
+  it('keeps the rest of the Overview alive when the alerts fail', async () => {
+    mount({ open: new ApiError('Incidents down', 503) })
+    await within(panel()).findByRole('alert')
+    expect(await loadedStrip()).toBeInTheDocument()
+  })
+
+  it('tags the tile and the panel live over the console API, never over the sample API', async () => {
+    mount()
+    await tile()
+    expect(within(await tile()).getByText('live')).toBeInTheDocument()
+    expect(within(panel()).getByText(/^live/)).toBeInTheDocument()
+  })
+
+  it('shows no incident of its own over the sample API: none open, and an engine that never ran', async () => {
+    setup()
+    await loaded()
+    const link = await within(strip()).findByRole('link', { name: /^Alerts: / })
+    expect(link).toHaveAccessibleName(
+      /^Alerts: 0 open, 0 critical, 0 not acknowledged, alert engine never started/,
+    )
+    expect(within(panel()).getByText(/^mock/)).toBeInTheDocument()
+    expect(within(panel()).queryByRole('list', { name: 'Recent important incidents' })).toBeNull()
+    expect(panel()).toHaveTextContent('NEVER STARTED')
+  })
+
+  it('does not count open incidents into the verdict: they follow the health already counted', async () => {
+    mount()
+    const hero = await within(strip()).findByRole('button', { name: /^Fleet status:/ })
+    // The 10 servers and containers are all healthy; seven open incidents change nothing.
+    expect(hero).toHaveAccessibleName(/nominal/i)
   })
 })

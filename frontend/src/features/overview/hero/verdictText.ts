@@ -12,11 +12,12 @@ export const VERDICT_FEATURES: readonly FeatureId[] = ['servers', 'network', 'sn
 
 /**
  * What the verdict leaves out, and what it rests on, stated wherever it is explained: the console
- * API serves no alerts or events, and decides for itself which servers, containers, probe targets
- * and SNMP devices are warning or critical. A device is never judged by its interfaces.
+ * API serves no events, that incidents follow the health already counted and so are not added to
+ * it, and that the server decides which servers, containers, probe targets and SNMP devices are
+ * warning or critical. A device is never judged by its interfaces.
  */
 export const NOT_COUNTED =
-  "Alerts and events are not counted: the console API does not serve them. Which servers, containers, probe targets and SNMP devices are warning or critical is the server's decision, and an interface that is down does not make its device so."
+  "Events are not counted: the console API does not serve them. Incidents are not added: they follow the health of what is already counted. Which servers, containers, probe targets and SNMP devices are warning or critical is the server's decision, and an interface that is down does not make its device so."
 
 /** "3 critical, 1 offline, 5 warning": the counts that need a look, in words, worst first. Empty when none. */
 export function describeProblems(counts: StatusCounts): string {

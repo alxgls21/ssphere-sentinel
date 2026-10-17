@@ -1,3 +1,4 @@
+import { registryOverrides } from '@/config/testing'
 import { Server } from 'lucide-react'
 import { describe, expect, it, vi } from 'vitest'
 import type { EntityIndexItem } from '@/api/types'
@@ -130,11 +131,18 @@ describe('screenItems', () => {
     expect(items.find((item) => item.title === 'Servers')?.hint).toEqual(['g', 's'])
   })
 
-  it('tags the screens whose feature the backend does not implement (not SNMP, which it supports), and only those', () => {
+  it('tags no screen as planned while the backend implements what each one reads', () => {
+    expect(screenItems(vi.fn(), true).filter((item) => item.badge === 'plan')).toEqual([])
+  })
+
+  it('tags a screen whose feature the backend does not implement, and only that one', () => {
+    const overrides = registryOverrides()
+    overrides.set('alerts', { backend: 'unsupported', connected: false })
     const planned = screenItems(vi.fn(), true)
       .filter((item) => item.badge === 'plan')
       .map((item) => item.title)
-    expect(planned).toEqual(['Topology', 'Alerts'])
+    overrides.restore()
+    expect(planned).toEqual(['Alerts'])
   })
 
   it('drops the hints when single-key shortcuts are off', () => {

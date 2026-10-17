@@ -293,6 +293,50 @@ describe('SNMP devices in the sample fleet', () => {
   })
 })
 
+describe('alerts in the sample fleet', () => {
+  it('records no incident: an empty list with zero counts, never an invented one', async () => {
+    const list = await apiFor('normal').listIncidents()
+    expect(list.items).toEqual([])
+    expect(list.scopeTotal).toBe(0)
+    expect(list.counts).toEqual({ active: 0, acknowledged: 0, recovered: 0, closed: 0 })
+    expect(list.page).toMatchObject({ number: 1, total: 0, pages: 1 })
+  })
+
+  it('has no incident to open or acknowledge: a 404, as for an unknown or hidden one', async () => {
+    const api = apiFor('normal')
+    await expect(api.getIncident('anything')).rejects.toMatchObject({ status: 404 })
+    await expect(api.acknowledgeIncident('anything')).rejects.toMatchObject({ status: 404 })
+  })
+
+  it('counts none open, and lists none, for the Overview', async () => {
+    expect(await apiFor('normal').getIncidentOverview()).toMatchObject({
+      open: 0,
+      active: 0,
+      acknowledged: 0,
+      critical: 0,
+      recent: [],
+    })
+  })
+
+  it('has an alert engine that never ran: never started, with no time and no interval', async () => {
+    const status = await apiFor('normal').getEngineStatus()
+    expect(status).toMatchObject({
+      state: 'never_started',
+      lastSuccessAt: null,
+      lastAttemptAt: null,
+      intervalSeconds: null,
+      monitoringSince: null,
+    })
+  })
+
+  it('fails like every other method in the failing scenarios', async () => {
+    const api = apiFor('error')
+    await expect(api.listIncidents()).rejects.toMatchObject({ status: 503 })
+    await expect(api.getEngineStatus()).rejects.toMatchObject({ status: 503 })
+    await expect(api.getIncidentOverview()).rejects.toMatchObject({ status: 503 })
+  })
+})
+
 describe('determinism and the clock', () => {
   it('answers every method identically for the same clock', async () => {
     const a = apiFor('normal')

@@ -4,9 +4,11 @@
 # installation (.env.example) and of separate database roles, and checks that
 #   - each one resolves (Compose before 2.24 refuses an env_file listed twice);
 #   - an existing installation resolves the database service it always ran;
-#   - with separate roles each service gets its own password only: web the
-#     runtime login's, migrate the migration login's, db the bootstrap
-#     superuser's, from the file only Compose reads;
+#   - with separate roles each service gets its own password only: web and
+#     the alert engine the runtime login's, migrate the migration login's, db
+#     the bootstrap superuser's, from the file only Compose reads;
+#   - the alert engine runs as a worker, which never migrates, and the SMTP
+#     password reaches the notifier only (profile "notifications");
 #   - sentinel/db_roles.py reads the passwords from the resolved configuration,
 #     and refuses one that gives web or migrate a password not its own.
 # Writes and removes .env, .env.migrate and .env.bootstrap in the working tree: CI only.
@@ -43,13 +45,21 @@ from sentinel.database import foreign_passwords  # noqa: E402
 
 services = json.load(open(sys.argv[1]))["services"]
 layout = sys.argv[2]
-assert set(services) == {"db", "migrate", "web"}, sorted(services)
-web, migrate, db = (services[name]["environment"] for name in ("web", "migrate", "db"))
+assert set(services) == {"db", "migrate", "web", "alert-engine"}, sorted(services)
+web, migrate, db, engine = (services[name]["environment"] for name in ("web", "migrate", "db", "alert-engine"))
 assert web.get("DJANGO_SECRET_KEY") and migrate.get("DJANGO_SECRET_KEY"), "the env files were not resolved"
 assert (web["SENTINEL_DB_ACCESS"], migrate["SENTINEL_DB_ACCESS"]) == ("runtime", "migrate")
 assert services["web"]["depends_on"]["migrate"]["condition"] == "service_completed_successfully"
 assert not web.get("SENTINEL_DB_MIGRATE_PASSWORD"), "web receives the migration password"
 assert not migrate.get("SENTINEL_DB_PASSWORD"), "migrate receives the runtime password"
+assert (engine["SENTINEL_DB_ACCESS"], engine["SENTINEL_PROCESS"]) == ("runtime", "worker"), "the alert engine could migrate"
+assert {name: condition["condition"] for name, condition in services["alert-engine"]["depends_on"].items()} == {
+    "db": "service_healthy", "migrate": "service_completed_successfully", "web": "service_started"}
+assert not engine.get("SENTINEL_DB_MIGRATE_PASSWORD"), "the alert engine receives the migration password"
+assert engine.get("SENTINEL_DB_PASSWORD", "") == web.get("SENTINEL_DB_PASSWORD", ""), "the alert engine logs in otherwise"
+assert engine.get("POSTGRES_PASSWORD", "") == web.get("POSTGRES_PASSWORD", ""), "the alert engine logs in otherwise"
+for name in ("web", "migrate", "alert-engine"):
+    assert not services[name]["environment"].get("SENTINEL_SMTP_PASSWORD"), f"{name} receives the SMTP password"
 assert (migrate.get("SENTINEL_DB_MIGRATE_PASSWORD") or "") == os.environ.get("MIGRATION", ""), "migrate lacks its password"
 assert db["POSTGRES_PASSWORD"] == os.environ["BOOTSTRAP"], "db lacks the bootstrap password"
 if layout == "separate":
@@ -57,6 +67,7 @@ if layout == "separate":
     assert not migrate.get("POSTGRES_PASSWORD"), "migrate receives the bootstrap password"
     assert web.get("SENTINEL_DB_PASSWORD") == os.environ["RUNTIME"], "web lacks its password"
     assert foreign_passwords(web) == [] and foreign_passwords(migrate) == [], "a process would refuse to start"
+    assert foreign_passwords(engine) == [], "the alert engine would refuse to start"
 else:
     assert web.get("POSTGRES_PASSWORD") == os.environ["BOOTSTRAP"], "web lacks the one login's password"
 print("resolved:", ", ".join(sorted(services)))
@@ -104,6 +115,36 @@ grep -q '^\\echo sentinel-roles: committed ' "$work/program" || fail "no program
 for value in "$RUNTIME" "$MIGRATION" "$BOOTSTRAP"; do
     if grep -qF "$value" "$work/program"; then fail "the program holds a password"; fi
 done
+
+step "Email notifications: the SMTP password reaches the notifier only"
+SMTP=$(secret)
+printf 'SENTINEL_SMTP_HOST=smtp.example.com\nSENTINEL_EMAIL_FROM=sentinel@example.com\nSENTINEL_SMTP_USER=sentinel\nSENTINEL_SMTP_PASSWORD=%s\n' \
+    "$SMTP" >> .env
+check separate  # without the profile, no notifier, and nobody gets it
+COMPOSE_PROFILES=notifications docker compose config --format json > "$work/config.json"
+SMTP=$SMTP python3 - "$work/config.json" <<'PY'
+import json
+import os
+import sys
+
+sys.path.insert(0, ".")
+from sentinel.database import foreign_passwords  # noqa: E402
+
+services = json.load(open(sys.argv[1]))["services"]
+assert set(services) == {"db", "migrate", "web", "alert-engine", "notifier"}, sorted(services)
+holders = sorted(name for name, service in services.items()
+                 if (service.get("environment") or {}).get("SENTINEL_SMTP_PASSWORD"))
+assert holders == ["notifier"], holders
+notifier = services["notifier"]["environment"]
+assert notifier["SENTINEL_SMTP_PASSWORD"] == os.environ["SMTP"], "the notifier lacks its SMTP password"
+assert (notifier["SENTINEL_DB_ACCESS"], notifier["SENTINEL_PROCESS"]) == ("runtime", "worker")
+assert notifier.get("SENTINEL_DB_PASSWORD") == os.environ["RUNTIME"], "the notifier lacks the runtime password"
+assert foreign_passwords(notifier) == [], "the notifier would refuse to start"
+print("the SMTP password reaches: notifier")
+PY
+python3 -m sentinel.db_roles apply --compose-config "$work/config.json" > "$work/program" \
+    || fail "the generator refused the configuration with the notifier"
+if grep -qF "$SMTP" "$work/program"; then fail "the program holds the SMTP password"; fi
 
 step "Moving the bootstrap password leaves the db service as it was"
 env_from tests/deployment/legacy.env.example

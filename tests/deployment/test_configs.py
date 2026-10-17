@@ -203,6 +203,8 @@ LAYOUTS = {
     "16": ("postgres_data", "/var/lib/postgresql/data"),
     "18": ("postgres18_data", "/var/lib/postgresql"),
 }
+# The long-running processes beside web: the image again, the runtime login, no migrations.
+WORKERS = {"alert-engine": "run_alert_engine", "notifier": "run_notifier"}
 
 
 class ComposeTests(unittest.TestCase):
@@ -230,7 +232,7 @@ class ComposeTests(unittest.TestCase):
 
     def test_service_and_volume_names_preserve_existing_data(self):
         self.assertNotIn("name", self.compose)  # project name drives volume names
-        self.assertEqual(set(self.compose["services"]), {"web", "migrate"})
+        self.assertEqual(set(self.compose["services"]), {"web", "migrate", *WORKERS})
         self.assertNotIn("volumes", self.compose)
         self.assertEqual(self.database({})["services"].keys(), {"db"})
 
@@ -316,7 +318,8 @@ class ComposeTests(unittest.TestCase):
 
     def test_web_service_hardening(self):
         web = self.compose["services"]["web"]
-        for service in (web, self.compose["services"]["migrate"]):
+        workers = [self.compose["services"][name] for name in WORKERS]
+        for service in (web, self.compose["services"]["migrate"], *workers):
             self.assertTrue(service["read_only"])
             self.assertEqual(service["tmpfs"], ["/tmp"])
             self.assertEqual(service["cap_drop"], ["ALL"])
@@ -324,7 +327,7 @@ class ComposeTests(unittest.TestCase):
             self.assertTrue(service["init"])
             self.assertEqual(service["depends_on"]["db"]["condition"], "service_healthy")
             self.assertEqual(service["logging"]["options"]["max-size"], "10m")
-        services = [web] + [self.version_file(major)["services"]["db"] for major in LAYOUTS]
+        services = [web, *workers] + [self.version_file(major)["services"]["db"] for major in LAYOUTS]
         for service in services:
             self.assertEqual(service["restart"], "unless-stopped")
             self.assertEqual(service["logging"]["options"]["max-size"], "10m")
@@ -349,6 +352,52 @@ class ComposeTests(unittest.TestCase):
         for name in ("POSTGRES_HOST", "POSTGRES_PORT"):
             self.assertEqual(migrate["environment"][name], web["environment"][name])
 
+    def test_the_workers_run_the_image_with_the_runtime_login_and_never_migrate(self):
+        services = self.compose["services"]
+        web = services["web"]
+        for name, command in WORKERS.items():
+            with self.subTest(worker=name):
+                worker = services[name]
+                self.assertEqual(worker["build"], web["build"])  # the same image
+                self.assertEqual(worker["command"][:3], ["python", "manage.py", command])
+                self.assertNotIn("ports", worker)
+                self.assertEqual(worker["restart"], "unless-stopped")
+                environment = worker["environment"]
+                self.assertEqual(environment["SENTINEL_DB_ACCESS"], "runtime")
+                self.assertEqual(environment["SENTINEL_PROCESS"], "worker")
+                for key in ("POSTGRES_HOST", "POSTGRES_PORT"):
+                    self.assertEqual(environment[key], web["environment"][key])
+                self.assertNotIn("SENTINEL_PROCESS", web["environment"])
+                # After migrate, and with web, which applies the migrations with the default
+                # logins: the worker waits for them, so that a long migration does not fail `up`
+                # (web turns unhealthy while it migrates).
+                self.assertEqual(worker["depends_on"], {
+                    "db": {"condition": "service_healthy"},
+                    "migrate": {"condition": "service_completed_successfully"},
+                    "web": {"condition": "service_started"},
+                })
+                # The image's health check probes Gunicorn: a worker's checks its liveness file instead.
+                (flag, path) = worker["command"][3:]
+                self.assertEqual(flag, "--liveness-file")
+                self.assertTrue(path.startswith("/tmp/"))  # the tmpfs: the root file system is read-only
+                self.assertEqual(worker["healthcheck"]["test"], ["CMD", "python", "-m", "apps.alerts.runtime", path])
+                # SIGTERM ends the cycle in progress first.
+                self.assertRegex(worker["stop_grace_period"], r"^\d+s$")
+                self.assertGreaterEqual(int(worker["stop_grace_period"][:-1]), 60)
+        # The alert engine always runs; the notifier only once email is set up.
+        self.assertNotIn("profiles", services["alert-engine"])
+        self.assertEqual(services["notifier"]["profiles"], ["notifications"])
+
+    def test_the_smtp_password_reaches_only_the_notifier(self):
+        services = self.compose["services"]
+        for name, service in services.items():
+            with self.subTest(service=name):
+                if name == "notifier":
+                    self.assertNotIn("SENTINEL_SMTP_PASSWORD", service["environment"])
+                else:
+                    self.assertEqual(service["environment"]["SENTINEL_SMTP_PASSWORD"], "")
+        self.assertNotIn("SMTP", str(self.tunnel))
+
     def test_migration_secrets_reach_only_the_migrate_service(self):
         services = self.compose["services"]
         self.assertEqual(
@@ -357,8 +406,9 @@ class ComposeTests(unittest.TestCase):
         )
         selectors = [name for name, service in services.items() if "SENTINEL_MIGRATE_ENV_FILE" in str(service)]
         self.assertEqual(selectors, ["migrate"])
-        # A migration password put in .env by mistake is blanked for web.
-        self.assertEqual(services["web"]["environment"]["SENTINEL_DB_MIGRATE_PASSWORD"], "")
+        # A migration password put in .env by mistake is blanked for web and the workers.
+        for name in ("web", *WORKERS):
+            self.assertEqual(services[name]["environment"]["SENTINEL_DB_MIGRATE_PASSWORD"], "")
 
     def test_the_migrate_service_never_lists_an_env_file_twice(self):
         # Compose releases before 2.24 refuse a service whose env_file list
@@ -421,7 +471,7 @@ class ComposeTests(unittest.TestCase):
                 self.assertNotIn(None, environment.values())
                 self.assertNotIn("POSTGRES_PASSWORD", environment)
                 for key in ("volumes", "secrets", "configs", "env_file"):
-                    if key == "env_file" and name in ("web", "migrate", "cloudflared"):
+                    if key == "env_file" and name in ("web", "migrate", *WORKERS, "cloudflared"):
                         continue
                     self.assertNotIn(key, service)
         services = self.compose["services"]
@@ -447,31 +497,41 @@ class ComposeTests(unittest.TestCase):
         def held(environment):
             return {name for name in passwords if environment.get(name)}
 
-        web, migrate, db = self.resolve(separate, files)
-        self.assertEqual(held(web), {"SENTINEL_DB_PASSWORD"})
-        self.assertEqual(held(migrate), {"SENTINEL_DB_MIGRATE_PASSWORD"})
-        self.assertEqual(db["POSTGRES_PASSWORD"], "bootstrap-secret")
-        self.assertEqual(database.foreign_passwords(web), [])
-        self.assertEqual(database.foreign_passwords(migrate), [])
+        runtime = ("web", *WORKERS)
+        resolved = self.resolve(separate, files)
+        for name in runtime:
+            self.assertEqual(held(resolved[name]), {"SENTINEL_DB_PASSWORD"}, name)
+            self.assertEqual(resolved[name]["SENTINEL_DB_PASSWORD"], "runtime-secret", name)
+            self.assertEqual(database.foreign_passwords(resolved[name]), [], name)
+        self.assertEqual(held(resolved["migrate"]), {"SENTINEL_DB_MIGRATE_PASSWORD"})
+        self.assertEqual(resolved["db"]["POSTGRES_PASSWORD"], "bootstrap-secret")
+        self.assertEqual(database.foreign_passwords(resolved["migrate"]), [])
         # Passwords put in .env by mistake: blanked, or refused by the processes.
         mistaken = {**separate, "SENTINEL_DB_MIGRATE_PASSWORD": "migration-secret"}
-        web, migrate, _ = self.resolve(mistaken, files)
-        self.assertEqual(held(web), {"SENTINEL_DB_PASSWORD"})
+        resolved = self.resolve(mistaken, files)
+        for name in runtime:
+            self.assertEqual(held(resolved[name]), {"SENTINEL_DB_PASSWORD"}, name)
         mistaken = {**separate, "POSTGRES_PASSWORD": "bootstrap-secret"}
-        web, migrate, db = self.resolve(mistaken, files)
-        self.assertEqual(database.foreign_passwords(web), ["POSTGRES_PASSWORD"])
-        self.assertEqual(database.foreign_passwords(migrate), ["POSTGRES_PASSWORD"])
-        # An existing installation resolves as it always did.
-        web, migrate, db = self.resolve(legacy, {})
-        self.assertEqual(held(web), {"POSTGRES_PASSWORD"})
-        self.assertEqual(db["POSTGRES_PASSWORD"], legacy["POSTGRES_PASSWORD"])
-        self.assertEqual(database.foreign_passwords(web), [])
+        resolved = self.resolve(mistaken, files)
+        for name in (*runtime, "migrate"):
+            self.assertEqual(database.foreign_passwords(resolved[name]), ["POSTGRES_PASSWORD"], name)
+        # An existing installation resolves as it always did; the workers log in as web does.
+        resolved = self.resolve(legacy, {})
+        for name in runtime:
+            self.assertEqual(held(resolved[name]), {"POSTGRES_PASSWORD"}, name)
+            self.assertEqual(database.foreign_passwords(resolved[name]), [], name)
+        self.assertEqual(resolved["db"]["POSTGRES_PASSWORD"], legacy["POSTGRES_PASSWORD"])
         # The migrate service of a half switch refuses instead of having nothing to do.
-        web, migrate, _ = self.resolve({**legacy, "SENTINEL_MIGRATE_ENV_FILE": ".env.migrate"}, files)
-        self.assertEqual(database.foreign_passwords(migrate), ["SENTINEL_DB_MIGRATE_PASSWORD"])
+        resolved = self.resolve({**legacy, "SENTINEL_MIGRATE_ENV_FILE": ".env.migrate"}, files)
+        self.assertEqual(database.foreign_passwords(resolved["migrate"]), ["SENTINEL_DB_MIGRATE_PASSWORD"])
+        # The SMTP password, in .env, reaches the notifier only.
+        resolved = self.resolve({**separate, "SENTINEL_SMTP_PASSWORD": "smtp-secret"}, files)
+        self.assertEqual(
+            {name for name, environment in resolved.items() if environment.get("SENTINEL_SMTP_PASSWORD")}, {"notifier"}
+        )
 
-    def resolve(self, dotenv: dict[str, str], files: dict[str, dict[str, str]]):
-        """The environments of web, migrate and db for an .env and the other env files."""
+    def resolve(self, dotenv: dict[str, str], files: dict[str, dict[str, str]]) -> dict[str, dict[str, str]]:
+        """The environment of each service (db included) for an .env and the other env files."""
 
         def env_file(path: str) -> dict[str, str]:
             resolved = interpolate(path, dotenv)
@@ -479,14 +539,13 @@ class ComposeTests(unittest.TestCase):
                 return dotenv
             return files[resolved] if resolved in files else dotenv_values(ROOT / resolved)
 
-        environments = []
-        for name in ("web", "migrate"):
-            service = self.compose["services"][name]
+        environments = {}
+        for name, service in self.compose["services"].items():
             environment = {}
             for path in service["env_file"]:
                 environment.update(env_file(path))
             environment.update({key: str(value) for key, value in service["environment"].items()})
-            environments.append(environment)
+            environments[name] = environment
         (include,) = self.compose["include"]
         values = {}
         for path in include["env_file"]:
@@ -495,7 +554,7 @@ class ComposeTests(unittest.TestCase):
         resolved = {key: re.sub(r"\$\{([A-Z_]+):[-?]([^}]*)\}",
                                 lambda match: values.get(match[1]) or match[2], str(value))
                     for key, value in db.items()}
-        return (*environments, resolved)
+        return {**environments, "db": resolved}
 
     def test_tunnel_token_is_kept_away_from_the_web_container(self):
         cloudflared = self.tunnel["services"]["cloudflared"]

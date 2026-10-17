@@ -54,6 +54,18 @@ export const STATUS_EDGE: Record<HealthStatus, string> = {
   idle: 'bg-fg-muted',
 }
 
+/**
+ * The custom property behind each health color, for a canvas that cannot take a class (the topology
+ * map reads them with getComputedStyle). There too, a word goes with the color.
+ */
+export const STATUS_COLOR_VAR: Record<HealthStatus, string> = {
+  healthy: '--color-healthy',
+  warning: '--color-warning',
+  critical: '--color-critical',
+  unknown: '--color-fg-faint',
+  idle: '--color-fg-muted',
+}
+
 /** Fixed-width compact words. Domain words (OFFLINE, UNHEALTHY, ...) may replace them. */
 export const STATUS_WORD: Record<DisplayStatus, string> = {
   healthy: 'OK',

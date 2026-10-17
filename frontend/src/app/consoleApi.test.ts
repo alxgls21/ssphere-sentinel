@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { ConsoleHttp } from '@/api/http'
 import type { ContainerList, DeviceList, ServerList, TargetList } from '@/api/types'
+import { engine, incident, list as incidentList } from '@/features/alerts/testing'
 import { item as deviceItem } from '@/features/snmp/testing'
 import { OVERVIEW_PAGE_SIZE } from '@/lib/overview'
 import { emptyCounts } from '@/lib/status'
@@ -54,9 +55,14 @@ function fakeHttp(over: Partial<ConsoleHttp> = {}) {
     getDevice: vi.fn(),
     getDeviceSeries: vi.fn(),
     getInterfaceSeries: vi.fn(),
+    listIncidents: vi.fn(async () => incidentList([])),
+    getIncident: vi.fn(),
+    acknowledgeIncident: vi.fn(),
+    getEngineStatus: vi.fn(async () => engine()),
     getServer: vi.fn(),
     getServerSeries: vi.fn(),
     getFleetLoad: vi.fn(),
+    getTopology: vi.fn(),
     ...over,
   } as unknown as ConsoleHttp & {
     listServers: ReturnType<typeof vi.fn>
@@ -66,6 +72,10 @@ function fakeHttp(over: Partial<ConsoleHttp> = {}) {
     getDevice: ReturnType<typeof vi.fn>
     getDeviceSeries: ReturnType<typeof vi.fn>
     getInterfaceSeries: ReturnType<typeof vi.fn>
+    listIncidents: ReturnType<typeof vi.fn>
+    getIncident: ReturnType<typeof vi.fn>
+    acknowledgeIncident: ReturnType<typeof vi.fn>
+    getEngineStatus: ReturnType<typeof vi.fn>
   }
   return http
 }
@@ -82,21 +92,27 @@ describe('createConsoleApi', () => {
     expect(api.source).toBe('http')
     expect(Object.keys(api).sort()).toEqual(
       [
+        'acknowledgeIncident',
+        'getEngineStatus',
         'getEntityIndex',
         'getFleetLoad',
         'getHealthBreakdown',
         'getOverviewSummary',
         'getScopeOptions',
         'getServer',
+        'getIncident',
+        'getIncidentOverview',
         'getInterfaceSeries',
         'getServerSeries',
         'getDevice',
         'getDeviceSeries',
         'getTarget',
         'getTargetSeries',
+        'getTopology',
         'listAttention',
         'listContainers',
         'listDevices',
+        'listIncidents',
         'listTargets',
         'listServers',
         'source',
@@ -295,8 +311,138 @@ describe('createConsoleApi', () => {
     expect(list.scopeTotal).toBe(9)
   })
 
+  it('passes the topology straight to the console API, with its scope, kinds and limit', async () => {
+    const http = fakeHttp()
+    const api = createConsoleApi(http)
+    const signal = new AbortController().signal
+    const options = {
+      scope: { customerId: 'c-1', siteId: null },
+      include: ['containers'] as const,
+      limit: 500,
+      signal,
+    }
+    await api.getTopology(options)
+    expect(http.getTopology).toHaveBeenCalledExactlyOnceWith(options)
+  })
+
   it('has no search index yet, and says so with an empty one rather than a made-up list', async () => {
     const index = await createConsoleApi(fakeHttp()).getEntityIndex()
     expect(index.items).toEqual([])
+  })
+})
+
+describe('the open incidents', () => {
+  const critical = incident({ id: 'c1', label: 'pir-core' })
+  const warning = incident({
+    id: 'w1',
+    label: 'api-02',
+    severity: 'warning',
+    status: 'acknowledged',
+  })
+  const counted = (active: number, acknowledged: number) => ({
+    active,
+    acknowledged,
+    recovered: 9,
+    closed: 4,
+  })
+
+  function incidentsHttp() {
+    const listIncidents = vi.fn(async (options: { severity?: string }) =>
+      options.severity === 'critical'
+        ? incidentList([critical], { counts: counted(2, 1), scopeTotal: 40 })
+        : incidentList([critical, warning], { counts: counted(5, 2), scopeTotal: 40 }),
+    )
+    return fakeHttp({ listIncidents } as Partial<ConsoleHttp>)
+  }
+
+  it('counts them from the API’s own counts over the whole scope, not from the rows it lists', async () => {
+    const overview = await createConsoleApi(incidentsHttp()).getIncidentOverview()
+    expect(overview).toMatchObject({ open: 7, active: 5, acknowledged: 2, critical: 3 })
+    expect(overview.recent.map((entry) => entry.id)).toEqual(['c1', 'w1'])
+  })
+
+  it('asks for two bounded pages in the topbar scope: the first few by severity, and the critical ones counted', async () => {
+    const http = incidentsHttp()
+    const scope = { customerId: 'c1', siteId: 's1' }
+    await createConsoleApi(http).getIncidentOverview({ scope })
+    expect(http.listIncidents).toHaveBeenCalledTimes(2)
+    expect(http.listIncidents).toHaveBeenCalledWith({
+      scope,
+      status: 'open',
+      sort: 'severity',
+      dir: 'desc',
+      page: 1,
+      pageSize: 5,
+    })
+    expect(http.listIncidents).toHaveBeenCalledWith({
+      scope,
+      status: 'open',
+      severity: 'critical',
+      page: 1,
+      pageSize: 1,
+    })
+  })
+
+  it('shares one set of requests between callers that arrive together, and asks again later or for another scope', async () => {
+    const http = incidentsHttp()
+    const api = createConsoleApi(http)
+    await Promise.all([api.getIncidentOverview(), api.getIncidentOverview()])
+    expect(http.listIncidents).toHaveBeenCalledTimes(2)
+    vi.advanceTimersByTime(2000)
+    await api.getIncidentOverview()
+    expect(http.listIncidents).toHaveBeenCalledTimes(4)
+    await api.getIncidentOverview({ scope: { customerId: null, siteId: 's2' } })
+    expect(http.listIncidents).toHaveBeenCalledTimes(6)
+  })
+
+  it('does not share a failure, and a failure is the caller’s error: no count, no sample', async () => {
+    const listIncidents = vi
+      .fn()
+      .mockRejectedValueOnce(new Error('503'))
+      .mockResolvedValue(incidentList([]))
+    const api = createConsoleApi(fakeHttp({ listIncidents } as Partial<ConsoleHttp>))
+    await expect(api.getIncidentOverview()).rejects.toThrow('503')
+    await expect(api.getIncidentOverview()).resolves.toMatchObject({ open: 0, recent: [] })
+  })
+
+  it('lets one caller stop waiting without cancelling the others', async () => {
+    const releases: ((value: ReturnType<typeof incidentList>) => void)[] = []
+    const listIncidents = vi.fn(
+      () =>
+        new Promise<ReturnType<typeof incidentList>>((resolve) => {
+          releases.push(resolve)
+        }),
+    )
+    const api = createConsoleApi(fakeHttp({ listIncidents } as Partial<ConsoleHttp>))
+    const controller = new AbortController()
+    const aborted = api.getIncidentOverview({ signal: controller.signal })
+    const other = api.getIncidentOverview()
+    controller.abort()
+    await expect(aborted).rejects.toMatchObject({ name: 'AbortError' })
+    for (const release of releases) release(incidentList([]))
+    await expect(other).resolves.toMatchObject({ open: 0 })
+  })
+
+  it('passes the incident screens straight to the console API, the acknowledgement included', async () => {
+    const http = fakeHttp()
+    const api = createConsoleApi(http)
+    await api.listIncidents({ q: 'core', status: 'ended' })
+    expect(http.listIncidents).toHaveBeenCalledWith({ q: 'core', status: 'ended' })
+    const signal = new AbortController().signal
+    await api.getIncident('i1', { signal })
+    expect(http.getIncident).toHaveBeenCalledWith('i1', { signal })
+    await api.acknowledgeIncident('i1', { signal })
+    expect(http.acknowledgeIncident).toHaveBeenCalledWith('i1', { signal })
+    await api.getEngineStatus({ signal })
+    expect(http.getEngineStatus).toHaveBeenCalledWith({ signal })
+  })
+
+  it('reads no incident from the Overview’s worst-first requests, and none of them from the incidents', async () => {
+    const http = fakeHttp()
+    const api = createConsoleApi(http)
+    await api.getOverviewSummary()
+    expect(http.listIncidents).not.toHaveBeenCalled()
+    await api.getIncidentOverview()
+    expect(http.listServers).toHaveBeenCalledTimes(1)
   })
 })

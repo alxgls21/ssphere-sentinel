@@ -11,11 +11,28 @@
 #                     included) and verifies what the runtime login holds
 #                     after the migrations; the web container waits for the
 #                     database and verifies the same.
+#
+# SENTINEL_PROCESS=worker (the alert engine, the notifier): the runtime login, like
+# web, but never the migrations, in either arrangement: in the legacy one the web
+# service applies them, and the worker waits until it has.
 set -eu
 
 # "<roles> <access>", e.g. "legacy runtime"; unknown values, and a password
 # this process must not have, stop here.
 mode=$(python -m sentinel.database mode)
+
+process=${SENTINEL_PROCESS:-web}
+case "$process" in
+    web | worker) ;;
+    *)
+        echo "entrypoint: SENTINEL_PROCESS must be web or worker" >&2
+        exit 2
+        ;;
+esac
+if [ "$process" = worker ] && [ "${mode#* }" != runtime ]; then
+    echo "entrypoint: a worker runs with the runtime login (SENTINEL_DB_ACCESS=runtime)" >&2
+    exit 2
+fi
 
 if [ "$mode" = "legacy migrate" ]; then
     if [ "${1:-}" = apply-migrations ]; then
@@ -35,8 +52,12 @@ python -m sentinel.database wait
 
 case "$mode" in
     "legacy runtime")
-        echo "entrypoint: applying database migrations" >&2
-        python manage.py migrate --noinput
+        if [ "$process" = worker ]; then
+            echo "entrypoint: worker: the web service applies the migrations" >&2
+        else
+            echo "entrypoint: applying database migrations" >&2
+            python manage.py migrate --noinput
+        fi
         ;;
     "separate migrate")
         # Read-only, and before any command of this service, all of which could migrate.

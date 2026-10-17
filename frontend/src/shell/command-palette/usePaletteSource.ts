@@ -1,7 +1,6 @@
 import {
   Activity,
   BellPlus,
-  CheckCheck,
   Clock,
   FlaskConical,
   Globe,
@@ -12,7 +11,6 @@ import {
   Pause,
   Play,
   RefreshCw,
-  Waypoints,
 } from 'lucide-react'
 import { useMemo } from 'react'
 import { useLocation, useNavigate } from 'react-router'
@@ -204,28 +202,10 @@ export function usePaletteSource({
     // Listed so an operator learns they are coming; selecting one only says why it is unavailable.
     const planned: PaletteItem[] = [
       {
-        id: 'planned:acknowledge',
-        group: 'planned',
-        title: 'Acknowledge alert',
-        subtitle: 'The backend has no alert engine',
-        icon: CheckCheck,
-        badge: 'planned',
-        run: null,
-      },
-      {
-        id: 'planned:topology',
-        group: 'planned',
-        title: 'Open topology',
-        subtitle: 'The backend has no topology analysis',
-        icon: Waypoints,
-        badge: 'planned',
-        run: null,
-      },
-      {
         id: 'planned:alert-rule',
         group: 'planned',
         title: 'Create alert rule',
-        subtitle: 'The backend has no alert rules',
+        subtitle: 'Rules are managed in the admin, not in the console',
         icon: BellPlus,
         badge: 'planned',
         run: null,

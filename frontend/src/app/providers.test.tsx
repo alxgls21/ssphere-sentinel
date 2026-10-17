@@ -62,6 +62,34 @@ function stubApi(initial: Record<string, unknown>) {
         current = session()
         return reply(current)
       }
+      if (url.includes('/incidents/')) {
+        return current.authenticated
+          ? reply({
+              generatedAt: '2026-10-18T10:00:00Z',
+              items: [],
+              page: { number: 1, size: 5, total: 0, pages: 1 },
+              counts: { active: 3, acknowledged: 1, recovered: 2, closed: 0 },
+              scopeTotal: 6,
+            })
+          : reply({ error: { code: 'unauthenticated', message: 'Sign in to continue.' } }, 401)
+      }
+      if (url.endsWith('/alerts/engine-status/')) {
+        return current.authenticated
+          ? reply({
+              generatedAt: '2026-10-18T10:00:00Z',
+              state: 'never_started',
+              stale: true,
+              staleAfterSeconds: 180,
+              intervalSeconds: null,
+              startedAt: null,
+              lastSuccessAt: null,
+              lastAttemptAt: null,
+              lastCycleMs: null,
+              lastError: null,
+              monitoringSince: null,
+            })
+          : reply({ error: { code: 'unauthenticated', message: 'Sign in to continue.' } }, 401)
+      }
       if (url.endsWith('/scope/')) {
         return current.authenticated
           ? reply(SCOPE)
@@ -224,6 +252,52 @@ describe('with the console API', () => {
     expect(await screen.findByRole('alert')).toHaveTextContent('Invalid user name or password.')
     expect(screen.queryByText('overview screen')).toBeNull()
     expect(here()).toBe('/login')
+  })
+
+  it('reads the open incidents and the alert engine once signed in, never before, and shows them in the top bar', async () => {
+    const user = userEvent.setup()
+    const { calls } = stubApi(session())
+    open('/')
+    render(
+      <AppProviders>
+        <App />
+      </AppProviders>,
+    )
+    await screen.findByRole('heading', { name: 'Sign in' })
+    // Nobody is signed in: nothing of the alerts is asked for.
+    expect(calls.filter((call) => /incidents|engine-status/.test(call))).toEqual([])
+    await user.type(screen.getByLabelText('User name'), 'alice')
+    await user.type(screen.getByLabelText('Password'), 'right')
+    await user.click(screen.getByRole('button', { name: 'Sign in' }))
+    const bell = await screen.findByRole('link', { name: /^Alerts: 4 open incidents/ })
+    expect(bell).toHaveAccessibleName(
+      'Alerts: 4 open incidents, 4 critical; alert engine never started',
+    )
+    expect(calls.some((call) => /GET .*\/incidents\/\?.*status=open/.test(call))).toBe(true)
+    expect(calls.some((call) => call.endsWith('/alerts/engine-status/'))).toBe(true)
+  })
+
+  it('never makes a count up when the incidents cannot be read: the top bar says so, and no sample stands in', async () => {
+    stubApi(SIGNED_IN)
+    const served = globalThis.fetch
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) =>
+        String(input).includes('/incidents/')
+          ? reply({ error: { code: 'internal_error', message: 'Incidents down.' } }, 500)
+          : served(input, init),
+      ),
+    )
+    open('/')
+    render(
+      <AppProviders>
+        <App />
+      </AppProviders>,
+    )
+    const bell = await screen.findByRole('link', { name: /^Alerts: open incidents unavailable/ })
+    expect(bell).toHaveTextContent('?')
+    expect(bell).not.toHaveTextContent('0')
+    expect(screen.queryByText(/DEMO DATA/)).toBeNull()
   })
 
   it('opens the page straight away for a visitor who is already signed in', async () => {

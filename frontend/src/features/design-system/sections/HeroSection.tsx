@@ -84,7 +84,7 @@ function Tiles() {
     <Specimen
       label="Stat tiles"
       bare
-      note="One link per domain the console API counts: servers and containers. Net targets, Devices and Alerts have no figure to show: a dashed frame, a chip saying why, no number and no link."
+      note="One link per domain the console API counts: servers, containers, probe targets, SNMP devices and open incidents. The sample fleet monitors no target or device and has no alert engine, so those read none (and the alerts tile says the engine has never run)."
     >
       <SummaryScenario summary={SAMPLE_SUMMARIES.critical}>
         <div className={TILE_GRID}>

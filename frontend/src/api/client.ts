@@ -8,10 +8,15 @@ import type {
   DeviceListOptions,
   DeviceSeries,
   DeviceSeriesOptions,
+  EngineStatus,
   EntityIndex,
   FleetLoad,
   FleetLoadOptions,
   HealthBreakdown,
+  IncidentDetail,
+  IncidentList,
+  IncidentListOptions,
+  IncidentOverview,
   InterfaceSeries,
   InterfaceSeriesOptions,
   OverviewSummary,
@@ -27,6 +32,8 @@ import type {
   TargetListOptions,
   TargetSeries,
   TargetSeriesOptions,
+  Topology,
+  TopologyOptions,
 } from './types'
 
 /**
@@ -94,4 +101,30 @@ export interface SentinelApi {
 
   /** CPU, memory and disk history, with a gap for every bucket that has no sample. */
   getServerSeries(options: ServerSeriesOptions): Promise<ServerSeries>
+
+  /**
+   * The infrastructure graph of the scope: customers, sites, servers, targets and devices (and,
+   * when asked for, containers and interfaces), grouped by what holds them, with the monitoring
+   * edges. Never physical links. Up to `limit` nodes; `truncated` says when some were left out.
+   */
+  getTopology(options?: TopologyOptions): Promise<Topology>
+
+  /** One page of the alert incidents in scope, searched, filtered, sorted and paged by the answerer. */
+  listIncidents(options?: IncidentListOptions): Promise<IncidentList>
+
+  /** One incident with its rule and its timeline. 404 for an unknown or hidden id. */
+  getIncident(id: string, options?: Pick<RequestOptions, 'signal'>): Promise<IncidentDetail>
+
+  /**
+   * Marks an active incident as seen (it stays open) and answers with the incident as it now is.
+   * Acknowledged already is the same answer. Rejects: 403 without the permission, 404 for an unknown
+   * or hidden id, 409 `incident_ended` once it has ended.
+   */
+  acknowledgeIncident(id: string, options?: Pick<RequestOptions, 'signal'>): Promise<IncidentDetail>
+
+  /** What the alert engine says about itself: running, failed, stale or never started. */
+  getEngineStatus(options?: Pick<RequestOptions, 'signal'>): Promise<EngineStatus>
+
+  /** The open incidents of the scope, counted by the answerer, with the first few that matter most. */
+  getIncidentOverview(options?: RequestOptions): Promise<IncidentOverview>
 }

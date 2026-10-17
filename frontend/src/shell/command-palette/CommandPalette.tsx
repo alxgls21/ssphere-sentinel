@@ -156,7 +156,7 @@ function PaletteSession({ index }: { index: Resource<EntityIndex> }) {
   const run = (item: PaletteItem) => {
     if (item.run === null) {
       closePalette()
-      flashStatus(`${item.title}: not implemented in backend`)
+      flashStatus(`${item.title}: not available in the console yet`)
       return
     }
     // Run first: copying the link needs the user's gesture, which closing does not preserve.

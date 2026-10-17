@@ -7,6 +7,7 @@ import { BreadcrumbPrompt } from './topbar/BreadcrumbPrompt'
 import { DisplayMenu } from './topbar/DisplayMenu'
 import { FiltersMenu } from './topbar/FiltersMenu'
 import { FreshnessChip } from './topbar/FreshnessChip'
+import { IncidentBell } from './topbar/IncidentBell'
 import { PaletteTrigger } from './topbar/PaletteTrigger'
 import { RefreshHairline } from './topbar/RefreshHairline'
 import { ScopePicker } from './topbar/ScopePicker'
@@ -62,6 +63,7 @@ export function Topbar({ title, compact, drawer }: TopbarProps) {
       <FreshnessChip />
       <UtcClock />
       {demo ? <MockChip className="shrink-0" /> : null}
+      <IncidentBell />
       <PaletteTrigger compact={compact} />
       <DisplayMenu />
       <UserMenu />

@@ -3,11 +3,19 @@ import userEvent from '@testing-library/user-event'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { useShell } from '@/app/shell'
 import { NAV_ITEMS } from '@/config/nav'
+import { registryOverrides } from '@/config/testing'
 import { stubFocusVisible } from '@/ui/controls/testing'
 import { Sidebar, type SidebarVariant } from './Sidebar'
 import { makeSummary, renderShell } from './testing'
 
-afterEach(() => vi.restoreAllMocks())
+const overrides = registryOverrides()
+afterEach(() => {
+  vi.restoreAllMocks()
+  overrides.restore()
+})
+
+/** No screen is planned any more; this makes Alerts one, to cover how a planned screen is marked. */
+const planAlerts = () => overrides.set('alerts', { backend: 'unsupported', connected: false })
 
 const SUMMARY = makeSummary({
   servers: { critical: 1, warning: 2 },
@@ -56,6 +64,12 @@ describe('Sidebar: items', () => {
     expect(docker.querySelector('[data-status="critical"]')).not.toBeNull()
   })
 
+  it('has no PLAN tag on any screen, and names Alerts as a screen of its own, once the backend implements it', async () => {
+    await setup()
+    expect(screen.queryByText('PLAN')).toBeNull()
+    expect(screen.getByRole('link', { name: 'Alerts' })).toHaveAttribute('href', '/alerts')
+  })
+
   it('gives Overview and Customers no badge', async () => {
     await setup()
     for (const name of ['Overview', 'Customers & Sites']) {
@@ -63,16 +77,18 @@ describe('Sidebar: items', () => {
     }
   })
 
-  it('marks only the screens the backend does not implement (Topology, Alerts) PLAN, instead of showing any count', async () => {
+  it('marks only a screen the backend does not implement PLAN, instead of showing any count', async () => {
+    planAlerts()
     await setup()
-    for (const name of ['Topology', 'Alerts']) {
+    for (const name of ['Alerts']) {
       const link = screen.getByRole('link', {
         name: `${name}, planned, not implemented in backend`,
       })
       expect(link).toHaveTextContent('PLAN')
       expect(link.textContent).not.toMatch(/\d/)
     }
-    expect(screen.getAllByText('PLAN')).toHaveLength(2)
+    expect(screen.getAllByText('PLAN')).toHaveLength(1)
+    expect(screen.getByRole('link', { name: 'Topology' })).not.toHaveTextContent('PLAN')
   })
 
   it('does not call SNMP planned: the backend supports it, the console just has no screen for it yet', async () => {
@@ -236,22 +252,24 @@ describe('Sidebar: expanded and rail', () => {
   })
 
   it('keeps every name in the rail (labels hidden visually, not removed)', async () => {
+    planAlerts()
     await setup({}, 'rail')
     expect(screen.getByRole('link', { name: 'Servers, 1 critical' })).toBeInTheDocument()
     expect(
-      screen.getByRole('link', { name: 'Topology, planned, not implemented in backend' }),
+      screen.getByRole('link', { name: 'Alerts, planned, not implemented in backend' }),
     ).toBeInTheDocument()
     expect(screen.getByText('Servers')).toHaveClass('sr-only')
   })
 
   it('marks the rail icon with the worst state, or the dotted ring when planned', async () => {
+    planAlerts()
     await setup({}, 'rail')
     const servers = screen.getByRole('link', { name: 'Servers, 1 critical' })
     expect(servers.querySelector('[data-status="critical"]')).not.toBeNull()
-    const topology = screen.getByRole('link', {
-      name: 'Topology, planned, not implemented in backend',
+    const alerts = screen.getByRole('link', {
+      name: 'Alerts, planned, not implemented in backend',
     })
-    expect(topology.querySelector('[data-status="planned"]')).not.toBeNull()
+    expect(alerts.querySelector('[data-status="planned"]')).not.toBeNull()
     expect(screen.queryByText('PLAN')).not.toBeInTheDocument()
   })
 

@@ -52,6 +52,9 @@ def environments(**changes):
         "migrate": {"DJANGO_SECRET_KEY": DJANGO, "AGENT_TOKEN_PEPPER": PEPPER, "SENTINEL_DB_MIGRATE_PASSWORD": MIGRATION,
                     "SENTINEL_DB_PASSWORD": "", "SENTINEL_DB_ACCESS": "migrate", "GPG_KEY": "7169605F62C751356D054A26"},
         "db": {"POSTGRES_PASSWORD": BOOTSTRAP, "POSTGRES_USER": "sentinel", "PG_MAJOR": "18"},
+        "alert-engine": {"DJANGO_SECRET_KEY": DJANGO, "AGENT_TOKEN_PEPPER": PEPPER, "SENTINEL_DB_PASSWORD": RUNTIME,
+                         "SENTINEL_DB_MIGRATE_PASSWORD": "", "SENTINEL_SMTP_PASSWORD": "", "SENTINEL_DB_ACCESS": "runtime",
+                         "SENTINEL_PROCESS": "worker"},
     }
     for service, edits in changes.items():
         for name, value in edits.items():
@@ -120,6 +123,20 @@ class IsolationTests(unittest.TestCase):
                                             "db: SENTINEL_DB_PASSWORD is set, and the service has no use for it"),
             "a tunnel token reaches web": (dict(env=environments(web={"TUNNEL_TOKEN": "t" * 40})),
                                            "web: TUNNEL_TOKEN is set, and the service has no use for it"),
+            "web has the SMTP password": (dict(env=environments(web={"SENTINEL_SMTP_PASSWORD": "s" * 40})),
+                                          "web: SENTINEL_SMTP_PASSWORD must be blank"),
+            "the alert engine has the SMTP password": (
+                dict(env=environments(**{"alert-engine": {"SENTINEL_SMTP_PASSWORD": "s" * 40}})),
+                "alert-engine: SENTINEL_SMTP_PASSWORD must be blank"),
+            "the alert engine has the migration password": (
+                dict(env=environments(**{"alert-engine": {"SENTINEL_DB_MIGRATE_PASSWORD": MIGRATION}})),
+                "alert-engine: SENTINEL_DB_MIGRATE_PASSWORD must be blank"),
+            "the alert engine has the bootstrap password": (
+                dict(env=environments(**{"alert-engine": {"POSTGRES_PASSWORD": BOOTSTRAP}})),
+                "alert-engine: POSTGRES_PASSWORD is set, and the service has no use for it"),
+            "the alert engine lacks the runtime password": (
+                dict(env=environments(**{"alert-engine": {"SENTINEL_DB_PASSWORD": None}})),
+                "alert-engine: SENTINEL_DB_PASSWORD is missing"),
             "web's password is not the runtime's": (dict(env=environments(web={"SENTINEL_DB_PASSWORD": "x" * 40})),
                                                     "web: SENTINEL_DB_PASSWORD is not the runtime secret"),
             "web lacks its password": (dict(env=environments(web={"SENTINEL_DB_PASSWORD": None})),
@@ -180,7 +197,7 @@ class IsolationTests(unittest.TestCase):
     def test_tmpfs_is_the_scratch_space_it_is_meant_to_be(self):
         with tempfile.TemporaryDirectory() as directory:
             write_evidence(directory)
-            for service in ("web", "migrate"):
+            for service in ("web", "migrate", "alert-engine"):
                 (Path(directory) / f"{service}.mounts").write_text(json.dumps([{"Type": "tmpfs", "Destination": "/tmp"}]))
             self.assertEqual(e2e.isolation(directory, secrets_file(directory)), [])
 
@@ -238,9 +255,28 @@ class ConfigTests(unittest.TestCase):
         configuration["services"]["web"]["environment"].update({"POSTGRES_PORT": 5432, "UNSET": None})
         self.assertEqual(self.judge(configuration), [])
 
+    def test_the_notifier_is_judged_when_its_profile_is_enabled(self):
+        configuration = self.services()
+        notifier = {**configuration["services"]["alert-engine"]["environment"], "SENTINEL_SMTP_PASSWORD": "s" * 40}
+        configuration["services"]["notifier"] = {"environment": notifier}
+        self.assertEqual(self.judge(configuration), [])  # its own SMTP password: no secret of the stack
+        notifier["SENTINEL_DB_MIGRATE_PASSWORD"] = MIGRATION
+        self.assertIn("notifier: SENTINEL_DB_MIGRATE_PASSWORD must be blank", self.judge(configuration))
+        notifier["SENTINEL_DB_MIGRATE_PASSWORD"] = ""
+        notifier["SENTINEL_SMTP_PASSWORD"] = BOOTSTRAP
+        self.assertIn("notifier: SENTINEL_SMTP_PASSWORD holds the bootstrap secret", self.judge(configuration))
+
     def test_a_configuration_of_other_services_is_an_error(self):
         with self.assertRaisesRegex(e2e.Evidence, "the services are"):
             self.judge({"services": {"web": {}}})
+        without_engine = self.services()
+        del without_engine["services"]["alert-engine"]
+        with self.assertRaisesRegex(e2e.Evidence, "the services are"):
+            self.judge(without_engine)
+        unknown = self.services()
+        unknown["services"]["cron"] = {"environment": {}}
+        with self.assertRaisesRegex(e2e.Evidence, "the services are"):
+            self.judge(unknown)
         with self.assertRaisesRegex(e2e.Evidence, "not a Compose configuration"):
             self.judge({"nothing": 1})
 

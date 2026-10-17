@@ -192,7 +192,7 @@ Three modes through tokens on <html data-density>: compact 24px rows (opt-in, de
 
 ### Sidebar / NavItem
 - **Purpose:** Primary navigation for the 8 screens, rendered from the existing NAV_ITEMS registry (Overview, Servers, Docker, Network, SNMP, Topology, Alerts, Customers & Sites).
-- **Variants:** expanded 208px (icon 16px, label in --text-data, right slot = worst-state StatusGlyph + count for implemented domains, or a PLAN tag for topology and alerts, plus the g-key keycap on hover/focus); rail 56px (icons with tooltips showing label + g-key and a 8px worst-state glyph at the icon corner); drawer. Footer: Cmd/Ctrl+K, ? shortcuts, w wall mode, [ collapse, 'v0.1 - MOCK'.
+- **Variants:** expanded 208px (icon 16px, label in --text-data, right slot = worst-state StatusGlyph + count for implemented domains, or a PLAN tag for a screen the backend does not implement, plus the g-key keycap on hover/focus); rail 56px (icons with tooltips showing label + g-key and a 8px worst-state glyph at the icon corner); drawer. Footer: Cmd/Ctrl+K, ? shortcuts, w wall mode, [ collapse, 'v0.1 - MOCK'.
 - **States:** active (primary-tint fill + 2px primary left edge + aria-current=page), hover, focus-visible (2px primary inset outline), planned (label in fg-muted + PLAN tag; the route renders the existing placeholder that explains what is missing and links to docs/snmp.md where relevant). Badges are computed only from implemented data.
 - **Accessibility:** nav landmark; roving tabindex (Tab enters once, Up/Down move, Home/End jump) so the sidebar is one tab stop; badge accessible names such as 'Servers, 1 critical'; planned items announce 'planned, not implemented in backend'; collapse state persisted in localStorage inside try/catch.
 
@@ -252,7 +252,7 @@ Three modes through tokens on <html data-density>: compact 24px rows (opt-in, de
 
 ### StatTile
 - **Purpose:** One domain headline and a link to its screen: label row (label + one provenance marker), value + denominator, glyph-coded sub-counts, 6px SegmentedBar.
-- **Variants:** domain (servers, containers, targets; 171x120 at 1440); with-sparkline (network targets only: 64x24 inline right of the value); planned (alerts: dashed frame, PLANNED chip replaces the 'mock' tag, value in fg-muted, 'sample' wording, dashed bar, not a link). Sub-counts list problems worst first, or the OK count when there are none; an offline server adds a mark of its own, and from three problem marks the words drop (a 171px tile holds two worded marks). Servers and containers show a bar, never a trend: no fleet-wide history is served (the console API serves history per server, not for the fleet, and none for containers).
+- **Variants:** domain (servers, containers, targets; 171x120 at 1440); with-sparkline (network targets only: 64x24 inline right of the value); planned (a feature with nothing behind it: dashed frame, PLANNED chip replaces the 'mock' tag, value in fg-muted, 'sample' wording, dashed bar, not a link; no tile is planned today). Sub-counts list problems worst first, or the OK count when there are none; an offline server adds a mark of its own, and from three problem marks the words drop (a 171px tile holds two worded marks). Servers and containers show a bar, never a trend: no fleet-wide history is served (the console API serves history per server, not for the fleet, and none for containers).
 - **States:** loading, error, stale, selected (focus ring), value change (600 ms flash).
 - **Accessibility:** the whole tile is one link with a composed name ('Servers: 15 of 16 online, 2 warning, 1 critical, mock data'); planned tiles are not links and read 'Planned, not implemented'; sparkline is aria-hidden because the text carries the numbers.
 
@@ -331,7 +331,7 @@ Ctrl/Cmd+K (or /) opens a 640px centred console (full-screen sheet with a 48px i
 | `y` | Copy the selected row as one line of text (with block-text twins of meters) |
 | `Left / Right` | Switch tab or segment (CPU, RAM, DISK); move the crosshair when a chart is focused |
 | `v` | Toggle chart / table view on the focused chart panel |
-| `a` | Acknowledge selected alert (disabled; planned, explains itself in the status bar) |
+| `a` | Acknowledge selected alert (not wired yet: acknowledging is a button on the Alerts screen and the incident page) |
 | `Tab / Shift+Tab` | Move between focus stops: skip links, sidebar (one stop), topbar controls, verdict, tiles, panels [1]-[6] |
 | `Palette: Up/Down, Enter, Tab, Esc` | Move result, run, cycle scope chips (All, Go to, Entities, Actions), close |
 | `Display menu > Single-key shortcuts` | Turn single-key shortcuts off (WCAG 2.1.4); Ctrl/Cmd+K, Esc, Tab and in-component arrows always remain |
@@ -453,9 +453,9 @@ SCAN PATH 0-2 s verdict > 2-10 s strip + [1] queue > 10-60 s [4] health, [2] [3]
 - **Data:** getOverviewSummary().devices { total, counts } from the console API's device list: `scopeTotal` and `counts`, which cover the whole scope and not the rows. A device's health is the API's (from its polls alone), never derived from its interfaces.
 
 ### Panel `kpi-alerts`: ALERTS tile
-- **Marker:** PLANNED (alerts)
-- **Content:** Dashed-frame StatTile: '5 sample', '2 CRIT, 3 WARN', PLANNED chip, dashed bar, muted value. Never feeds the verdict, sidebar badges or the palette PROBLEMS group.
-- **Data:** listAlerts({scope, state:'active'}) -> Alert[]; requires an alerts/rules engine and notification model that do not exist (no Alert, rule, ack or silence models).
+- **Marker:** none of its own: the `live` or `mock` tag of a counted tile (the `alerts` feature).
+- **Content:** A StatTile like the domain tiles: the open incidents as the headline ('7 open'), then 'CRIT' and 'WARN' counts (critical, and the rest of the open ones) and a 6px bar of the two. An acknowledged incident is still open and counts. 'none open' when there is none. When the alert engine is failed, stale or never started, the tile says so on a second line with its mark ('alert engine never started'), so none open is not read as good news. One link to the Alerts screen; the accessible name carries the not-acknowledged count. Never feeds the verdict.
+- **Data:** SentinelApi.getIncidentOverview({scope}): the API's counts per status over the whole scope (active, acknowledged) and a count of the critical ones from a page of one, shared with the top bar's indicator and the panel.
 
 ### Panel `attention`: [1] Needs attention (Tier 1 triage queue)
 - **Marker:** MOCK (state-derived and implementable from today's ingest data once read APIs exist); SITE column carries the sample dagger.
@@ -478,9 +478,9 @@ SCAN PATH 0-2 s verdict > 2-10 s strip + [1] queue > 10-60 s [4] health, [2] [3]
 - **Data:** SentinelApi.getHealthBreakdown({scope, signal}) -> { domains: {domain, counts: Record<HealthStatus, number>, planned?: boolean}[], sites: {customerName, siteName, entities: {id, kind, name, status}[]}[] }. Sites derive from inventory Customer -> Site, and each of Server, NetworkTarget and Device carries a site foreign key (NetworkTarget.customer_name is free text and plays no part in access); the 'site-links' feature in config/features.ts (served by the console API, not read by this screen yet) drives the sample marker until the screen reads site assignment from it.
 
 ### Panel `alerts`: [5] Active alerts
-- **Marker:** PLANNED (alerts)
-- **Content:** Right rail middle, 395x166, dashed frame, PLANNED chip. Header 'ACTIVE ALERTS 5'; three 28px rows (severity glyph + word, rule summary, entity, age: CRIT packet loss acme-vpn:443 9m; CRIT unhealthy payments-api 14m; WARN disk over 80% db-prod-01 41m) and a '+2 more' row; the acknowledge action (a) is disabled and explains itself in the status bar. Footer: 'Sample data. Alert engine not implemented.' Values in fg-muted. Excluded from the verdict, nav badges, palette PROBLEMS, title and favicon. On tablet and mobile it moves into the collapsed PLANNED accordion.
-- **Data:** SentinelApi.listAlerts({scope, state:'active', limit, signal}) -> Alert[] { id, severity, title, subject, rule, since, ack? } (existing view-model in api/types.ts); needs an alert rules and engine model that does not exist. The mock derives alerts from the same entities so numbers agree across panels.
+- **Marker:** `live` over the console API (the `alerts` feature); `mock` over the sample fleet, which records no incident.
+- **Content:** Right rail middle, 395x166. Header 'ACTIVE ALERTS 7'. A line of figures: '7 open  3 critical  5 not acknowledged' (open is active and acknowledged), a one-line engine notice when the alert engine is failed, stale or never started (mark, word and sentence, the sentence in full on hover), and up to three 24px rows, critical first then the newest: severity glyph, entity, the status tag (ACTIVE, ACKNOWLEDGED) and the age since it opened; each row opens its incident. Footer: '+4 more open' (from the API's count, never the rows) or 'alert engine running', and an 'All alerts' link. With none open it says so, and, when the engine is not confirmed running, that this does not mean everything is healthy. Excluded from the verdict, nav badges, palette PROBLEMS, title and favicon. On tablet and mobile it sits above the folded PLANNED events panel.
+- **Data:** SentinelApi.getIncidentOverview({scope}): two bounded requests (the first five open incidents by severity, and the critical ones counted), one fetch for the whole shell. No acknowledge action here: acknowledging is on the Alerts screen and the incident page.
 
 ### Panel `events`: [6] Recent events
 - **Marker:** PLANNED (events)

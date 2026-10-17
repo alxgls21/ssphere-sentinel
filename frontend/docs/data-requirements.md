@@ -75,22 +75,22 @@ cannot say that.
 
 ## Incidents
 
-- **Exists.** The console derives incidents from the event log (`SentinelEvent[]`): an
-  opener is a warning or critical event with no parent, and the first healthy descendant
-  that names the same subject (kind and id) after the opener closes it. A healthy event of
-  another subject, one that names no subject and one stamped before the opener close
-  nothing, and info events never do. An event carries no acknowledgement, so the timeline
-  claims none. The backend has no event log, alert rules, acknowledgement or incident
-  record, so the Overview mounts no timeline: its Recent events panel is PLANNED and holds
-  no rows. The derivation stays as a component, shown in the gallery with labelled sample
-  events.
-- **Missing.** One record per incident with a stable identifier: the subject (kind, id,
-  name), the severity it opened at and any change, `opened_at`, `resolved_at` or none, and
-  what resolved it. Acknowledgement as data: who and when, with an optional note.
-- **Missing.** Range semantics: the incidents that overlap the range, with their real
-  start even when it is before the range, and the ongoing and resolved counts, the order
-  and the durations computed by the server, under the access rules of the other endpoints.
-- **Console.** The timeline reads incidents directly: lanes keyed by identifier, a real
-  start for a bar the axis cuts, an acknowledged mark only from the record, the summary from
-  the server's counts. The derivation goes away and the log stays as its text equivalent.
-  Whether incidents feed the verdict is a separate product decision.
+- **Exists.** The alert engine records one incident per occurrence of a rule's condition on
+  one object, with a stable identifier, the severity, the condition it opened on, when the
+  condition began and when it opened, who acknowledged it and when, when a recovery began and
+  was confirmed, and when and why it ended without one. The console API serves the list, one
+  incident with its timeline, the acknowledgement and the engine's state, and the Alerts screen
+  and the Overview read them. An acknowledged incident is still open.
+- **Still derived, and unmounted.** The lane timeline over a range reads incidents from an event
+  log (`SentinelEvent[]`): an opener is a warning or critical event with no parent, and the
+  first healthy descendant that names the same subject closes it. An event carries no
+  acknowledgement and no closure reason, so that derivation cannot show what the alert engine
+  records, and it stays a component in the gallery with labelled sample events. The backend has
+  no event log, so the Overview's Recent events panel is PLANNED and holds no rows.
+- **Missing.** Incidents over a range: the ones that overlap it with their real start, and
+  their durations computed by the server. The lane timeline could then read the records
+  directly, with an acknowledged mark and a closure reason from them.
+- **Missing.** A count of open incidents per site or per entity kind for the Overview: the API
+  counts per status over the scope, the search, the severity and the kind, one request each.
+- **Not built.** Resolving an incident by hand: it ends when the engine confirms a recovery, or
+  when monitoring of its object ends.

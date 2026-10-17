@@ -19,7 +19,7 @@ describe('HeroStrip', () => {
     expect(labels).toEqual(['Servers', 'Containers', 'Net targets', 'Devices', 'Alerts'])
   })
 
-  it('links the four tiles the console API counts and leaves the alerts tile inert', () => {
+  it('links the five tiles the console API counts, each to its own screen', () => {
     renderHero(<HeroStrip />)
     const links = within(strip()).getAllByRole('link')
     expect(links.map((link) => link.getAttribute('href'))).toEqual([
@@ -27,25 +27,24 @@ describe('HeroStrip', () => {
       '/docker',
       '/network',
       '/snmp',
+      '/alerts',
     ])
-    expect(strip().querySelectorAll('[data-planned="true"]')).toHaveLength(1)
-    expect(screen.getAllByText('Planned')).toHaveLength(1)
-    expect(screen.getAllByText('mock')).toHaveLength(4)
+    // Nothing in the strip is a placeholder any more: every tile has a figure behind it.
+    expect(strip().querySelectorAll('[data-planned="true"]')).toHaveLength(0)
+    expect(screen.queryByText('Planned')).toBeNull()
+    expect(screen.getAllByText('mock')).toHaveLength(5)
   })
 
-  it('has no sparkline and no figure on the tiles of what the console API does not serve', () => {
+  it('has no sparkline on any tile', () => {
     renderHero(<HeroStrip />)
     expect(strip().querySelectorAll('[aria-label^="Success rate"]')).toHaveLength(0)
-    for (const tile of strip().querySelectorAll('[data-planned="true"]')) {
-      expect(tile.querySelector('.type-kpi')).toBeNull()
-    }
   })
 
-  it('tabs through the verdict and the four links, and not through the planned tile', async () => {
+  it('tabs through the verdict and the five links', async () => {
     renderHero(<HeroStrip />)
     await userEvent.tab()
     expect(screen.getByRole('button', { name: /^Fleet status:/ })).toHaveFocus()
-    for (const name of [/^Servers:/, /^Containers:/, /^Net targets:/, /^Devices:/]) {
+    for (const name of [/^Servers:/, /^Containers:/, /^Net targets:/, /^Devices:/, /^Alerts:/]) {
       await userEvent.tab()
       expect(screen.getByRole('link', { name })).toHaveFocus()
     }
@@ -83,9 +82,11 @@ describe('HeroStrip', () => {
     expect(tile(/^Containers:/)).toHaveClass('md:col-span-2', 'lg:col-span-1')
     // Full width on a phone, so devices and alerts share the last row.
     expect(tile(/^Net targets:/)).toHaveClass('col-span-2', 'lg:col-span-1')
+    expect(tile(/^Devices:/)).toHaveClass('md:col-span-3', 'lg:col-span-1')
+    expect(tile(/^Alerts:/)).toHaveClass('md:col-span-3', 'lg:col-span-1')
   })
 
-  it('shows the verdict and the summary-backed tiles in their error state, the others unchanged', async () => {
+  it('shows the verdict and the summary-backed tiles in their error state, and the alerts tile from its own figures', async () => {
     const refetch = vi.fn()
     renderHero(<HeroStrip />, {
       summary: makeResource({
@@ -98,7 +99,8 @@ describe('HeroStrip', () => {
     })
     expect(within(strip()).getByRole('button', { name: /no data/ })).toBeInTheDocument()
     expect(within(strip()).getAllByRole('alert')).toHaveLength(4)
-    expect(within(strip()).getAllByText('Not implemented in the backend')).toHaveLength(1)
+    // The alerts tile does not read the summary: it still shows the open incidents.
+    expect(within(strip()).getByRole('link', { name: /^Alerts: 7 open/ })).toBeInTheDocument()
     await userEvent.click(within(strip()).getByRole('button', { name: 'Retry loading Servers' }))
     expect(refetch).toHaveBeenCalledOnce()
   })
@@ -112,7 +114,7 @@ describe('HeroStrip against the mock API', () => {
       <ShellContext.Provider value={makeShell()}>
         <HeroStrip />
       </ShellContext.Provider>,
-      { api, withSummary: true },
+      { api, withSummary: true, withAlerts: true },
     )
 
     const { servers, containers } = summary

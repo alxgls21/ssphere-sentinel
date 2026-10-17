@@ -70,13 +70,10 @@ describe('ScreenPlaceholder', () => {
       expect(text()).not.toContain('Not implemented in the backend')
     })
 
-    it('Topology and Alerts: genuinely not implemented, and say so', () => {
-      for (const id of ['topology', 'alerts']) {
-        const { unmount } = renderApp(<ScreenPlaceholder item={byId(id)} />)
-        expect(text()).toContain('Not implemented in the backend')
-        expect(screen.getByText('Planned')).toBeInTheDocument()
-        unmount()
-      }
+    it('a screen on a feature the backend does not implement says so, and is marked Planned', () => {
+      renderApp(<ScreenPlaceholder item={{ ...byId('customers'), feature: 'events' }} />)
+      expect(text()).toContain('Not implemented in the backend')
+      expect(screen.getByText('Planned')).toBeInTheDocument()
     })
 
     it('Customers & Sites: customers and sites are listed by the console API already', () => {

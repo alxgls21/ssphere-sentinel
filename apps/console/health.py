@@ -7,15 +7,16 @@ the list, the counts and the filters can never disagree: they all read this one
 expression. The rules mirror the UI's own (``frontend/src/lib/status.ts``):
 
 Server (``annotate_servers``)
-    * never reported (``last_seen_at`` is null) -> ``unknown``
+    * never reported (``last_seen_at`` is null) -> ``unknown`` (``never_seen``)
     * silent for longer than ``SENTINEL_OFFLINE_THRESHOLD`` -> ``critical``
       (``offline``; the same cutoff as ``apps.infrastructure.liveness``)
     * otherwise the worst of: a resource at or above the critical threshold
-      -> ``critical``; at or above the warning threshold, or a stored status
-      of ``warning`` -> ``warning``; else ``healthy``.
+      -> ``critical``; at or above the warning threshold -> ``warning`` (both
+      ``resources``), or a stored status of ``warning`` -> ``warning``
+      (``status_warning``); else ``healthy`` (``ok``).
     * but resources only count while their reading is current (below), and a
       live server with no current reading has nothing to say about them:
-      ``unknown`` (a stored ``warning`` still stands).
+      ``unknown`` (``no_telemetry``; a stored ``warning`` still stands).
 
     Resources are judged as displayed, rounded half up to a whole percent, so
     "95%" is never shown beside a healthy status because the raw value was 94.6
@@ -39,10 +40,14 @@ Container (``annotate_containers``)
     received within the same offline threshold (the heartbeat can go on while
     the Docker section is rejected or no longer sent), the stored state is
     last-known, not current, so it reads ``unknown`` (the UI's "state not
-    reported by an offline host"). Otherwise: ``dead`` and an unhealthy running container are
-    ``critical``; ``restarting`` is ``warning``; ``starting``, ``exited``,
-    ``created`` and ``paused`` are ``idle`` (deliberately not running); a
-    running container is ``healthy``.
+    reported by an offline host"; ``not_observable``). Otherwise: ``dead`` and an unhealthy running container are
+    ``critical`` (``dead``, ``unhealthy``); ``restarting`` is ``warning``; a running container whose
+    health check is still ``starting`` is ``idle`` (``starting``), and so are ``exited``, ``created``
+    and ``paused`` (``stopped``: deliberately not running); a running container is ``healthy``
+    (``running``); any other state is ``unknown`` (``other``).
+
+    ``health_reason`` says which rule decided, for servers and containers as for
+    targets and devices below.
 
 Network target (``annotate_targets``), in this order, the first that holds:
     * disabled -> ``idle``
@@ -120,6 +125,9 @@ from apps.infrastructure.liveness import offline_threshold_seconds
 from apps.infrastructure.models import DockerContainer, Server
 from apps.network.models import NetworkMeasurement
 
+# Why a server or a container has its status (``health_reason``).
+SERVER_REASONS = ("never_seen", "offline", "resources", "status_warning", "ok", "no_telemetry")
+CONTAINER_REASONS = ("not_observable", "dead", "restarting", "unhealthy", "starting", "running", "stopped", "other")
 # The UI's words for why a target has its status (``health_reason``).
 TARGET_REASONS = ("disabled", "no_agent", "agent_offline", "no_measurement", "stale", "failing", "failed", "latency", "loss", "ok")
 # How many target intervals a measurement stays current (never less than the offline threshold).
@@ -195,6 +203,14 @@ def annotate_servers(queryset: QuerySet, now: datetime) -> QuerySet:
     # Past the first two branches the server is live, so a fresh reading is a
     # current one (``current_resources`` states both for the sorting).
     fresh = fresh_telemetry(now)
+    rules = (
+        (Q(last_seen_at__isnull=True), UNKNOWN, "never_seen"),
+        (Q(last_seen_at__lt=cutoff), CRITICAL, "offline"),
+        (fresh & Q(_worst_shown__gte=crit), CRITICAL, "resources"),
+        (fresh & Q(_worst_shown__gte=warn), WARNING, "resources"),
+        (stored_warning, WARNING, "status_warning"),
+        (fresh, HEALTHY, "ok"),
+    )
     return queryset.annotate(
         liveness=Case(
             When(last_seen_at__isnull=True, then=_text(Server.Status.UNKNOWN)),
@@ -204,14 +220,15 @@ def annotate_servers(queryset: QuerySet, now: datetime) -> QuerySet:
             output_field=CharField(),
         ),
         severity=Case(
-            When(last_seen_at__isnull=True, then=_int(UNKNOWN)),
-            When(last_seen_at__lt=cutoff, then=_int(CRITICAL)),
-            When(fresh & Q(_worst_shown__gte=crit), then=_int(CRITICAL)),
-            When((fresh & Q(_worst_shown__gte=warn)) | stored_warning, then=_int(WARNING)),
-            When(fresh, then=_int(HEALTHY)),
+            *(When(condition, then=_int(rank)) for condition, rank, _ in rules),
             # Alive, but its resources are unknown: no reading, or one that is no longer current.
             default=_int(UNKNOWN),
             output_field=IntegerField(),
+        ),
+        health_reason=Case(
+            *(When(condition, then=_text(reason)) for condition, _, reason in rules),
+            default=_text("no_telemetry"),
+            output_field=CharField(),
         ),
         telemetry_fresh=Case(When(fresh, then=Value(True)), default=Value(False), output_field=BooleanField()),
     )
@@ -227,12 +244,25 @@ def server_load(column: str, now: datetime) -> Case:
 
 
 def annotate_containers(queryset: QuerySet, now: datetime) -> QuerySet:
-    """Add ``observable`` (is the stored state current?) and ``severity`` to container rows."""
+    """Add ``observable`` (is the stored state current?), ``severity`` and ``health_reason`` to container rows."""
     cutoff = offline_cutoff(now)
     observable = Q(
         server__last_seen_at__gte=cutoff,
         server__docker_host__available=True,
         server__docker_host__received_at__gte=cutoff,
+    )
+    # For an observable container, the first that holds.
+    rules = (
+        (Q(state=DockerContainer.State.DEAD), CRITICAL, "dead"),
+        (Q(state=DockerContainer.State.RESTARTING), WARNING, "restarting"),
+        (Q(state=DockerContainer.State.RUNNING, health=DockerContainer.Health.UNHEALTHY), CRITICAL, "unhealthy"),
+        (Q(state=DockerContainer.State.RUNNING, health=DockerContainer.Health.STARTING), IDLE, "starting"),
+        (Q(state=DockerContainer.State.RUNNING), HEALTHY, "running"),
+        (
+            Q(state__in=(DockerContainer.State.EXITED, DockerContainer.State.CREATED, DockerContainer.State.PAUSED)),
+            IDLE,
+            "stopped",
+        ),
     )
     return queryset.annotate(
         observable=ExpressionWrapper(observable, output_field=BooleanField()),
@@ -240,33 +270,25 @@ def annotate_containers(queryset: QuerySet, now: datetime) -> QuerySet:
             When(
                 observable,
                 then=Case(
-                    When(state=DockerContainer.State.DEAD, then=_int(CRITICAL)),
-                    When(state=DockerContainer.State.RESTARTING, then=_int(WARNING)),
-                    When(
-                        state=DockerContainer.State.RUNNING,
-                        health=DockerContainer.Health.UNHEALTHY,
-                        then=_int(CRITICAL),
-                    ),
-                    When(
-                        state=DockerContainer.State.RUNNING,
-                        health=DockerContainer.Health.STARTING,
-                        then=_int(IDLE),
-                    ),
-                    When(state=DockerContainer.State.RUNNING, then=_int(HEALTHY)),
-                    When(
-                        state__in=(
-                            DockerContainer.State.EXITED,
-                            DockerContainer.State.CREATED,
-                            DockerContainer.State.PAUSED,
-                        ),
-                        then=_int(IDLE),
-                    ),
+                    *(When(condition, then=_int(rank)) for condition, rank, _ in rules),
                     default=_int(UNKNOWN),
                     output_field=IntegerField(),
                 ),
             ),
             default=_int(UNKNOWN),
             output_field=IntegerField(),
+        ),
+        health_reason=Case(
+            When(
+                observable,
+                then=Case(
+                    *(When(condition, then=_text(reason)) for condition, _, reason in rules),
+                    default=_text("other"),
+                    output_field=CharField(),
+                ),
+            ),
+            default=_text("not_observable"),
+            output_field=CharField(),
         ),
     )
 

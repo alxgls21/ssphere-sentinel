@@ -53,22 +53,22 @@ describe('Panel', () => {
 
   it('marks a panel PLANNED only when every backing feature is unimplemented', () => {
     const { rerender } = renderApp(
-      <Panel title="Active alerts" features="alerts" plannedNote="Alert engine not implemented.">
+      <Panel title="Recent events" features="events" plannedNote="Event log not implemented.">
         x
       </Panel>,
     )
-    const region = screen.getByRole('region', { name: 'Active alerts' })
+    const region = screen.getByRole('region', { name: 'Recent events' })
     expect(region).toHaveAttribute('data-planned', 'true')
     expect(region).toHaveAccessibleDescription(
       expect.stringContaining('Not implemented in the backend.'),
     )
     expect(screen.getByText('Planned')).toBeInTheDocument()
-    expect(screen.getByText('Alert engine not implemented.')).toBeInTheDocument()
+    expect(screen.getByText('Event log not implemented.')).toBeInTheDocument()
     expect(screen.queryByText(/^mock/)).not.toBeInTheDocument()
 
     // A mixed panel (one implemented feature) is not planned.
     rerender(
-      <Panel title="Mixed" features={['alerts', 'servers']}>
+      <Panel title="Mixed" features={['events', 'servers']}>
         x
       </Panel>,
     )
@@ -79,9 +79,9 @@ describe('Panel', () => {
     it('holds no content of its own: not its children, not a sample, not a footer', () => {
       renderApp(
         <Panel
-          title="Active alerts"
-          features="alerts"
-          footer={<span>3 of 3 alerts</span>}
+          title="Recent events"
+          features="events"
+          footer={<span>3 of 3 events</span>}
           count={3}
         >
           <ul>
@@ -90,16 +90,16 @@ describe('Panel', () => {
         </Panel>,
       )
       expect(screen.queryByText('disk full on edge-gw-02')).not.toBeInTheDocument()
-      expect(screen.queryByText('3 of 3 alerts')).not.toBeInTheDocument()
+      expect(screen.queryByText('3 of 3 events')).not.toBeInTheDocument()
       expect(screen.queryByText(/sample/i)).not.toBeInTheDocument()
       expect(screen.getByText('Not implemented in the backend')).toBeInTheDocument()
       // The registry's own sentence says why, when the panel gives none.
-      expect(screen.getAllByText(/alert engine is not implemented/i).length).toBeGreaterThan(0)
+      expect(screen.getAllByText(/no event log/i).length).toBeGreaterThan(0)
     })
 
     it('stays an honest empty frame while it loads, fails or is stale: none of those states apply', () => {
       renderApp(
-        <Panel title="Active alerts" features="alerts" status="error" error={new Error('503')}>
+        <Panel title="Recent events" features="events" status="error" error={new Error('503')}>
           x
         </Panel>,
       )

@@ -35,7 +35,8 @@ function renderApp(route = '/', width = DESKTOP) {
         <Route index element={<p>overview page</p>} />
         <Route path="servers" element={<p>servers page</p>} />
         <Route path="docker" element={<p>docker page</p>} />
-        <Route path="topology" element={<p>topology placeholder</p>} />
+        <Route path="alerts" element={<p>alerts page</p>} />
+        <Route path="customers" element={<p>customers placeholder</p>} />
         <Route path="loading" element={<NeverLoads />} />
         <Route path="boom" element={<Boom />} />
       </Route>
@@ -303,13 +304,18 @@ describe('AppShell: demo data', () => {
     expect(note).toHaveTextContent('not your infrastructure')
   })
 
+  it('says it above the Alerts screen too: its list is the sample fleet’s, which is empty', () => {
+    renderApp('/alerts')
+    expect(screen.getByRole('complementary', { name: 'Demo data' })).toBeInTheDocument()
+  })
+
   it('says it on the Overview too', () => {
     renderApp('/')
     expect(screen.getByRole('complementary', { name: 'Demo data' })).toBeInTheDocument()
   })
 
   it('does not say it on a screen that has no data yet: it only shows its placeholder', () => {
-    renderApp('/topology')
+    renderApp('/customers')
     expect(screen.queryByRole('complementary', { name: 'Demo data' })).toBeNull()
   })
 

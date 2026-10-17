@@ -3,7 +3,9 @@ import type { SentinelApi } from '../client'
 import type { ScopeOptions } from '../types'
 import { listContainers } from './containers'
 import { getDevice, getDeviceSeries, getInterfaceSeries, listDevices } from './devices'
+import { acknowledgeIncident, getEngineStatus, getIncident, listIncidents } from './incidents'
 import { getTarget, getTargetSeries, listTargets } from './targets'
+import { getTopology } from './topology'
 import { createAuthClient, getScopeOptions } from './session'
 import { getFleetLoad, getServer, getServerSeries, listServers } from './servers'
 import { createTransport, type TransportOptions } from './transport'
@@ -22,6 +24,11 @@ export interface ConsoleHttp extends Pick<
   | 'getDevice'
   | 'getDeviceSeries'
   | 'getInterfaceSeries'
+  | 'getTopology'
+  | 'listIncidents'
+  | 'getIncident'
+  | 'acknowledgeIncident'
+  | 'getEngineStatus'
 > {
   auth: AuthClient
   getScopeOptions: (signal?: AbortSignal) => Promise<ScopeOptions>
@@ -50,6 +57,11 @@ export function createConsoleHttp(options: TransportOptions = {}): ConsoleHttp {
     getDevice: getDevice(transport),
     getDeviceSeries: getDeviceSeries(transport),
     getInterfaceSeries: getInterfaceSeries(transport),
+    getTopology: getTopology(transport),
+    listIncidents: listIncidents(transport),
+    getIncident: getIncident(transport),
+    acknowledgeIncident: acknowledgeIncident(transport),
+    getEngineStatus: getEngineStatus(transport),
   }
 }
 

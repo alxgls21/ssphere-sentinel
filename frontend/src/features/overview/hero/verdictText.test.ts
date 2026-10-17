@@ -55,10 +55,13 @@ describe('describeVerdict', () => {
     )
   })
 
-  it('says what the count excludes: idle entities, alerts and events', () => {
+  it('says what the count excludes: idle entities and events, and that incidents are not added', () => {
     const text = describeVerdict(verdictOf(), { hasData: true, freshness: 'live' })
     expect(text.scope).toBe(`3 idle entities are not counted. ${NOT_COUNTED}`)
-    expect(NOT_COUNTED).toContain('Alerts and events are not counted')
+    expect(NOT_COUNTED).toContain('Events are not counted')
+    expect(NOT_COUNTED).toContain(
+      'Incidents are not added: they follow the health of what is already counted',
+    )
     expect(NOT_COUNTED).toContain('the console API does not serve them')
     // Probe targets and SNMP devices are counted, so the sentence does not list them as left out.
     expect(NOT_COUNTED.split(':')[0]).not.toMatch(/probe targets|SNMP/i)

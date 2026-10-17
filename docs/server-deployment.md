@@ -51,7 +51,7 @@ changing it later invalidates every agent token.
 ```bash
 scripts/postgres-preflight.sh         # read-only check of the database volumes
 docker compose up -d --build
-docker compose ps                     # db and web "healthy"
+docker compose ps                     # db, web and alert-engine "healthy"
 curl -fsS http://127.0.0.1:8000/health/ready/
 docker compose exec web python manage.py createsuperuser
 ```
@@ -62,8 +62,11 @@ recreated once, its data is not touched). From then on a missing database
 volume stops the database instead of silently creating an empty one.
 
 On every start the `web` container waits for PostgreSQL and applies database
-migrations before Gunicorn starts. Both services restart automatically
-(`restart: unless-stopped`), also after a reboot of the Docker host.
+migrations before Gunicorn starts. The `alert-engine` service starts with it
+and waits until the migrations are applied (see
+[Alerts and email notifications](#alerts-and-email-notifications)).
+These services restart automatically (`restart: unless-stopped`), also after a
+reboot of the Docker host.
 
 Before `web`, every `docker compose up` runs the one-shot `migrate` service,
 which exits with status 0: in the default configuration it has nothing to do,
@@ -192,6 +195,7 @@ once), then optional **Network targets**. Install the agent on the host with
 
 ```bash
 docker compose logs -f web    # Gunicorn and Django (stderr), errors with tracebacks
+docker compose logs -f alert-engine notifier
 docker compose logs -f db
 ```
 
@@ -201,6 +205,86 @@ Container logs are rotated (5 × 10 MB per service). Django logs at
 Request headers, and therefore agent tokens, are never logged. Gunicorn
 access logs are off by default; enable them with
 `GUNICORN_CMD_ARGS=--access-logfile -` in `.env`.
+
+### Alerts and email notifications
+
+The `alert-engine` service evaluates the alert rules (in the admin under
+*Alerts*) every 30 seconds, and opens and recovers the incidents the console
+shows. It runs the application image with the database login of `web` and
+never applies migrations: it starts with `web` and waits until the migrations
+are applied (by `web`, or by `migrate` with separate database logins). Its
+health check fails when a cycle does not begin in time; `docker compose logs
+alert-engine` says why a cycle failed.
+
+Email is optional, and off until it is configured: incidents work without it,
+and nothing is queued for email meanwhile. To email incidents:
+
+1. Set in `.env` (the password is only ever read from the environment, never
+   stored in the database):
+
+   ```dotenv
+   SENTINEL_SMTP_HOST=smtp.example.com
+   SENTINEL_SMTP_PORT=587
+   # starttls (usually 587), tls (implicit TLS, usually 465), or none: only for
+   # a relay on a trusted network, and then without credentials.
+   SENTINEL_SMTP_SECURITY=starttls
+   SENTINEL_SMTP_USER=sentinel@example.com
+   # In single quotes, Compose and the shell take a value as written ($, #, <);
+   # not one that holds a ' or ends with a \ (choose another password).
+   SENTINEL_SMTP_PASSWORD='<password>'
+   SENTINEL_EMAIL_FROM='Sentinel <sentinel@example.com>'
+   # Links to the incident in each email.
+   SENTINEL_CONSOLE_URL=https://sentinel.example.com
+   # Starts the notifier service with every `docker compose up`.
+   COMPOSE_PROFILES=notifications
+   ```
+
+   Only the `notifier` service receives the SMTP password: every other service
+   blanks it, and the alert engine only needs to know that email is on.
+
+2. Start the notifier and send a test email, which reports a failure by its
+   kind only (never the server's answer or a credential):
+
+   ```bash
+   docker compose up -d
+   docker compose exec -T notifier python manage.py send_test_email you@example.com
+   ```
+
+3. In the admin, under *Alerts > Email subscriptions*, add the console users who
+   should be emailed: critical incidents only (the default) or warnings too,
+   and recoveries (off by default). A subscriber needs an active account with
+   an email address and console access. Each email covers only the incidents of
+   the sites the user may see in the console, and all of this is checked again
+   just before it is sent: an email the user may no longer receive is not sent,
+   and the admin says why.
+
+What is sent, and when:
+
+* One email when an incident opens and, for subscribers who asked for them, one
+  when it recovers; never reminders. What is due to a user at once goes in one
+  email.
+* A failure the SMTP server may get over (connection, timeout, TLS, rejected
+  credentials, a 4xx answer) is tried again after 1, 2, 4 ... minutes, at most
+  an hour apart, eight times in all; a 5xx answer to an email fails it at once.
+  An email not sent within `SENTINEL_NOTIFICATION_MAX_AGE_HOURS` (default 24) is
+  given up, by the notifier or, should it no longer run, by the retention
+  commands.
+  *Alerts > Email notifications* in the admin shows each email's status and
+  why it failed or was not sent; the notifier's log names users by id and
+  failures by kind.
+* Delivery is at least once. The notifier records each email right after the
+  SMTP server accepts it; if it is killed in between, the email is sent again
+  about half an hour later (with the same `Message-ID` when it covers the same
+  incidents). On `docker compose stop` it finishes the email in progress and
+  hands the rest back, within the three minutes Compose gives it; an email that
+  takes longer, through a slow server and a large `SENTINEL_SMTP_TIMEOUT`, is
+  cut short and sent again later.
+* Several notifiers may run (`docker compose up -d --scale notifier=2`): each
+  email is taken by one of them.
+
+To stop emailing, remove `COMPOSE_PROFILES=notifications` and the
+`SENTINEL_SMTP_*` settings from `.env`, then `docker compose stop notifier`
+and `docker compose up -d`.
 
 ### Upgrades
 
@@ -228,10 +312,11 @@ units that start the stack with `docker compose start` must use
 
 To roll back, check out the previous tag and restore the backup taken before
 the upgrade: migrations are not guaranteed to be reversible. Before checking
-out a release without the `migrate` service, remove its exited container:
+out a release without the `migrate` service or the alert engine, remove their
+containers (a service the older `compose.yml` does not know would keep running):
 
 ```bash
-docker compose rm --stop --force migrate
+docker compose rm --stop --force migrate alert-engine notifier
 git checkout <previous-tag>
 docker compose up -d --build
 ```
@@ -256,8 +341,8 @@ console users see a server as soon as it has a site they are granted.
 ### Database migrations
 
 Applied automatically when the `web` container starts (the `migrate` service
-has nothing to do in the default configuration). To inspect or run them by
-hand:
+has nothing to do in the default configuration); the `alert-engine` and
+`notifier` services never apply them. To inspect or run them by hand:
 
 ```bash
 docker compose exec web python manage.py showmigrations
@@ -278,15 +363,16 @@ no Sentinel process holds a superuser's password or connects as one:
 
 | Login | Used by | Can | Password in |
 | --- | --- | --- | --- |
-| `sentinel_app` | `web` | read and write the application's rows | `.env` (`SENTINEL_DB_PASSWORD`) |
+| `sentinel_app` | `web`, `alert-engine`, `notifier` | read and write the application's rows | `.env` (`SENTINEL_DB_PASSWORD`) |
 | `sentinel_migrate` | `migrate` | change the schema, as `sentinel_owner` | `.env.migrate` (`SENTINEL_DB_MIGRATE_PASSWORD`) |
 | bootstrap superuser | `db`, and the operator through `docker compose exec db` | everything | `.env.bootstrap` (`POSTGRES_PASSWORD`) |
 
 Compose gives each password to its own service only. `.env` is the
-environment of `web` and `migrate`, so it must not hold the other two:
+environment of `web`, `migrate` and the alert services, so it must not hold the other two:
 `.env.migrate` is read by `migrate` alone, and `.env.bootstrap` by Compose
-alone, to configure `db`. `migrate` does not get `SENTINEL_DB_PASSWORD` and
-`web` does not get `SENTINEL_DB_MIGRATE_PASSWORD`, even when `.env` has them.
+alone, to configure `db`. `migrate` does not get `SENTINEL_DB_PASSWORD`, and
+`web` and the alert services do not get `SENTINEL_DB_MIGRATE_PASSWORD`, even
+when `.env` has them.
 Every Sentinel process refuses to start with a password that is not its own,
 and with `SENTINEL_DB_ROLES` unset or `legacy` while a password of the
 separate logins is set. The provisioning of the logins needs the bootstrap
@@ -453,17 +539,17 @@ Continue with [Start](#2-start) from `createsuperuser`.
 
 The tables of an existing installation belong to the bootstrap superuser;
 `apply` hands them to `sentinel_owner` in the same transaction that creates
-the logins. Plan a short maintenance window: `web` stays stopped from step 1
-to step 4. Nothing here touches the database volume: never add `--volumes`
+the logins. Plan a short maintenance window: the application (`web`,
+`alert-engine` and `notifier`) stays stopped from step 1 to step 4. Nothing here touches the database volume: never add `--volumes`
 to a Compose command, and leave `SENTINEL_POSTGRES` in `.env` as it is (an
 installation still on PostgreSQL 16 stays on it).
 
-1. Back up the database (see [Backups](#backups)) and copy `.env`. Stop `web`
-   (`apply` refuses while it is connected):
+1. Back up the database (see [Backups](#backups)) and copy `.env`. Stop the
+   application (`apply` refuses while it is connected):
 
    ```bash
    cp .env env.legacy.backup
-   docker compose stop web
+   docker compose stop web alert-engine notifier
    ```
 
 2. Move the bootstrap password, unchanged, out of `.env` into
@@ -498,7 +584,7 @@ installation still on PostgreSQL 16 stays on it).
    ```bash
    scripts/postgres-preflight.sh
    docker compose up -d
-   docker compose ps --all            # migrate exited (0), db and web healthy
+   docker compose ps --all            # migrate exited (0), db, web and alert-engine healthy
    scripts/postgres-roles.sh status   # expected: postgres-roles: status: verified
    curl -fsS http://127.0.0.1:8000/health/ready/
    ```
@@ -639,11 +725,11 @@ Remove `SENTINEL_POSTGRES_INITIALIZE` from `.env` once the database exists.
 **2. Maintenance window: stop the old application and export**
 
 Agents keep queueing network measurements while the application is stopped
-(see [operations.md](operations.md)). Stop `web` in the old project, so that
-nothing writes to the old database, and read it into a private bundle:
+(see [operations.md](operations.md)). Stop the application in the old project,
+so that nothing writes to the old database, and read it into a private bundle:
 
 ```bash
-docker compose --project-directory "$OLD" stop web
+docker compose --project-directory "$OLD" stop web alert-engine notifier
 umask 077
 python3 -m sentinel.recovery export --compose-dir "$OLD" --bundle /var/backups/sentinel-recovery/bundle
 ```
@@ -651,7 +737,7 @@ python3 -m sentinel.recovery export --compose-dir "$OLD" --bundle /var/backups/s
 Expected: `recovery: exported to ...; the old database was read, never
 written`, then the bundle's SHA-256 (note it: `import` can pin the bundle with
 it, which matters if the bundle travels). If the export reports that the old database changed while it was
-read, `web` was still running or something else wrote to it: stop it and run
+read, the application was still running or something else wrote to it: stop it and run
 `export` again (a failed export leaves no bundle). The bundle holds the data
 of the old database, password hashes and agent token hashes included: keep it
 private, as the dump of [Backups](#backups), and remove it once the recovery
@@ -728,16 +814,17 @@ are already replaced and a destination is used once; a killed `import` leaves
 `state.json` at `restoring` and the same rule. A `bundle` rejection means exporting
 again (a bundle that was altered, or an old database that is not sound).
 When the two installations differ (`migrations`, `tables`, `schema`), start
-the old one again (`docker compose --project-directory "$OLD" start web`), take
-both to the same release, and start over.
+the old one again (`docker compose --project-directory "$OLD" up -d`: every
+service step 2 stopped), take both to the same release, and start over.
 
 **Rollback**
 
 At any point until you have chosen to keep the new installation: stop the new
 stack (`docker compose --project-directory "$NEW" down`, without `--volumes`)
-and start the old one (`docker compose --project-directory "$OLD" start web`).
-The old project, its database volume and its `.env` were never changed, so it
-starts exactly as it was when it was stopped; whatever the new installation
+and start the old one (`docker compose --project-directory "$OLD" up -d`, which
+starts `web`, `alert-engine` and `notifier` again: `start web` would leave the
+other two stopped). The old project, its database volume and its `.env` were
+never changed, so it starts exactly as it was when it was stopped; whatever the new installation
 accepted since then is not in it. Remove the old project's volume only once a
 backup of the new database has been restored elsewhere and checked.
 
@@ -749,7 +836,8 @@ backup of the new database has been restored elsewhere and checked.
   service.
 * `manage.py dbshell` is disabled. Use psql in the `db` container.
 * New passwords for the two logins: change them in `.env` and `.env.migrate`,
-  stop `web`, run `scripts/postgres-roles.sh apply`, then `docker compose up -d`.
+  stop the application (`docker compose stop web alert-engine notifier`), run
+  `scripts/postgres-roles.sh apply`, then `docker compose up -d`.
 * Keep `.env.bootstrap` and `.env.migrate` private (`chmod 600`) and back them
   up with `.env`. Compose reads `.env.bootstrap` on every command, so it stays
   on the host; no Sentinel container receives it, but the `db` container's
@@ -767,7 +855,7 @@ docker compose exec -T db sh -c 'pg_dump -U "$POSTGRES_USER" -d "$POSTGRES_DB" -
 Restore into the existing database (stops the application meanwhile):
 
 ```bash
-docker compose stop web
+docker compose stop web alert-engine notifier
 docker compose exec -T db sh -c \
     'pg_restore -U "$POSTGRES_USER" -d "$POSTGRES_DB" --clean --if-exists --single-transaction --exit-on-error' \
     < sentinel-<timestamp>.dump
@@ -903,7 +991,7 @@ cd /opt/ssphere-sentinel
 git checkout <tag>                 # a release that includes PostgreSQL 18 support
 docker compose build
 scripts/postgres-preflight.sh      # expected: existing PostgreSQL 16 installation
-docker compose stop web
+docker compose stop web alert-engine notifier
 
 docker compose exec -T db sh -c 'pg_dump -U "$POSTGRES_USER" -d "$POSTGRES_DB" --format=custom' \
     > sentinel-pg16.dump
@@ -1026,8 +1114,21 @@ docker compose exec -T web python manage.py purge_network_measurements
 docker compose exec -T web python manage.py purge_absent_docker_containers
 docker compose exec -T web python manage.py purge_snmp_data
 docker compose exec -T web python manage.py purge_telemetry_samples
+docker compose exec -T web python manage.py purge_incidents
+docker compose exec -T web python manage.py purge_notifications
 docker compose exec -T web python manage.py clearsessions
 ```
+
+`purge_incidents` removes incidents that ended more than
+`SENTINEL_INCIDENT_RETENTION_DAYS` ago (default 365, at least 7), with their
+history and what is left of their email records; incidents still open, or with
+an email still to be sent, are never removed.
+`purge_notifications` removes the record of emails sent, failed or not sent
+more than `SENTINEL_NOTIFICATION_RETENTION_DAYS` ago (default 90), sooner than
+their incident unless you set it as long. It first gives up the emails not sent
+within `SENTINEL_NOTIFICATION_MAX_AGE_HOURS` that no notifier is sending (with
+the notifier stopped for good, nothing else would); emails still to be sent
+stay.
 
 `clearsessions` removes expired web sessions (every console sign-in creates one).
 If the server is on the internet, rate-limit `POST /api/v1/console/auth/login/`

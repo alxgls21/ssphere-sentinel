@@ -172,7 +172,7 @@ describe('StatTile (placeholder)', () => {
   })
 
   it('says PLANNED, not "not connected", for a feature the backend does not implement', () => {
-    const { container } = renderApp(planned({ features: 'alerts', to: '/alerts' }))
+    const { container } = renderApp(planned({ features: 'events', to: '/events' }))
     expect(screen.getByText('Planned, not implemented')).toBeInTheDocument()
     expect(screen.getByText('Planned')).toBeInTheDocument()
     expect(screen.queryByText('Demo')).not.toBeInTheDocument()
@@ -199,7 +199,7 @@ describe('StatTile (placeholder)', () => {
   })
 
   it('says it is not implemented in the backend, for a feature that is not', () => {
-    renderApp(planned({ features: 'alerts', to: '/alerts' }))
+    renderApp(planned({ features: 'events', to: '/events' }))
     expect(screen.getByText('Not implemented in the backend')).toBeInTheDocument()
   })
 
