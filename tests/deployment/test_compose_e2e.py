@@ -55,6 +55,7 @@ def environments(**changes):
         "alert-engine": {"DJANGO_SECRET_KEY": DJANGO, "AGENT_TOKEN_PEPPER": PEPPER, "SENTINEL_DB_PASSWORD": RUNTIME,
                          "SENTINEL_DB_MIGRATE_PASSWORD": "", "SENTINEL_SMTP_PASSWORD": "", "SENTINEL_DB_ACCESS": "runtime",
                          "SENTINEL_PROCESS": "worker"},
+        "proxy": {"NGINX_VERSION": "1.30.0", "PATH": "/usr/sbin:/usr/bin"},
     }
     for service, edits in changes.items():
         for name, value in edits.items():
@@ -123,6 +124,10 @@ class IsolationTests(unittest.TestCase):
                                             "db: SENTINEL_DB_PASSWORD is set, and the service has no use for it"),
             "a tunnel token reaches web": (dict(env=environments(web={"TUNNEL_TOKEN": "t" * 40})),
                                            "web: TUNNEL_TOKEN is set, and the service has no use for it"),
+            "the proxy has the Django key": (dict(env=environments(proxy={"DJANGO_SECRET_KEY": DJANGO})),
+                                             "proxy: DJANGO_SECRET_KEY holds the django secret"),
+            "the proxy has a database password": (dict(env=environments(proxy={"SENTINEL_DB_PASSWORD": RUNTIME})),
+                                                  "proxy: SENTINEL_DB_PASSWORD is set, and the service has no use for it"),
             "web has the SMTP password": (dict(env=environments(web={"SENTINEL_SMTP_PASSWORD": "s" * 40})),
                                           "web: SENTINEL_SMTP_PASSWORD must be blank"),
             "the alert engine has the SMTP password": (

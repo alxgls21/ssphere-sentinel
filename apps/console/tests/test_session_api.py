@@ -570,3 +570,67 @@ class ThrottleBehaviourTests(ConsoleTestCase):
         for index in range(200):
             self.attempt(f"ghost-{index}")
         self.assertEqual(self.attempt(password=PASSWORD).status_code, 200)
+
+
+PUBLIC = "sentinel.example.test"
+
+
+@override_settings(
+    ALLOWED_HOSTS=[PUBLIC],
+    CSRF_TRUSTED_ORIGINS=[f"https://{PUBLIC}"],
+    SESSION_COOKIE_SECURE=True,
+    CSRF_COOKIE_SECURE=True,
+)
+class BehindTheProxyTests(ConsoleTestCase):
+    """Requests as the proxy service passes them on (deploy/frontend/nginx.conf): TLS ended in front of it, so
+    plain HTTP with the public Host, the browser's https Origin and no forwarding header Gunicorn trusted."""
+
+    def setUp(self):
+        make_user("viewer")
+
+    def browser(self, origin=f"https://{PUBLIC}", **headers):
+        client = Client(enforce_csrf_checks=True, raise_request_exception=False, HTTP_HOST=PUBLIC, **headers)
+        if origin:
+            client.defaults["HTTP_ORIGIN"] = origin
+        token = client.get(SESSION).json()["csrfToken"]
+        return client, token
+
+    def test_a_console_session_works_through_the_proxy(self):
+        client, token = self.browser()
+        response = self.sign_in(client, token)
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.json()["authenticated"])
+        session, csrf = response.cookies["sessionid"], response.cookies["csrftoken"]
+        self.assertTrue(session["secure"] and session["httponly"] and csrf["secure"])
+        self.assertEqual(session["samesite"], "Lax")
+        self.assertTrue(client.get(SESSION).json()["authenticated"])
+        self.assertEqual(self.post(client, response.json()["csrfToken"], LOGOUT, {}).status_code, 200)
+
+    def test_the_https_origin_must_be_trusted(self):
+        with self.settings(CSRF_TRUSTED_ORIGINS=[]):
+            client, token = self.browser()
+            response = self.sign_in(client, token)
+        self.assertEqual((response.status_code, response.json()["error"]["code"]), (403, "csrf_failed"))
+
+    def test_another_site_is_refused(self):
+        for origin in ("https://elsewhere.example.test", f"https://{PUBLIC}.elsewhere.example.test", "null"):
+            with self.subTest(origin=origin):
+                client, token = self.browser(origin)
+                self.assertEqual(self.sign_in(client, token).status_code, 403)
+
+    def test_a_forwarding_header_from_the_client_proves_nothing(self):
+        # Without a trusted origin, an https Origin passes only if Django took the request for HTTPS.
+        with self.settings(CSRF_TRUSTED_ORIGINS=[]):
+            client, token = self.browser(HTTP_X_FORWARDED_PROTO="https", HTTP_X_FORWARDED_HOST="elsewhere.example.test")
+            self.assertEqual(self.sign_in(client, token).status_code, 403)
+
+    def test_the_admin_sign_in_works_through_the_proxy(self):
+        make_user("admin", superuser=True, is_staff=True)
+        client = Client(enforce_csrf_checks=True, HTTP_HOST=PUBLIC, HTTP_ORIGIN=f"https://{PUBLIC}")
+        page = client.get("/admin/login/")
+        self.assertEqual(page.status_code, 200)
+        token = page.context["csrf_token"]
+        response = client.post("/admin/login/?next=/admin/",
+                               {"username": "admin", "password": PASSWORD, "csrfmiddlewaretoken": str(token)})
+        self.assertRedirects(response, "/admin/", fetch_redirect_response=False)
+        self.assertEqual(client.get("/admin/").status_code, 200)

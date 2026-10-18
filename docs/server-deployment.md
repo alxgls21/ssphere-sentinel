@@ -1,10 +1,29 @@
 # Server deployment (Docker Compose)
 
-The server runs as two containers: `web` (Django on Gunicorn, non-root,
-read-only filesystem) and `db` (PostgreSQL, not published on the host: 18 for
+The server runs as three main containers: `proxy` (nginx, non-root,
+read-only filesystem: the web console and, on the same address, everything
+`web` serves), `web` (Django on Gunicorn, non-root, read-only filesystem, not
+published on the host) and `db` (PostgreSQL, not published on the host: 18 for
 new installations, see [PostgreSQL versions](#postgresql-versions)).
-TLS is terminated in front of `web`: by Cloudflare Tunnel (no inbound ports)
+TLS is terminated in front of `proxy`: by Cloudflare Tunnel (no inbound ports)
 or by a reverse proxy on the host. Replace `<tag>` with the release you deploy.
+
+`proxy` is the only service with a published port (`SENTINEL_HTTP_BIND`,
+`SENTINEL_HTTP_PORT`, default port 8000). What it serves:
+
+| Path | Served by |
+| --- | --- |
+| `/api/` (console and agent APIs), `/admin/`, `/static/`, `/health/` | `web`, through the proxy |
+| `/assets/` | the console's files, built into the `proxy` image (cached for good: their names change with their content) |
+| everything else | the console's `index.html` (its own routes, such as `/servers`) |
+
+`proxy` shares a network (`edge`) with `web` only; PostgreSQL and the workers
+are on the internal network, which `proxy` cannot reach. It holds no setting
+and no secret. Its image is built from `frontend/` with
+[deploy/frontend/Dockerfile](../deploy/frontend/Dockerfile) by the same
+`docker compose up -d --build`; nothing is configured on the host. While `web`
+restarts, the console still loads and the APIs answer `503
+{"error": {"code": "unavailable", ...}}`.
 
 Requirements: Docker Engine 24+ with Docker Compose 2.24 or later
 (`docker compose`), about 1 GB of RAM, and a DNS name for the server.
@@ -33,7 +52,7 @@ Then set at least:
 DJANGO_DEBUG=false
 DJANGO_ALLOWED_HOSTS=sentinel.example.com
 DJANGO_CSRF_TRUSTED_ORIGINS=https://sentinel.example.com
-# Only the TLS front end (on this host) should reach the plain-HTTP port.
+# Only the TLS front end (on this host) should reach the plain-HTTP port of the proxy.
 SENTINEL_HTTP_BIND=127.0.0.1
 # First start of a new installation only; remove it afterwards.
 SENTINEL_POSTGRES_INITIALIZE=true
@@ -51,10 +70,14 @@ changing it later invalidates every agent token.
 ```bash
 scripts/postgres-preflight.sh         # read-only check of the database volumes
 docker compose up -d --build
-docker compose ps                     # db, web and alert-engine "healthy"
+docker compose ps                     # db, web, alert-engine and proxy "healthy"
 curl -fsS http://127.0.0.1:8000/health/ready/
 docker compose exec web python manage.py createsuperuser
 ```
+
+Once HTTPS is set up (step 3), the console is at `https://sentinel.example.com/`
+and the admin at `https://sentinel.example.com/admin/`. The superuser may use
+both; other console users are created in the admin.
 
 Once the first start has succeeded, delete the `SENTINEL_POSTGRES_INITIALIZE`
 line from `.env` and run `docker compose up -d` (the `db` container is
@@ -85,20 +108,24 @@ check, no HTTPS redirect) and expose no configuration or error details.
 
 ## 3. HTTPS
 
-Choose one front end. In both, HTTPS is enforced in front of Django; Django
-uses Secure cookies and `DJANGO_CSRF_TRUSTED_ORIGINS` and does not need to
-trust any forwarded header. See [security.md](security.md) for the trusted
-proxy boundary if you want Django itself to redirect to HTTPS or send HSTS.
+Choose one front end. In both, HTTPS is enforced in front of the `proxy`
+service; Django uses Secure cookies and `DJANGO_CSRF_TRUSTED_ORIGINS` (the
+console and the admin sign in with it) and does not need to trust any
+forwarded header. See [security.md](security.md) for the trusted proxy boundary
+if you want Django itself to redirect to HTTPS or send HSTS.
 
 ### Option A: Cloudflare Tunnel
 
 No inbound port is opened on the host; `cloudflared` connects out to
-Cloudflare and forwards requests to `web` over the internal Compose network.
+Cloudflare and forwards requests to `proxy` over the `edge` network (it cannot
+reach PostgreSQL or the workers).
 
 1. In Cloudflare Zero Trust, create a tunnel (**Networks → Tunnels → Create a
    tunnel → Cloudflared**) and copy its token.
 2. Add a **public hostname** to the tunnel: `sentinel.example.com`, service
-   type `HTTP`, URL `web:8000`.
+   type `HTTP`, URL `proxy:8080`. (A tunnel set up for an earlier release
+   points to `web:8000`, which no longer serves the console: change it to
+   `proxy:8080` in the dashboard.)
 3. Store the token in its own file, so the `web` container never sees it:
 
    ```bash
@@ -115,9 +142,9 @@ Cloudflare and forwards requests to `web` over the internal Compose network.
 5. In the Cloudflare dashboard for the zone, enable **SSL/TLS → Edge
    Certificates → Always Use HTTPS** and HSTS there.
 
-Keep `DJANGO_SECURE_SSL_REDIRECT=false`: `cloudflared` reaches Gunicorn over
-plain HTTP from an untrusted address, so Django sees `http` and a Django-side
-redirect would loop. Cloudflare already redirects clients to HTTPS.
+Keep `DJANGO_SECURE_SSL_REDIRECT=false`: requests reach Gunicorn over plain
+HTTP from the proxy, an untrusted address, so Django sees `http` and a
+Django-side redirect would loop. Cloudflare already redirects clients to HTTPS.
 
 Agents are HTTP clients, not browsers. Make sure nothing on Cloudflare
 challenges them: exempt `/api/v1/agent/` from Bot Fight Mode, managed
@@ -139,7 +166,9 @@ sentinel.example.com {
 
 Caddy redirects HTTP to HTTPS and sends HSTS itself, so Django's redirect and
 HSTS settings can stay off. Open ports 80 and 443 in the host firewall; port
-8000 stays bound to `127.0.0.1` (`SENTINEL_HTTP_BIND`).
+8000 (the `proxy` service) stays bound to `127.0.0.1` (`SENTINEL_HTTP_BIND`).
+Pass the `Host` header on unchanged (Caddy and most proxies do): Django checks
+it against `DJANGO_ALLOWED_HOSTS` and the `Origin` of every sign-in against it.
 
 ### Request body size
 
@@ -152,8 +181,10 @@ bodies of at least that size; 3 MB leaves room.
 - **Sentinel.** Django refuses a body over `DATA_UPLOAD_MAX_MEMORY_SIZE`, 2,621,440
   bytes (2.5 MiB), its default, with HTTP 400. Sentinel does not change it.
   Gunicorn does not limit the body.
-- **The front end** may refuse less, and it does so before Sentinel sees the
-  request: nothing is recorded, not even that the agent is alive.
+- **The `proxy` service** accepts 3 MB (`client_max_body_size 3m`).
+- **The front end** in front of it may refuse less, and it does so before
+  Sentinel sees the request: nothing is recorded, not even that the agent is
+  alive.
 
 | Front end | Default | What to set |
 | --- | --- | --- |
@@ -178,9 +209,9 @@ bytes)` or `HTTP 400 (request body N bytes)`, and keeps its queued data
 
 ### Plain HTTP (testing only)
 
-Without a front end, set `SENTINEL_HTTP_BIND=0.0.0.0` and, to log in to the
-admin over `http://`, `DJANGO_SESSION_COOKIE_SECURE=false` and
-`DJANGO_CSRF_COOKIE_SECURE=false`. Agent tokens and admin passwords then cross
+Without a front end, set `SENTINEL_HTTP_BIND=0.0.0.0` and, to sign in to the
+console or the admin over `http://` from another machine,
+`DJANGO_SESSION_COOKIE_SECURE=false` and `DJANGO_CSRF_COOKIE_SECURE=false`. Agent tokens and admin passwords then cross
 the network unencrypted; the agent logs a warning for `http://` URLs.
 
 ## 4. Add monitored hosts
@@ -195,6 +226,7 @@ once), then optional **Network targets**. Install the agent on the host with
 
 ```bash
 docker compose logs -f web    # Gunicorn and Django (stderr), errors with tracebacks
+docker compose logs -f proxy  # nginx: every request, and why web could not be reached
 docker compose logs -f alert-engine notifier domain-verifier
 docker compose logs -f db
 ```
@@ -384,12 +416,13 @@ units that start the stack with `docker compose start` must use
 
 To roll back, check out the previous tag and restore the backup taken before
 the upgrade: migrations are not guaranteed to be reversible. Before checking
-out a release without the `migrate` service, the alert engine or the domain
-verifier, remove their containers (a service the older `compose.yml` does not
-know would keep running):
+out a release without the `migrate` service, the alert engine, the domain
+verifier or the `proxy` service, remove their containers (a service the older
+`compose.yml` does not know would keep running, and `proxy` would keep the
+published port):
 
 ```bash
-docker compose rm --stop --force migrate alert-engine notifier domain-verifier
+docker compose rm --stop --force migrate alert-engine notifier domain-verifier proxy
 git checkout <previous-tag>
 docker compose up -d --build
 ```
@@ -404,6 +437,14 @@ installation: the `db` service follows the `SENTINEL_POSTGRES` setting of your
 so `db` stays on PostgreSQL 16 with its current volume. Do not copy that
 setting from `.env.example` into an existing installation; follow
 [Moving an existing installation to PostgreSQL 18](#moving-an-existing-installation-to-postgresql-18).
+
+**After upgrading to the release that adds the `proxy` service**, the console
+is served at the address and port `web` had, and `web` is no longer published
+on the host: the agents, the admin and the health checks keep their URLs. A
+Cloudflare Tunnel must point to `proxy:8080` instead of `web:8000`
+([Option A](#option-a-cloudflare-tunnel)); a reverse proxy on the host needs no
+change. Anything else that reached `web` on another port or address (a
+monitoring probe, say) must use the published port.
 
 **After upgrading to the release that adds the console's server and container
 views**, servers and network targets have no site yet, so only users who may

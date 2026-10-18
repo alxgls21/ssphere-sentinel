@@ -2,37 +2,49 @@
 
 ## Trusted reverse proxy boundary
 
-TLS is terminated in front of Gunicorn (Cloudflare Tunnel or a reverse proxy).
-Between the front end and Gunicorn, traffic is plain HTTP, so the request's
-original scheme is only known from the `X-Forwarded-Proto` header, which any
-client can also send.
+TLS is terminated in front of the Compose deployment (Cloudflare Tunnel or a
+reverse proxy), whose `proxy` service (nginx) passes requests for Django on to
+Gunicorn. Between the front end and Gunicorn, traffic is plain HTTP, so the
+request's original scheme is only known from the `X-Forwarded-Proto` header,
+which any client can also send.
 
+- **The `proxy` service** ([deploy/frontend/nginx.conf](../deploy/frontend/nginx.conf))
+  passes the `Host` header on unchanged (Django validates it against
+  `DJANGO_ALLOWED_HOSTS` and compares the `Origin` of every write with it),
+  removes `X-Forwarded-For`, `X-Forwarded-Host`, `X-Forwarded-Ssl`,
+  `X-Forwarded-Protocol` and `Forwarded`, and passes `X-Forwarded-Proto` on as
+  it received it, without setting it: whether it counts is Gunicorn's
+  decision, below. The console and the APIs are one origin: there is no CORS,
+  and the session and CSRF cookies belong to that site only.
 - **Django never reads `X-Forwarded-Proto` itself** (`SECURE_PROXY_SSL_HEADER`
   is not set, `USE_X_FORWARDED_HOST` is off).
 - **Gunicorn** decides, per connection: it honours `X-Forwarded-Proto` (and
   `X-Forwarded-Ssl`/`X-Forwarded-Protocol`) only when the TCP peer is listed
   in `FORWARDED_ALLOW_IPS`. The default is `127.0.0.1,::1`, which inside the
-  container means "no external proxy". Django sees the result as the request
-  scheme.
-- A client that reaches Gunicorn directly can therefore never make Django
-  believe a plain-HTTP request was HTTPS (which would, for example, defeat
-  `DJANGO_SECURE_SSL_REDIRECT`).
+  container means "no proxy": the `proxy` service connects from its own
+  address on the `edge` network, which is not trusted. Django sees the result
+  as the request scheme.
+- A client can therefore never make Django believe a plain-HTTP request was
+  HTTPS (which would, for example, defeat `DJANGO_SECURE_SSL_REDIRECT`).
 
 You only need to trust a proxy if **Django** should redirect to HTTPS
 (`DJANGO_SECURE_SSL_REDIRECT`) or send HSTS (`DJANGO_SECURE_HSTS_SECONDS`;
 Django only sends it on requests it considers secure). The recommended setups
 in [server-deployment.md](server-deployment.md) let the front end do both and
-need no trust at all; admin logins work through `DJANGO_CSRF_TRUSTED_ORIGINS`
-and Secure cookies.
+need no trust at all; console and admin sign-ins work through
+`DJANGO_CSRF_TRUSTED_ORIGINS` and Secure cookies.
 
-To trust a proxy anyway, set `FORWARDED_ALLOW_IPS` to the address Gunicorn
-sees the proxy connect from (IP addresses or CIDR networks), and make sure the
-proxy overwrites, rather than appends to, `X-Forwarded-Proto`. With Docker,
-connections through a published port arrive from the Compose network's
-gateway address (`docker network inspect <project>_default`), which also
-covers every other local process using that port, so keep the port bound to
-`127.0.0.1`. Use `*` only when nothing but the proxy can connect to Gunicorn
-at all.
+To trust a proxy anyway, set `FORWARDED_ALLOW_IPS` in `.env` to the address
+Gunicorn sees the `proxy` service connect from: the subnet of the `edge`
+network (`docker network inspect <project>_edge`). Then the `X-Forwarded-Proto`
+that reaches the `proxy` service decides the scheme, so everything that can
+reach the published port must set it: the TLS front end has to overwrite,
+rather than append to, `X-Forwarded-Proto`, and the
+port must be reachable from that front end only: keep it bound to
+`127.0.0.1` (`SENTINEL_HTTP_BIND`), and remember that every local process can
+then claim HTTPS too. Use `*` only when nothing but the `proxy` service and
+`cloudflared` can connect to Gunicorn: `web` is not published, but the other
+containers of the project can reach it.
 
 Health checks (`/health/`, `/health/ready/`) are answered before host
 validation and HTTPS redirects so that probes by IP over plain HTTP work.
@@ -228,7 +240,18 @@ it is exposed to the internet.
 - No secret is part of the image; they come from `.env` at runtime. The
   Cloudflare Tunnel token is in a separate `.env.tunnel` that only the
   `cloudflared` container reads.
-- PostgreSQL is reachable only on the internal Compose network.
+- PostgreSQL is reachable only on the internal Compose network. The `proxy`
+  service, the only one with a published port, is on the `edge` network with
+  `web` only (and `cloudflared` with Cloudflare Tunnel); it cannot reach the
+  database or the workers, runs nginx as an unprivileged user (UID 101) with a
+  read-only root filesystem, no Linux capabilities and `no-new-privileges`, and
+  holds no setting and no secret.
+- The console's files are served with a Content Security Policy that allows
+  scripts, styles, images, fonts and connections from the same origin only
+  (`style-src` also allows inline styles),
+  forbids framing (`frame-ancestors 'none'`, `X-Frame-Options: DENY`), plus
+  `X-Content-Type-Options: nosniff` and `Referrer-Policy: same-origin`. The
+  responses of Django (APIs, admin) carry Django's own headers.
 - SNMP credentials are never stored on the server: devices hold only the name
   of a credential profile kept in the agent's local files, no model or form has
   a field for a community string or key, and unknown payload fields are

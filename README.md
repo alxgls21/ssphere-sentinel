@@ -19,8 +19,9 @@ and lightweight host agents.
   counters (optional).
 
 The server stores current state and bounded history in PostgreSQL. Operators
-manage inventory and agents in Django admin; the separate web console reads the
-session-authenticated console API.
+manage inventory and agents in Django admin; the web console, served on the
+same address by the Compose deployment, reads the session-authenticated console
+API.
 
 ## Architecture
 
@@ -31,7 +32,9 @@ Sentinel has two independently packaged parts:
 - **Server (`ssphere-sentinel`)** — Django, Gunicorn, and PostgreSQL. It accepts
   agent heartbeats at `POST /api/v1/agent/heartbeat/`, exposes the console API
   below `/api/v1/console/` (reads, and the administration a permission allows),
-  and provides Django admin.
+  and provides Django admin. In the Compose deployment an nginx `proxy` service
+  serves the built web console and passes these paths on to Django, on one
+  address ([server deployment](docs/server-deployment.md)).
 - **Agent (`ssphere-sentinel-agent`)** — a Python 3.11+ process for Linux or
   macOS. It has no Django dependency and does not require Docker. The agent
   always initiates connections to the server.
@@ -127,9 +130,10 @@ Useful endpoints:
 - `http://127.0.0.1:8000/health/ready/` — database readiness.
 - `http://127.0.0.1:8000/admin/` — Django admin.
 
-Run the frontend separately as described in
-[`frontend/README.md`](frontend/README.md). Its documentation states which
-views use live backend data and which still use labelled sample data.
+For development, run the frontend's dev server against this backend as
+described in [`frontend/README.md`](frontend/README.md); the Compose deployment
+builds the console and serves it itself. Its documentation states which views
+use live backend data and which still use labelled sample data.
 
 ### 4. Run the checks
 

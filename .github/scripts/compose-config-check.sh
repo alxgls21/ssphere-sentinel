@@ -11,17 +11,19 @@
 #     password reaches the notifier only (profile "notifications"), not the
 #     domain verifier (profile "web-monitoring");
 #   - sentinel/db_roles.py reads the passwords from the resolved configuration,
-#     and refuses one that gives web or migrate a password not its own.
-# Writes and removes .env, .env.migrate and .env.bootstrap in the working tree: CI only.
+#     and refuses one that gives web or migrate a password not its own;
+#   - the proxy service alone is published, holds no secret and shares the edge
+#     network with web only; with compose.tunnel.yml, cloudflared joins it there.
+# Writes and removes .env, .env.migrate, .env.bootstrap and .env.tunnel in the working tree: CI only.
 set -euo pipefail
 
 fail() { echo "FAIL: $*" >&2; exit 1; }
 step() { echo; echo "== $*"; }
 
-[ ! -e .env ] && [ ! -e .env.migrate ] && [ ! -e .env.bootstrap ] \
-    || fail ".env, .env.migrate or .env.bootstrap exists: run this on a fresh checkout"
+[ ! -e .env ] && [ ! -e .env.migrate ] && [ ! -e .env.bootstrap ] && [ ! -e .env.tunnel ] \
+    || fail ".env, .env.migrate, .env.bootstrap or .env.tunnel exists: run this on a fresh checkout"
 work=$(mktemp -d)
-trap 'rm -rf "$work"; rm -f .env .env.migrate .env.bootstrap' EXIT
+trap 'rm -rf "$work"; rm -f .env .env.migrate .env.bootstrap .env.tunnel' EXIT
 
 secret() { python3 -c 'import secrets; print(secrets.token_urlsafe(48))'; }
 env_from() {  # env_from <example>: the example with random secrets, as .env
@@ -46,7 +48,14 @@ from sentinel.database import foreign_passwords  # noqa: E402
 
 services = json.load(open(sys.argv[1]))["services"]
 layout = sys.argv[2]
-assert set(services) == {"db", "migrate", "web", "alert-engine"}, sorted(services)
+assert set(services) == {"db", "migrate", "web", "alert-engine", "proxy"}, sorted(services)
+# The front door: the proxy alone is published; it holds no secret and reaches web, not the database.
+assert [name for name, service in services.items() if service.get("ports")] == ["proxy"], "another service is published"
+assert [port["target"] for port in services["proxy"]["ports"]] == [8080]
+assert not services["proxy"].get("environment") and not services["proxy"].get("env_file"), "the proxy has settings"
+assert set(services["proxy"]["networks"]) == {"edge"} and set(services["web"]["networks"]) == {"default", "edge"}
+assert "edge" not in services["db"].get("networks", {"default": None}), "the database is on the edge network"
+assert services["proxy"]["depends_on"]["web"]["condition"] == "service_healthy"
 web, migrate, db, engine = (services[name]["environment"] for name in ("web", "migrate", "db", "alert-engine"))
 assert web.get("DJANGO_SECRET_KEY") and migrate.get("DJANGO_SECRET_KEY"), "the env files were not resolved"
 assert (web["SENTINEL_DB_ACCESS"], migrate["SENTINEL_DB_ACCESS"]) == ("runtime", "migrate")
@@ -132,7 +141,7 @@ sys.path.insert(0, ".")
 from sentinel.database import foreign_passwords  # noqa: E402
 
 services = json.load(open(sys.argv[1]))["services"]
-assert set(services) == {"db", "migrate", "web", "alert-engine", "notifier"}, sorted(services)
+assert set(services) == {"db", "migrate", "web", "alert-engine", "proxy", "notifier"}, sorted(services)
 holders = sorted(name for name, service in services.items()
                  if (service.get("environment") or {}).get("SENTINEL_SMTP_PASSWORD"))
 assert holders == ["notifier"], holders
@@ -158,7 +167,7 @@ sys.path.insert(0, ".")
 from sentinel.database import foreign_passwords  # noqa: E402
 
 services = json.load(open(sys.argv[1]))["services"]
-assert set(services) == {"db", "migrate", "web", "alert-engine", "notifier", "domain-verifier"}, sorted(services)
+assert set(services) == {"db", "migrate", "web", "alert-engine", "proxy", "notifier", "domain-verifier"}, sorted(services)
 verifier = services["domain-verifier"]["environment"]
 assert (verifier["SENTINEL_DB_ACCESS"], verifier["SENTINEL_PROCESS"]) == ("runtime", "worker")
 assert verifier.get("SENTINEL_DB_PASSWORD") == os.environ["RUNTIME"], "the verifier lacks the runtime password"
@@ -196,6 +205,24 @@ services = json.load(open(sys.argv[1]))["services"]
 for name in ("web", "migrate"):
     assert foreign_passwords(services[name]["environment"]) == ["POSTGRES_PASSWORD"], name
 print("web and migrate would refuse to start")
+PY
+
+step "Cloudflare Tunnel: cloudflared reaches the proxy on the edge network, with its own token only"
+printf 'TUNNEL_TOKEN=%s\n' "$(secret)" > .env.tunnel
+docker compose -f compose.yml -f compose.tunnel.yml config --format json > "$work/config.json"
+python3 - "$work/config.json" <<'PY'
+import json
+import sys
+
+services = json.load(open(sys.argv[1]))["services"]
+tunnel = services["cloudflared"]
+assert set(tunnel["networks"]) == {"edge"}, tunnel["networks"]
+assert {name: dep["condition"] for name, dep in tunnel["depends_on"].items()} == {"proxy": "service_healthy"}
+assert not tunnel.get("ports"), "cloudflared is published"
+assert tunnel["environment"].get("TUNNEL_TOKEN"), "cloudflared lacks its token"
+holders = sorted(name for name, service in services.items() if (service.get("environment") or {}).get("TUNNEL_TOKEN"))
+assert holders == ["cloudflared"], holders
+print("cloudflared: edge network, after the proxy, the only holder of the tunnel token")
 PY
 
 echo "Compose configuration checks passed"

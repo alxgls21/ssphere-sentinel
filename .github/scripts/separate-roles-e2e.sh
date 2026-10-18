@@ -413,7 +413,7 @@ PROCESS_DUMP='for p in /proc/[0-9]*; do printf "## %s " "${p#/proc/}"; tr "\0" "
 check_isolation() {  # check_isolation <name>
     local dir="$work/evidence-$1" service id
     mkdir -p "$dir"
-    for service in web migrate db alert-engine; do
+    for service in web migrate db alert-engine proxy; do
         id=$(container "$service")
         [ -n "$id" ] || fail "no $service container"
         docker inspect --format '{{range .Config.Env}}{{println .}}{{end}}' "$id" > "$dir/$service.env"
@@ -652,7 +652,7 @@ scenario_legacy_settings_refused() {
     grep -q 'a superuser login, may not be used' <<<"$(service_log web)" || fail "web was not refused as a superuser login"
     admin_stays_unapplied "a refused superuser login"
     [ "$(applied_migrations)" = "$applied" ] || fail "a refused superuser login changed the record of the migrations"
-    if curl --silent --max-time 3 --output /dev/null http://127.0.0.1:8000/health/; then fail "web serves with the superuser login"; fi
+    if curl --fail --silent --max-time 3 --output /dev/null http://127.0.0.1:8000/health/; then fail "web serves with the superuser login"; fi
     docker compose stop web alert-engine
     cp "$work/env.separate" .env
     # The migrate service as it always runs: what was undone is applied again.
