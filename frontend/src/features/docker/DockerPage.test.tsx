@@ -130,7 +130,9 @@ describe('DockerPage over the sample fleet', () => {
     page()
     await table()
     await user.type(screen.getByRole('searchbox', { name: 'Search containers' }), 'pgbouncer')
-    await waitFor(async () => expect(names(await table())).toEqual(['pgbouncer']))
+    // The header counts the new answer's rows: once it says one, the rows are the new ones too.
+    expect(await screen.findByText('1 of 58 shown')).toBeInTheDocument()
+    expect(names(await table())).toEqual(['pgbouncer'])
     expect(screen.getByLabelText('location')).toHaveTextContent('/docker?q=pgbouncer')
     await user.clear(screen.getByRole('searchbox', { name: 'Search containers' }))
     await user.type(screen.getByRole('searchbox', { name: 'Search containers' }), 'ath-db-01')
