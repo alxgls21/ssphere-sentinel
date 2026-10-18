@@ -57,11 +57,24 @@ def changes(before: dict, after: dict) -> dict:
     }
 
 
-def record(actor, *, source: str, action: str, target: str, target_id, target_name: str, changed: dict | None = None):
+def record(
+    actor,
+    *,
+    source: str,
+    action: str,
+    target: str,
+    target_id,
+    target_name: str,
+    changed: dict | None = None,
+    actor_name: str | None = None,
+):
+    """``actor_name``: the name the actor had when they acted, when that was not now."""
+    if actor_name is None:
+        actor_name = actor.get_username() if actor is not None else ""
     return ConfigurationEvent.objects.create(
         at=timezone.now(),
         actor=actor if actor is not None and actor.pk is not None else None,
-        actor_name=actor.get_username() if actor is not None else "",
+        actor_name=actor_name,
         source=source,
         action=action,
         target_type=target,

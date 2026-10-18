@@ -13,7 +13,10 @@
     "editAlertRules": false,
     "manageOwnNotifications": true,
     "sendTestEmail": false,
-    "viewSystemStatus": false
+    "viewSystemStatus": false,
+    "viewDomains": false,
+    "addDomains": false,
+    "verifyDomains": false
   },
   "thresholds": {
     "resourceWarnPercent": 80,

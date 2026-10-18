@@ -27,6 +27,11 @@ dependencies = [
     "psycopg[binary]>=3.2",
     # Serves the admin's static files from Gunicorn (no extra web server).
     "whitenoise>=6.6",
+    # Domain verification: DNS questions to a domain's own name servers, IDNA2008/UTS #46
+    # names, and the Public Suffix List (updated with each release of the package).
+    "dnspython>=2.7",
+    "idna>=3.10",
+    "publicsuffixlist>=1.0.2",
 ]
 classifiers = [
     "Development Status :: 3 - Alpha",

@@ -4,6 +4,7 @@ from apps.console import (
     alert_rules,
     containers,
     devices,
+    domains,
     history,
     incidents,
     notification_settings,
@@ -59,6 +60,14 @@ urlpatterns = [
         name="console-test-email-request",
     ),
     path("system/status/", system.system_status, name="console-system-status"),
+    path("domains/", domains.domain_collection, name="console-domains"),
+    path("domains/<uuid:domain_id>/", domains.domain_item, name="console-domain"),
+    path("domains/<uuid:domain_id>/verify/", domains.verify_domain, name="console-domain-verify"),
+    path(
+        "domains/<uuid:domain_id>/verifications/<uuid:verification_id>/",
+        domains.verification_item,
+        name="console-domain-verification",
+    ),
     # Unknown URLs under the prefix are JSON too (the UI never sees an HTML 404).
     re_path(r"^", not_found),
 ]

@@ -269,6 +269,8 @@ deny-by-default and filtered by customer/site grants; see
 | `GET`, `PUT /api/v1/console/settings/notifications/me/` | The signed-in user's own email preferences |
 | `POST /api/v1/console/settings/notifications/test-email/`; `GET .../test-email/<id>/` | A test email to the user's own address, sent by the notifier |
 | `GET /api/v1/console/system/status/` | Alert engine, notifier, email outbox, and the settings the environment sets |
+| `GET`, `POST /api/v1/console/domains/`; `GET /api/v1/console/domains/<id>/` | Monitored domains: list, add, and the TXT record that verifies one |
+| `POST /api/v1/console/domains/<id>/verify/`; `GET .../verifications/<id>/` | A domain verification, answered by the domain verifier from the domain's name servers |
 
 Server lists accept `customer`, `site`, `q`, `status`, `sort`, `dir`, `page`,
 and `pageSize`; container lists also accept `server`. The implementation owns

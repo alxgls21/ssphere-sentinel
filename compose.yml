@@ -32,7 +32,9 @@
 # refuses to start with a password not its own (docs/server-deployment.md).
 #
 # alert-engine evaluates the alert rules and opens and recovers incidents; the
-# optional notifier (profile "notifications") emails them. Both run the
+# optional notifier (profile "notifications") emails them; the optional
+# domain-verifier (profile "web-monitoring") answers the domain verifications
+# asked for in the console, from each domain's own name servers. They run the
 # application image with the runtime login, like web, and never apply
 # migrations (SENTINEL_PROCESS=worker): they start with web and wait until the
 # migrations are applied, by web or, with the separate logins, by migrate.
@@ -201,4 +203,47 @@ services:
     # of a run with STARTTLS and AUTH, then QUIT); the rest of its run is handed
     # back. An email cut short is sent again after its lease.
     stop_grace_period: 180s
+    logging: *default-logging
+
+  domain-verifier:
+    build: .
+    command: ["python", "manage.py", "run_domain_verifier", "--liveness-file", "/tmp/sentinel-worker.alive"]
+    # Optional: COMPOSE_PROFILES=web-monitoring in .env. It sends DNS questions
+    # (UDP and TCP port 53) to the domains' name servers on the internet.
+    profiles: ["web-monitoring"]
+    restart: unless-stopped
+    init: true
+    env_file:
+      - .env
+    environment:
+      POSTGRES_HOST: db
+      POSTGRES_PORT: 5432
+      SENTINEL_DB_ACCESS: runtime
+      SENTINEL_PROCESS: worker
+      SENTINEL_DB_MIGRATE_PASSWORD: ""
+      SENTINEL_SMTP_PASSWORD: ""
+    depends_on:
+      db:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+      web:
+        condition: service_started
+    # Instead of the image's Gunicorn probe: each cycle must begin in time.
+    healthcheck:
+      test: ["CMD", "python", "-m", "apps.alerts.runtime", "/tmp/sentinel-worker.alive"]
+      interval: 30s
+      timeout: 5s
+      start_period: 60s
+      retries: 3
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    # SIGTERM ends the verifier after the cycle in progress, which the DNS
+    # deadline (30 s) bounds; a request cut short is taken again after its lease.
+    stop_grace_period: 60s
     logging: *default-logging
