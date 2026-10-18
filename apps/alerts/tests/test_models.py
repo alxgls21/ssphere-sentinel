@@ -475,6 +475,10 @@ class PermissionTests(TestCase):
                 "delete_notificationsubscription",
                 "view_notificationsubscription",
                 "view_notification",
+                "view_testemailrequest",
+                "send_test_email",
+                "view_notifierheartbeat",
+                "view_configurationevent",
             },
         )
 

@@ -42,6 +42,16 @@ export const GALLERY_API: SentinelApi = {
   acknowledgeIncident: refuse('acknowledgeIncident'),
   getEngineStatus: refuse('getEngineStatus'),
   getIncidentOverview: refuse('getIncidentOverview'),
+  getNotificationSettings: refuse('getNotificationSettings'),
+  saveNotificationPreferences: refuse('saveNotificationPreferences'),
+  requestTestEmail: refuse('requestTestEmail'),
+  getTestEmail: refuse('getTestEmail'),
+  listAlertRules: refuse('listAlertRules'),
+  getAlertRule: refuse('getAlertRule'),
+  getAlertRuleOptions: refuse('getAlertRuleOptions'),
+  createAlertRule: refuse('createAlertRule'),
+  updateAlertRule: refuse('updateAlertRule'),
+  getSystemStatus: refuse('getSystemStatus'),
 }
 
 /** Used only when the page is mounted without the app's PrefsProvider. */

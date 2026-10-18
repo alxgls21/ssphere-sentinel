@@ -6,5 +6,6 @@
   "csrfToken": "<token>",
   "user": null,
   "access": null,
+  "capabilities": null,
   "thresholds": null
 }

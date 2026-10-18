@@ -6,6 +6,15 @@
   "csrfToken": "<token>",
   "user": {"username": "alice", "displayName": "Alice Example"},
   "access": {"allCustomers": false},
+  "capabilities": {
+    "acknowledgeIncidents": false,
+    "viewAlertRules": false,
+    "createAlertRules": false,
+    "editAlertRules": false,
+    "manageOwnNotifications": true,
+    "sendTestEmail": false,
+    "viewSystemStatus": false
+  },
   "thresholds": {
     "resourceWarnPercent": 80,
     "resourceCritPercent": 95,

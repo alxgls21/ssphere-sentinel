@@ -1,5 +1,6 @@
 import type { SentinelApi } from '../client'
 import type {
+  EngineBody,
   EngineState,
   EngineStatus,
   HealthStatus,
@@ -137,15 +138,14 @@ export function parseIncidentDetail(raw: unknown): IncidentDetail {
   }
 }
 
-export function parseEngineStatus(raw: unknown): EngineStatus {
-  const row = record(raw)
-  let lastError: EngineStatus['lastError'] = null
+/** The engine's state, as `alerts/engine-status/` serves it and as the system status embeds it (without its own timestamp). */
+export function parseEngineBody(row: Record<string, unknown>): EngineBody {
+  let lastError: EngineBody['lastError'] = null
   if (row.lastError !== null) {
     const error = record(row.lastError)
     lastError = { at: time(error.at), category: oneOf(ERROR_CATEGORY, error.category) }
   }
   return {
-    generatedAt: time(row.generatedAt),
     state: oneOf(ENGINE, row.state),
     stale: flag(row.stale),
     staleAfterSeconds: whole(row.staleAfterSeconds),
@@ -157,6 +157,11 @@ export function parseEngineStatus(raw: unknown): EngineStatus {
     lastError,
     monitoringSince: nullableTime(row.monitoringSince),
   }
+}
+
+export function parseEngineStatus(raw: unknown): EngineStatus {
+  const row = record(raw)
+  return { generatedAt: time(row.generatedAt), ...parseEngineBody(row) }
 }
 
 /** The list query: the shared parameters, plus the severity and the kind. */

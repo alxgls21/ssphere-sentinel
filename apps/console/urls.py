@@ -1,6 +1,18 @@
 from django.urls import path, re_path
 
-from apps.console import containers, devices, history, incidents, servers, targets, topology, views
+from apps.console import (
+    alert_rules,
+    containers,
+    devices,
+    history,
+    incidents,
+    notification_settings,
+    servers,
+    system,
+    targets,
+    topology,
+    views,
+)
 from apps.console.http import not_found
 
 urlpatterns = [
@@ -32,6 +44,21 @@ urlpatterns = [
         name="console-incident-acknowledge",
     ),
     path("alerts/engine-status/", incidents.engine_status, name="console-alert-engine-status"),
+    path("alert-rules/", alert_rules.rule_collection, name="console-alert-rules"),
+    path("alert-rules/options/", alert_rules.rule_options, name="console-alert-rule-options"),
+    path("alert-rules/<uuid:rule_id>/", alert_rules.rule_item, name="console-alert-rule"),
+    path("settings/notifications/me/", notification_settings.my_preferences, name="console-notification-preferences"),
+    path(
+        "settings/notifications/test-email/",
+        notification_settings.request_test_email,
+        name="console-test-email-requests",
+    ),
+    path(
+        "settings/notifications/test-email/<uuid:request_id>/",
+        notification_settings.test_email_status,
+        name="console-test-email-request",
+    ),
+    path("system/status/", system.system_status, name="console-system-status"),
     # Unknown URLs under the prefix are JSON too (the UI never sees an HTML 404).
     re_path(r"^", not_found),
 ]

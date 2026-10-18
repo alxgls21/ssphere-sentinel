@@ -44,6 +44,7 @@ from apps.alerts.models import (
     Notification,
     NotificationKind,
     NotificationSubscription,
+    TestEmailRequest,
 )
 from apps.alerts.notifications import MAX_ATTEMPTS, backoff, claim, classify, compose, deliver, enqueue
 from apps.alerts.runtime import alive, mark_alive as real_mark_alive, stopped_by_signals, unapplied_migrations
@@ -911,7 +912,7 @@ class NotifierServingTests(TransactionTestCase):
         with patch.object(notifier.stop, "wait", side_effect=waits.append), self.assertLogs("apps.alerts.notifier", "INFO"):
             notifier.serve()
         self.assertEqual(outcomes, ["full", "full", "full", "done"])
-        self.assertEqual(waits, [3600])  # only after the run that found nothing more
+        self.assertEqual(waits, [])  # no wait after a full run; after the last, the stop came first
         self.assertEqual(Notification.objects.filter(status="sent").count(), 6)
 
     def test_sigterm_stops_it_after_the_email_in_progress(self):
@@ -1093,6 +1094,29 @@ class RetentionTests(TestCase):
         })
         self.assertFalse(Notification.objects.filter(status="failed", claim__isnull=False).exists())
         self.assertEqual(Incident.objects.count(), 9)  # the incidents stay
+
+    def test_test_emails_go_with_the_email_records(self):
+        def request(age, status, **fields):
+            created = self.now - age
+            if status in ("sent", "failed"):
+                fields.update(finished_at=created, failure="" if status == "sent" else "connection")
+            return TestEmailRequest.objects.create(
+                requested_by=self.ops, requested_by_name="ops", status=status, created_at=created,
+                expires_at=created + timedelta(minutes=10), **fields,
+            )
+
+        request(timedelta(days=400), "sent")
+        stale = request(timedelta(days=400), "pending")  # never taken: given up, then deleted
+        TestEmailRequest.objects.filter(pk=stale.pk).update(requested_by=None)  # its account gone since
+        request(timedelta(days=10), "failed")
+        waiting = request(timedelta(minutes=1), "pending")
+        self.assertIn("and 2 test email(s)", self.purge("purge_notifications", "--dry-run"))
+        self.assertEqual(TestEmailRequest.objects.count(), 4)
+        self.assertIn("and 2 test email(s).", self.purge("purge_notifications"))
+        self.assertEqual(
+            sorted(TestEmailRequest.objects.values_list("status", flat=True)), ["failed", "pending"]
+        )
+        self.assertTrue(TestEmailRequest.objects.filter(pk=waiting.pk, status="pending").exists())
 
 
 # -- the worker processes, and the admin -------------------------------------------------

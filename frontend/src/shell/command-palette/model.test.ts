@@ -125,9 +125,9 @@ describe('entityItem', () => {
 })
 
 describe('screenItems', () => {
-  it('lists all eight screens with g-key hints', () => {
+  it('lists all nine screens with g-key hints', () => {
     const items = screenItems(vi.fn(), true)
-    expect(items.map((item) => item.title)).toHaveLength(8)
+    expect(items.map((item) => item.title)).toHaveLength(9)
     expect(items.find((item) => item.title === 'Servers')?.hint).toEqual(['g', 's'])
   })
 

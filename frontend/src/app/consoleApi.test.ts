@@ -59,6 +59,16 @@ function fakeHttp(over: Partial<ConsoleHttp> = {}) {
     getIncident: vi.fn(),
     acknowledgeIncident: vi.fn(),
     getEngineStatus: vi.fn(async () => engine()),
+    getNotificationSettings: vi.fn(),
+    saveNotificationPreferences: vi.fn(),
+    requestTestEmail: vi.fn(),
+    getTestEmail: vi.fn(),
+    listAlertRules: vi.fn(),
+    getAlertRule: vi.fn(),
+    getAlertRuleOptions: vi.fn(),
+    createAlertRule: vi.fn(),
+    updateAlertRule: vi.fn(),
+    getSystemStatus: vi.fn(),
     getServer: vi.fn(),
     getServerSeries: vi.fn(),
     getFleetLoad: vi.fn(),
@@ -76,6 +86,16 @@ function fakeHttp(over: Partial<ConsoleHttp> = {}) {
     getIncident: ReturnType<typeof vi.fn>
     acknowledgeIncident: ReturnType<typeof vi.fn>
     getEngineStatus: ReturnType<typeof vi.fn>
+    getNotificationSettings: ReturnType<typeof vi.fn>
+    saveNotificationPreferences: ReturnType<typeof vi.fn>
+    requestTestEmail: ReturnType<typeof vi.fn>
+    getTestEmail: ReturnType<typeof vi.fn>
+    listAlertRules: ReturnType<typeof vi.fn>
+    getAlertRule: ReturnType<typeof vi.fn>
+    getAlertRuleOptions: ReturnType<typeof vi.fn>
+    createAlertRule: ReturnType<typeof vi.fn>
+    updateAlertRule: ReturnType<typeof vi.fn>
+    getSystemStatus: ReturnType<typeof vi.fn>
   }
   return http
 }
@@ -115,6 +135,16 @@ describe('createConsoleApi', () => {
         'listIncidents',
         'listTargets',
         'listServers',
+        'createAlertRule',
+        'getAlertRule',
+        'getAlertRuleOptions',
+        'getNotificationSettings',
+        'getSystemStatus',
+        'getTestEmail',
+        'listAlertRules',
+        'requestTestEmail',
+        'saveNotificationPreferences',
+        'updateAlertRule',
         'source',
       ].sort(),
     )
@@ -435,6 +465,38 @@ describe('the open incidents', () => {
     expect(http.acknowledgeIncident).toHaveBeenCalledWith('i1', { signal })
     await api.getEngineStatus({ signal })
     expect(http.getEngineStatus).toHaveBeenCalledWith({ signal })
+  })
+
+  it('passes the settings screens straight to the console API: preferences, test emails, alert rules, the system', async () => {
+    const http = fakeHttp()
+    const api = createConsoleApi(http)
+    const signal = new AbortController().signal
+    const preferences = { enabled: true, minSeverity: 'warning', sendRecovery: false } as const
+    await api.getNotificationSettings({ signal })
+    expect(http.getNotificationSettings).toHaveBeenCalledWith({ signal })
+    await api.saveNotificationPreferences(preferences, { signal })
+    expect(http.saveNotificationPreferences).toHaveBeenCalledWith(preferences, { signal })
+    await api.requestTestEmail({ signal })
+    expect(http.requestTestEmail).toHaveBeenCalledWith({ signal })
+    await api.getTestEmail('t1', { signal })
+    expect(http.getTestEmail).toHaveBeenCalledWith('t1', { signal })
+    await api.listAlertRules({ q: 'core', enabled: 'disabled' })
+    expect(http.listAlertRules).toHaveBeenCalledWith({ q: 'core', enabled: 'disabled' })
+    await api.getAlertRule('r1', { signal })
+    expect(http.getAlertRule).toHaveBeenCalledWith('r1', { signal })
+    await api.getAlertRuleOptions({ signal })
+    expect(http.getAlertRuleOptions).toHaveBeenCalledWith({ signal })
+    const input = { name: 'N', kind: 'device', health: 'critical', severity: 'critical' } as const
+    await api.createAlertRule(input, { signal })
+    expect(http.createAlertRule).toHaveBeenCalledWith(input, { signal })
+    await api.updateAlertRule('r1', { enabled: false, version: 2 }, { signal })
+    expect(http.updateAlertRule).toHaveBeenCalledWith(
+      'r1',
+      { enabled: false, version: 2 },
+      { signal },
+    )
+    await api.getSystemStatus({ signal })
+    expect(http.getSystemStatus).toHaveBeenCalledWith({ signal })
   })
 
   it('reads no incident from the Overview’s worst-first requests, and none of them from the incidents', async () => {

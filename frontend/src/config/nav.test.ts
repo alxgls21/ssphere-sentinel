@@ -31,6 +31,7 @@ describe('navigation registry', () => {
       'snmp',
       'topology',
       'alerts',
+      'settings',
     ])
   })
 

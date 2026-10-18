@@ -3,7 +3,21 @@ import type { SentinelApi } from '../client'
 import type { ScopeOptions } from '../types'
 import { listContainers } from './containers'
 import { getDevice, getDeviceSeries, getInterfaceSeries, listDevices } from './devices'
+import {
+  createAlertRule,
+  getAlertRule,
+  getAlertRuleOptions,
+  listAlertRules,
+  updateAlertRule,
+} from './alertRules'
 import { acknowledgeIncident, getEngineStatus, getIncident, listIncidents } from './incidents'
+import {
+  getNotificationSettings,
+  getTestEmail,
+  requestTestEmail,
+  saveNotificationPreferences,
+} from './notifications'
+import { getSystemStatus } from './system'
 import { getTarget, getTargetSeries, listTargets } from './targets'
 import { getTopology } from './topology'
 import { createAuthClient, getScopeOptions } from './session'
@@ -29,6 +43,16 @@ export interface ConsoleHttp extends Pick<
   | 'getIncident'
   | 'acknowledgeIncident'
   | 'getEngineStatus'
+  | 'getNotificationSettings'
+  | 'saveNotificationPreferences'
+  | 'requestTestEmail'
+  | 'getTestEmail'
+  | 'listAlertRules'
+  | 'getAlertRule'
+  | 'getAlertRuleOptions'
+  | 'createAlertRule'
+  | 'updateAlertRule'
+  | 'getSystemStatus'
 > {
   auth: AuthClient
   getScopeOptions: (signal?: AbortSignal) => Promise<ScopeOptions>
@@ -62,6 +86,16 @@ export function createConsoleHttp(options: TransportOptions = {}): ConsoleHttp {
     getIncident: getIncident(transport),
     acknowledgeIncident: acknowledgeIncident(transport),
     getEngineStatus: getEngineStatus(transport),
+    getNotificationSettings: getNotificationSettings(transport),
+    saveNotificationPreferences: saveNotificationPreferences(transport),
+    requestTestEmail: requestTestEmail(transport),
+    getTestEmail: getTestEmail(transport),
+    listAlertRules: listAlertRules(transport),
+    getAlertRule: getAlertRule(transport),
+    getAlertRuleOptions: getAlertRuleOptions(transport),
+    createAlertRule: createAlertRule(transport),
+    updateAlertRule: updateAlertRule(transport),
+    getSystemStatus: getSystemStatus(transport),
   }
 }
 

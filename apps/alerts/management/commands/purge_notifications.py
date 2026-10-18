@@ -1,16 +1,16 @@
 from django.utils import timezone
 
-from apps.alerts.models import Notification
-from apps.alerts.notifications import give_up_overdue, overdue
+from apps.alerts.models import Notification, TestEmailRequest
+from apps.alerts.notifications import expire_test_emails, give_up_overdue, overdue
 from apps.core.retention import RetentionCommand, delete_in_batches
 
 
 class Command(RetentionCommand):
     help = (
         "Delete the records of incident emails sent, failed or not sent more than "
-        "SENTINEL_NOTIFICATION_RETENTION_DAYS ago, in batches. Emails not sent within "
-        "SENTINEL_NOTIFICATION_MAX_AGE_HOURS that no notifier holds are given up first; "
-        "emails still to be sent are kept."
+        "SENTINEL_NOTIFICATION_RETENTION_DAYS ago, and of the test emails asked for in the console, in "
+        "batches. Emails not sent within SENTINEL_NOTIFICATION_MAX_AGE_HOURS that no notifier holds are "
+        "given up first; emails still to be sent are kept."
     )
     default_days_setting = "SENTINEL_NOTIFICATION_RETENTION_DAYS"
 
@@ -18,19 +18,24 @@ class Command(RetentionCommand):
         now = timezone.now()
         # Ended rows only: the notifier never touches them again.
         qs = Notification.objects.filter(status__in=Notification.ENDED, created_at__lt=cutoff)
+        tests = TestEmailRequest.objects.filter(created_at__lt=cutoff)
         if dry_run:
             late = Notification.objects.filter(overdue(now))
             self.stdout.write(
                 f"Would give up {late.count()} email(s) not sent in time, and delete "
-                f"{(qs | late.filter(created_at__lt=cutoff)).count()} email record(s) older than {cutoff.isoformat()}."
+                f"{(qs | late.filter(created_at__lt=cutoff)).count()} email record(s) older than {cutoff.isoformat()} "
+                f"and {tests.count()} test email(s)."
             )
             return
 
         given_up = give_up_overdue(now)
         deleted, batches = delete_in_batches(qs, batch_size=batch_size)
+        # A test email waits ten minutes at most: any older than the cutoff has ended, or ends here.
+        expire_test_emails(now)
+        tests_deleted, _ = delete_in_batches(tests.filter(status__in=TestEmailRequest.ENDED), batch_size=batch_size)
         self.stdout.write(
             self.style.SUCCESS(
                 f"Gave up {given_up} email(s) not sent in time. Deleted {deleted} email record(s) older than "
-                f"{cutoff.isoformat()} in {batches} batch(es)."
+                f"{cutoff.isoformat()} in {batches} batch(es), and {tests_deleted} test email(s)."
             )
         )

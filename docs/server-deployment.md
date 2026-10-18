@@ -282,6 +282,14 @@ What is sent, and when:
 * Several notifiers may run (`docker compose up -d --scale notifier=2`): each
   email is taken by one of them.
 
+In the console, each user sets their own email preferences, and users with
+the permission *Can send a test email to themselves* can send one to their own
+address: the notifier sends it, so it waits until a notifier runs (and expires
+after ten minutes). Alert rules can be managed in the console by users with the
+alert rule permissions and access to every customer, and the system status by
+users with *Can see the system status in the console* and access to every
+customer. Grant these permissions in the admin, to users or groups of your own.
+
 To stop emailing, remove `COMPOSE_PROFILES=notifications` and the
 `SENTINEL_SMTP_*` settings from `.env`, then `docker compose stop notifier`
 and `docker compose up -d`.
@@ -1124,7 +1132,8 @@ docker compose exec -T web python manage.py clearsessions
 history and what is left of their email records; incidents still open, or with
 an email still to be sent, are never removed.
 `purge_notifications` removes the record of emails sent, failed or not sent
-more than `SENTINEL_NOTIFICATION_RETENTION_DAYS` ago (default 90), sooner than
+(incident emails, and test emails asked for in the console) more than
+`SENTINEL_NOTIFICATION_RETENTION_DAYS` ago (default 90), sooner than
 their incident unless you set it as long. It first gives up the emails not sent
 within `SENTINEL_NOTIFICATION_MAX_AGE_HOURS` that no notifier is sending (with
 the notifier stopped for good, nothing else would); emails still to be sent

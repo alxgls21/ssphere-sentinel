@@ -1,4 +1,11 @@
 import type {
+  AlertRuleChange,
+  AlertRuleDetail,
+  AlertRuleInput,
+  AlertRuleList,
+  AlertRuleListOptions,
+  AlertRuleOptions,
+  AlertRulePatch,
   AttentionOptions,
   AttentionResult,
   ContainerList,
@@ -19,6 +26,8 @@ import type {
   IncidentOverview,
   InterfaceSeries,
   InterfaceSeriesOptions,
+  NotificationPreferencesInput,
+  NotificationSettings,
   OverviewSummary,
   RequestOptions,
   ScopeOptions,
@@ -27,11 +36,13 @@ import type {
   ServerListOptions,
   ServerSeries,
   ServerSeriesOptions,
+  SystemStatus,
   TargetDetail,
   TargetList,
   TargetListOptions,
   TargetSeries,
   TargetSeriesOptions,
+  TestEmailAnswer,
   Topology,
   TopologyOptions,
 } from './types'
@@ -127,4 +138,56 @@ export interface SentinelApi {
 
   /** The open incidents of the scope, counted by the answerer, with the first few that matter most. */
   getIncidentOverview(options?: RequestOptions): Promise<IncidentOverview>
+
+  /** The signed-in user's own email preferences, with the account's address and whether this server sends email. */
+  getNotificationSettings(options?: Pick<RequestOptions, 'signal'>): Promise<NotificationSettings>
+
+  /**
+   * Saves the user's own preferences (exactly three fields) and answers with them as they now are.
+   * Rejects: 400 `validation_error` with `fields`, 409 `no_email_address` to switch emails on
+   * without an address on the account.
+   */
+  saveNotificationPreferences(
+    input: NotificationPreferencesInput,
+    options?: Pick<RequestOptions, 'signal'>,
+  ): Promise<NotificationSettings>
+
+  /**
+   * Asks for one test email to the account's own address; the notifier sends it. Rejects: 403, 409
+   * `email_disabled`, `no_email_address` or `test_email_pending`, and 429 `rate_limited` with the
+   * seconds to wait in `retryAfterSeconds`.
+   */
+  requestTestEmail(options?: Pick<RequestOptions, 'signal'>): Promise<TestEmailAnswer>
+
+  /** One of the user's own test emails, to follow it until it is final. 404 for another user's. */
+  getTestEmail(id: string, options?: Pick<RequestOptions, 'signal'>): Promise<TestEmailAnswer>
+
+  /** One page of the alert rules, searched, filtered, sorted and paged by the answerer. 403 without the capability. */
+  listAlertRules(options?: AlertRuleListOptions): Promise<AlertRuleList>
+
+  /** One rule, and which changes would end its open incidents. */
+  getAlertRule(id: string, options?: Pick<RequestOptions, 'signal'>): Promise<AlertRuleDetail>
+
+  /** What a rule form may offer: the kinds, their conditions and reasons, the limits and the defaults. */
+  getAlertRuleOptions(options?: Pick<RequestOptions, 'signal'>): Promise<AlertRuleOptions>
+
+  /** Creates a rule. Rejects: 400 `validation_error` with `fields`, 403. */
+  createAlertRule(
+    input: AlertRuleInput,
+    options?: Pick<RequestOptions, 'signal'>,
+  ): Promise<AlertRuleDetail>
+
+  /**
+   * Changes a rule: the fields that change, and the version that was read. Rejects: 409
+   * `version_conflict` when the rule changed since (nothing is overwritten), 400
+   * `validation_error` with `fields`, 403, 404.
+   */
+  updateAlertRule(
+    id: string,
+    patch: AlertRulePatch,
+    options?: Pick<RequestOptions, 'signal'>,
+  ): Promise<AlertRuleChange>
+
+  /** The alert engine, the notifier, the email outbox and what the deployment sets. 403 without the capability. */
+  getSystemStatus(options?: Pick<RequestOptions, 'signal'>): Promise<SystemStatus>
 }

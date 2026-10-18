@@ -94,3 +94,18 @@ cannot say that.
   counts per status over the scope, the search, the severity and the kind, one request each.
 - **Not built.** Resolving an incident by hand: it ends when the engine confirms a recovery, or
   when monitoring of its object ends.
+
+## Alert rules and notifications
+
+- **Exists.** The console API serves the alert rules (list, one rule, create, change, and the options a form may
+  offer: the kinds, their conditions and reasons, the limits and defaults), a user's own email preferences, a
+  test email to their own address, and the system's status (the alert engine, the notifier, the email outbox
+  and what the deployment sets). Settings reads and writes them; every write carries the version that was read,
+  and the contract of which changes end open incidents comes with the rule and with the options.
+- **Not built.** Deleting a rule: an incident keeps its rule, so a rule is disabled. Changing a rule's kind or its
+  default key. Anything but email as a way to be told (a webhook, a chat message), and a recipient other than
+  the signed-in user.
+- **Missing.** The trail of configuration changes the backend records (who changed which rule or preference,
+  and when): no endpoint serves it, so no screen shows it.
+- **Missing.** The customers and sites a rule may name are `scope/`'s: an account that may manage rules sees
+  all of them, but there is no search over them, so a very large estate would need one.

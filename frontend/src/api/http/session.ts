@@ -1,4 +1,4 @@
-import type { AuthClient, ConsoleSession, PublishedThresholds } from '../auth'
+import type { AuthClient, ConsoleSession, PublishedThresholds, SessionCapabilities } from '../auth'
 import { ApiError } from '../errors'
 import type { ScopeOptions } from '../types'
 import type { Transport } from './transport'
@@ -35,6 +35,27 @@ export function parseSession(raw: unknown): ConsoleSession {
     ...(raw.thresholds === null || raw.thresholds === undefined
       ? {}
       : { thresholds: parseThresholds(raw.thresholds) }),
+    // An answer without capabilities (an older server) offers nothing: the screens never guess a right.
+    ...(raw.capabilities === null || raw.capabilities === undefined
+      ? {}
+      : { capabilities: parseCapabilities(raw.capabilities) }),
+  }
+}
+
+function parseCapabilities(raw: unknown): SessionCapabilities {
+  if (!isRecord(raw)) throw bad()
+  const flag = (value: unknown): boolean => {
+    if (typeof value !== 'boolean') throw bad()
+    return value
+  }
+  return {
+    acknowledgeIncidents: flag(raw.acknowledgeIncidents),
+    viewAlertRules: flag(raw.viewAlertRules),
+    createAlertRules: flag(raw.createAlertRules),
+    editAlertRules: flag(raw.editAlertRules),
+    manageOwnNotifications: flag(raw.manageOwnNotifications),
+    sendTestEmail: flag(raw.sendTestEmail),
+    viewSystemStatus: flag(raw.viewSystemStatus),
   }
 }
 

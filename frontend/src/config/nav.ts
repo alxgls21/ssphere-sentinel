@@ -6,6 +6,7 @@ import {
   Network,
   Router,
   Server,
+  Settings,
   Waypoints,
   type LucideIcon,
 } from 'lucide-react'
@@ -17,7 +18,16 @@ import type { FeatureId } from './features'
  * a screen means adding one entry here.
  */
 export interface NavItem {
-  id: 'overview' | 'servers' | 'docker' | 'network' | 'snmp' | 'topology' | 'alerts' | 'customers'
+  id:
+    | 'overview'
+    | 'servers'
+    | 'docker'
+    | 'network'
+    | 'snmp'
+    | 'topology'
+    | 'alerts'
+    | 'customers'
+    | 'settings'
   label: string
   path: string
   icon: LucideIcon
@@ -111,6 +121,16 @@ export const NAV_ITEMS: readonly NavItem[] = [
     description: 'Customers, sites and their devices',
     feature: 'customers',
     designed: false,
+  },
+  {
+    id: 'settings',
+    label: 'Settings',
+    path: '/settings',
+    icon: Settings,
+    chord: 'e',
+    description: 'Email notifications, alert rules and system status',
+    feature: 'settings',
+    designed: true,
   },
 ]
 

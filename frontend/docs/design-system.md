@@ -141,9 +141,10 @@ is 11px. Ligatures are off so `->` and `!=` read literally.
 
 `ui/` (domain-agnostic): `Panel`, `StatusGlyph`, `StatusTag`, `StatusLegend`,
 controls kit (`Button`, `IconButton`, `Chip`, `SegmentedControl`, `Select`,
-`Tooltip`, `Menu`, `Kbd`), meters (`SegmentedBar`, `CellMeter`, `Sparkline`),
+`Tooltip`, `Menu`, `Kbd`) and the form controls (`Field`, `FieldInput`, `FieldTextArea`, `FieldSelect`,
+`Checkbox`, `RadioGroup`), meters (`SegmentedBar`, `CellMeter`, `Sparkline`),
 `SearchField`, `EntityCells`, provenance chips (`MockChip`, `PlannedChip`,
-`FeatureChip`, `SourceTag`), states (`Skeleton`, `EmptyState`, `ErrorState`).
+`FeatureChip`, `SourceTag`), states (`Skeleton`, `EmptyState`, `ErrorState`, `Notice`).
 `charts/`: ECharts theme built from the tokens at runtime, `ChartFrame`,
 legend, tooltip, table twin, and the shared time-series pieces (axes, crosshair,
 growing plot).
@@ -334,6 +335,27 @@ The Servers screen sets the pattern every inventory screen follows.
   first (the OFFLINE tag on the offline tint); its last reading stays visible and
   is labelled as the last reading, and a sparkline whose samples stop ends in the
   dashed tail that says nothing arrived since.
+
+## Forms and notices
+
+Settings sets the pattern for a form.
+
+- **Every control has a real `<label>`**, tied by id; its hint and its errors are named by
+  `aria-describedby`, and an invalid control carries `aria-invalid`. A group of choices (the severity, the
+  scope) is a `fieldset` with a `legend`, not a loose row of radios.
+- **An error is a mark and words, never color alone**, and sits under the field it is about. The server's own
+  words are shown as they came, by field; a problem of the whole (or of a field the form does not draw) is
+  listed on top, so none is lost. The check made before sending says the same things the server will.
+- **A read-only value is a read-only input** (the account's address), focusable and copyable, not text that
+  looks like a field.
+- **A `Notice` is an inline message, never a toast**: a mark and a word (`SAVED`, `NOT SAVED`,
+  `CHANGED ELSEWHERE`, `ENDS INCIDENTS`), the sentence, and what to do about it. `live="alert"` for what went
+  wrong now, `live="status"` for what happened; none for what is simply so. It stays until the situation
+  changes or it is dismissed.
+- **A change that cannot be undone is confirmed first**: the warning says which object and what ends, the safe
+  button takes the focus, Escape cancels, and nothing is applied until the other is chosen.
+- **A save never overwrites.** A refusal leaves the form as it was; a conflict locks it, says what changed and
+  offers the latest version.
 
 ## Motion
 

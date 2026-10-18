@@ -10,6 +10,7 @@ from django.utils import timezone
 
 from apps.console.access import Visibility
 from apps.console.health import offline_cutoff
+from apps.console.permissions import capabilities
 from apps.console.thresholds import thresholds
 from apps.infrastructure.models import Server
 
@@ -59,6 +60,7 @@ def session_payload(request, user=None, *, reason: str | None = None) -> dict:
         "csrfToken": get_token(request),
         "user": None,
         "access": None,
+        "capabilities": None,
         "thresholds": None,
     }
     if user is not None:
@@ -68,6 +70,7 @@ def session_payload(request, user=None, *, reason: str | None = None) -> dict:
             "displayName": user.get_full_name() or user.get_username(),
         }
         payload["access"] = {"allCustomers": visibility.all_access}
+        payload["capabilities"] = capabilities(user, visibility)
         payload["thresholds"] = thresholds()
     return payload
 

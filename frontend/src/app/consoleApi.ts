@@ -138,6 +138,17 @@ export function createConsoleApi(http: ConsoleHttp): SentinelApi {
     getIncident: (id, options) => http.getIncident(id, options),
     acknowledgeIncident: (id, options) => http.acknowledgeIncident(id, options),
     getEngineStatus: (options) => http.getEngineStatus(options),
+    getNotificationSettings: (options) => http.getNotificationSettings(options),
+    saveNotificationPreferences: (input, options) =>
+      http.saveNotificationPreferences(input, options),
+    requestTestEmail: (options) => http.requestTestEmail(options),
+    getTestEmail: (id, options) => http.getTestEmail(id, options),
+    listAlertRules: (options) => http.listAlertRules(options),
+    getAlertRule: (id, options) => http.getAlertRule(id, options),
+    getAlertRuleOptions: (options) => http.getAlertRuleOptions(options),
+    createAlertRule: (input, options) => http.createAlertRule(input, options),
+    updateAlertRule: (id, patch, options) => http.updateAlertRule(id, patch, options),
+    getSystemStatus: (options) => http.getSystemStatus(options),
     getIncidentOverview: async (options) => {
       const { open, critical } = await abortable(openIncidents(options?.scope), options?.signal)
       return incidentOverviewOf(open, critical)

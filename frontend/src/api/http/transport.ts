@@ -29,10 +29,35 @@ export interface RequestInitLite {
 export interface Transport {
   get<T>(path: string, init?: RequestInitLite): Promise<T>
   post<T>(path: string, body?: unknown, init?: RequestInitLite): Promise<T>
+  put<T>(path: string, body: unknown, init?: RequestInitLite): Promise<T>
+  patch<T>(path: string, body: unknown, init?: RequestInitLite): Promise<T>
 }
 
 interface ErrorBody {
-  error?: { code?: unknown; message?: unknown }
+  error?: { code?: unknown; message?: unknown; fields?: unknown }
+}
+
+/** The most a client will be told to wait: a larger or odd `Retry-After` is not believed. */
+const MAX_RETRY_AFTER_SECONDS = 3600
+
+/** `Retry-After` as the console API sends it: whole seconds. Anything else is no advice at all. */
+function retryAfter(response: Response): number | null {
+  const value = response.headers?.get('Retry-After')
+  if (value === null || value === undefined || !/^\d{1,5}$/.test(value.trim())) return null
+  return Math.min(Number(value), MAX_RETRY_AFTER_SECONDS)
+}
+
+/** What is wrong with each field, as a `validation_error` says it: only lists of text are kept. */
+function fieldErrors(value: unknown): Record<string, string[]> | null {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return null
+  const fields: Record<string, string[]> = {}
+  for (const [name, messages] of Object.entries(value)) {
+    if (Array.isArray(messages)) {
+      const texts = messages.filter((message): message is string => typeof message === 'string')
+      if (texts.length > 0) fields[name] = texts
+    }
+  }
+  return Object.keys(fields).length > 0 ? fields : null
 }
 
 const isAbort = (error: unknown): boolean =>
@@ -58,7 +83,10 @@ async function readError(response: Response): Promise<ApiError> {
   if (code === null || message === null) {
     return new ApiError(`The server is unavailable (HTTP ${response.status}).`, response.status)
   }
-  return new ApiError(message, response.status, code)
+  return new ApiError(message, response.status, code, {
+    fields: fieldErrors(body?.error?.fields),
+    retryAfterSeconds: response.status === 429 ? retryAfter(response) : null,
+  })
 }
 
 export function createTransport({
@@ -80,14 +108,14 @@ export function createTransport({
   }
 
   async function send<T>(
-    method: 'GET' | 'POST',
+    method: 'GET' | 'POST' | 'PUT' | 'PATCH',
     path: string,
     body: unknown,
     init: RequestInitLite | undefined,
     retriedCsrf: boolean,
   ): Promise<T> {
     const headers: Record<string, string> = { Accept: 'application/json' }
-    if (method === 'POST') {
+    if (method !== 'GET') {
       headers['Content-Type'] = 'application/json'
       // The token comes from the session answer; without it Django would refuse the write.
       if (csrfToken === null) await send<unknown>('GET', 'session/', undefined, init, true)
@@ -98,7 +126,7 @@ export function createTransport({
       response = await fetchImpl(url(path, init?.query), {
         method,
         headers,
-        body: method === 'POST' ? JSON.stringify(body ?? {}) : undefined,
+        body: method === 'GET' ? undefined : JSON.stringify(body ?? {}),
         credentials: 'same-origin',
         cache: 'no-store',
         redirect: 'error',
@@ -112,7 +140,7 @@ export function createTransport({
 
     if (!response.ok) {
       const error = await readError(response)
-      if (error.code === 'csrf_failed' && method === 'POST' && !retriedCsrf) {
+      if (error.code === 'csrf_failed' && method !== 'GET' && !retriedCsrf) {
         // The token went stale (the cookie was rotated or cleared): fetch a fresh one and send once more.
         csrfToken = null
         return send<T>(method, path, body, init, true)
@@ -136,5 +164,7 @@ export function createTransport({
   return {
     get: (path, init) => send('GET', path, undefined, init, false),
     post: (path, body, init) => send('POST', path, body, init, false),
+    put: (path, body, init) => send('PUT', path, body, init, false),
+    patch: (path, body, init) => send('PATCH', path, body, init, false),
   }
 }

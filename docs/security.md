@@ -68,8 +68,9 @@ the agent API: agents authenticate with bearer tokens (`apps/agents`), the
 console with Django sessions (`apps/console`), and neither accepts the other's
 credential. The console never reads the `Authorization` header, an agent token
 does not sign anyone in, and a console session is not accepted by the heartbeat
-endpoint (tests cover both directions). The console only reads: the only
-`POST`s are sign-in and sign-out.
+endpoint (tests cover both directions). Besides sign-in and sign-out, the
+console writes only what a permission allows (below), and every write needs
+the CSRF token.
 
 - **Deny by default.** A user needs the permission *Can sign in to the
   monitoring console* (`console.use_console`, in the default groups *Console
@@ -126,9 +127,32 @@ endpoint (tests cover both directions). The console only reads: the only
   id, never by the name or the password that was typed; text that cannot be a
   name or password (NUL characters, invalid UTF-8) is a `400` that is not
   counted.
+- **Administration is by permission, checked on the server.** Acknowledging
+  incidents needs `alerts.acknowledge_incident`. Alert rules need the model
+  permissions (`alerts.view_alertrule`, `add_alertrule`, `change_alertrule`)
+  *and* `view_all_customers`, because a rule may concern every customer and the
+  list names customers and sites; a restricted user is refused whatever their
+  permissions. Rules are never deleted from the console, only disabled. A change
+  carries the `version` the client read and is refused (`409`) if the rule has
+  changed since, in the console or the admin. Every user manages their own email
+  preferences only (the address is the account's, set by an administrator). A
+  test email (`alerts.send_test_email`) goes to the user's own address only, at
+  most one a minute and one at a time; the web process queues it and the
+  notifier sends it, so the SMTP password never reaches the web process. The
+  system status (`console.view_system_status`, also with
+  `view_all_customers`, since its counts concern every customer) shows settings
+  the environment sets, never a password or the SMTP user name. No group is
+  given these permissions automatically. Changes of rules and subscriptions
+  (from the console or the admin) and test-email requests are recorded, with the
+  account and its name at the time, in the append-only *Configuration changes*
+  trail (read-only in the admin; the database login could still alter it). A
+  subscription removed with its account is recorded without an actor: the
+  account's deletion is in the admin's own history. A save in the admin has no
+  version check: it is the last word over a change made since the form was
+  opened, and the trail records what it changed.
 - **Nothing sensitive is returned**: no password hashes, agent tokens, SNMP
-  credential profiles or settings; the session payload has the user name,
-  display name and the access flags only. The server and container endpoints
+  credential profiles or secret settings; the session payload has the user
+  name, display name, the access flags and what the account may administer. The server and container endpoints
   read an explicit list of columns, never whole model rows, so an agent's token
   hash is never even loaded (the agent's version is the one agent column read).
 - **Lists are bounded.** Every list is paginated by the server (at most 200

@@ -3,6 +3,7 @@ import type { ReactElement, ReactNode } from 'react'
 import { MemoryRouter, type InitialEntry } from 'react-router'
 import { vi } from 'vitest'
 import type { SentinelApi } from '@/api/client'
+import { NO_CAPABILITIES } from '@/api/auth'
 import { ApiContext } from '@/api/context'
 import { AuthContext, type AuthApi } from '@/app/auth/auth'
 import { LiveProvider } from '@/app/LiveProvider'
@@ -41,6 +42,16 @@ export function createTestApi(overrides: Partial<SentinelApi> = {}): SentinelApi
     acknowledgeIncident: unstubbed('acknowledgeIncident'),
     getEngineStatus: unstubbed('getEngineStatus'),
     getIncidentOverview: unstubbed('getIncidentOverview'),
+    getNotificationSettings: unstubbed('getNotificationSettings'),
+    saveNotificationPreferences: unstubbed('saveNotificationPreferences'),
+    requestTestEmail: unstubbed('requestTestEmail'),
+    getTestEmail: unstubbed('getTestEmail'),
+    listAlertRules: unstubbed('listAlertRules'),
+    getAlertRule: unstubbed('getAlertRule'),
+    getAlertRuleOptions: unstubbed('getAlertRuleOptions'),
+    createAlertRule: unstubbed('createAlertRule'),
+    updateAlertRule: unstubbed('updateAlertRule'),
+    getSystemStatus: unstubbed('getSystemStatus'),
     ...overrides,
   }
 }
@@ -51,6 +62,7 @@ export function createFakeAuth(overrides: Partial<AuthApi> = {}): AuthApi {
     status: 'authenticated',
     user: null,
     thresholds: null,
+    capabilities: NO_CAPABILITIES,
     signedOut: false,
     error: null,
     signIn: vi.fn(async () => {}),

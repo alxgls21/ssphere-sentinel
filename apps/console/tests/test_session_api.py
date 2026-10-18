@@ -146,11 +146,13 @@ class SessionEndpointTests(ConsoleTestCase):
         self.assertEqual(client.get(SCOPE).status_code, 401)
 
     def test_the_payload_never_contains_secrets(self):
-        user = make_user("alice")
+        user = make_user("alice", email="alice@example.com")
         text = signed_in_client(user).get(SESSION).content.decode()
         self.assertNotIn(user.password, text)
+        self.assertNotIn("alice@example.com", text)
+        # The one word allowed: the capability that names test emails, not an address.
         for word in ("password", "email", "token", "pepper", "secret"):
-            self.assertNotIn(word, text.lower().replace("csrftoken", ""))
+            self.assertNotIn(word, text.lower().replace("csrftoken", "").replace('"sendtestemail"', ""))
 
     def test_other_methods_are_405_json_with_allow(self):
         for method in ("post", "put", "patch", "delete"):

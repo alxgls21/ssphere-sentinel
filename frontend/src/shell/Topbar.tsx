@@ -23,18 +23,20 @@ interface TopbarProps {
   compact: boolean
   /** Below 1024px the sidebar is a drawer, and this bar carries the button that opens it. */
   drawer: boolean
+  /** Settings are global or personal; monitoring scope and time do not apply. */
+  showFilters?: boolean
 }
 
 /**
  * The 44px context bar: where am I, which slice am I looking at, how fresh is
  * it, what time is it. Its bottom hairline is the refresh progress line.
  */
-export function Topbar({ title, compact, drawer }: TopbarProps) {
+export function Topbar({ title, compact, drawer, showFilters = true }: TopbarProps) {
   const demo = useShowsDemoData()
   const { setMobileNavOpen } = useShell()
   const scope = useScopeState()
   const screen = title.toLowerCase()
-  const segments = compact ? [screen] : ['sentinel', ...scope.segments, screen]
+  const segments = compact ? [screen] : ['sentinel', ...(showFilters ? scope.segments : []), screen]
 
   return (
     <header className="relative z-40 flex h-11 shrink-0 items-center gap-2 bg-panel px-3">
@@ -52,7 +54,7 @@ export function Topbar({ title, compact, drawer }: TopbarProps) {
       <div className={compact ? 'min-w-0 flex-1' : 'min-w-0 flex-[1_0_12.5rem]'}>
         <BreadcrumbPrompt segments={segments} />
       </div>
-      {compact ? (
+      {!showFilters ? null : compact ? (
         <FiltersMenu state={scope} />
       ) : (
         <>
