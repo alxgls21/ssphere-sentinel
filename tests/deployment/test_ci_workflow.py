@@ -11,6 +11,7 @@ every cell, and never to the server's dependencies.
 
 from __future__ import annotations
 
+import json
 import re
 import unittest
 from pathlib import Path
@@ -158,7 +159,9 @@ class PostgresJobTests(unittest.TestCase):
         self.runs = [step.get("run", "").strip() for step in self.steps]
 
     def test_every_supported_major_runs_with_both_django_lines_and_no_cell_may_fail(self):
-        self.assertEqual(self.job["strategy"]["matrix"], {"postgres": ["16", "18"], "django": ["5.2", "6.1"]})
+        self.assertEqual(self.job["strategy"]["matrix"], {
+            "postgres": ["16", "18"], "django": ["5.2", "6.1"], "password": ["password-free", "password-in-dsn"],
+        })
         self.assertIs(self.job["strategy"]["fail-fast"], False)
         self.assertNotIn("continue-on-error", self.job)
         for step in self.steps:
@@ -182,15 +185,18 @@ class PostgresJobTests(unittest.TestCase):
         self.assertEqual(self.job["env"]["POSTGRES_HOST"], "127.0.0.1")
         self.assertEqual(self.job["env"]["POSTGRES_PORT"], "9")
 
-    def test_the_cluster_starts_both_runs_follow_and_it_is_always_removed(self):
-        order = [".github/scripts/postgres-tests.sh start", ".github/scripts/postgres-tests.sh run password-free",
-                 ".github/scripts/postgres-tests.sh run password-in-dsn", ".github/scripts/postgres-tests.sh stop"]
+    def test_the_cluster_starts_the_cell_s_run_follows_and_it_is_always_removed(self):
+        # Each way of giving the password is a cell of its own: one run of the suite each.
+        order = [".github/scripts/postgres-tests.sh start", '.github/scripts/postgres-tests.sh run "${{ matrix.password }}"',
+                 ".github/scripts/postgres-tests.sh stop"]
         positions = [self.runs.index(run) for run in order]
         self.assertEqual(positions, sorted(positions))
-        start, free, dsn, stop = (self.steps[position] for position in positions)
+        start, tests, stop = (self.steps[position] for position in positions)
         self.assertEqual(start["id"], "cluster")
         self.assertNotIn("if", start)
-        self.assertEqual((free["if"], dsn["if"]), (self.TESTS_IF, self.TESTS_IF))
+        self.assertEqual(tests["if"], self.TESTS_IF)
+        self.assertEqual(sum(".github/scripts/postgres-tests.sh run" in run for run in self.runs), 1)
+        self.assertIn("${{ matrix.password }}", self.job["name"])
         self.assertEqual(stop["if"], "always()")
         (log,) = [step for step in self.steps if step.get("name") == "Server log"]
         self.assertEqual(log["if"], "failure() || cancelled()")
@@ -228,6 +234,34 @@ class PostgresJobTests(unittest.TestCase):
             module = (ROOT / "apps" / "core" / "tests" / name).read_text()
             self.assertNotIn("@unittest.skip", module, name)
             self.assertNotIn("raise unittest.SkipTest", module, name)
+
+
+class FrontendJobTests(unittest.TestCase):
+    """The job that checks the browser console: what ``npm run check`` runs, from the lock file."""
+
+    def setUp(self):
+        workflow = load_workflow(self)
+        self.job = workflow["jobs"]["frontend"]
+        self.runs = [step.get("run", "").strip() for step in self.job["steps"]]
+
+    def test_every_check_of_npm_run_check_runs_in_the_frontend_directory(self):
+        self.assertEqual(self.job["defaults"]["run"]["working-directory"], "frontend")
+        order = ["npm ci", "npm run typecheck", "npm run lint", "npm run format:check", "npm test", "npm run build"]
+        positions = [self.runs.index(run) for run in order]
+        self.assertEqual(positions, sorted(positions))
+        package = json.loads((ROOT / "frontend" / "package.json").read_text())
+        for script in ("typecheck", "lint", "format:check", "test", "build"):
+            self.assertIn(f"npm run {script}", package["scripts"]["check"])
+        for step in self.job["steps"]:
+            self.assertNotIn("if", step)
+            self.assertNotIn("continue-on-error", step)
+
+    def test_node_is_pinned_and_new_enough_and_the_install_scripts_never_run(self):
+        (node,) = [step for step in self.job["steps"] if step.get("uses", "").startswith("actions/setup-node@")]
+        self.assertRegex(node["uses"], r"^actions/setup-node@[0-9a-f]{40}$")
+        self.assertGreaterEqual(int(node["with"]["node-version"]), 22)  # frontend/README.md: Node 22.12 or newer
+        self.assertEqual(node["with"]["cache-dependency-path"], "frontend/package-lock.json")
+        self.assertIn("ignore-scripts=true", (ROOT / "frontend" / ".npmrc").read_text())
 
 
 class PostgresTestReportTests(unittest.TestCase):
