@@ -37,8 +37,8 @@ and never need both clusters at once; between them goes a bundle, a directory:
 
              then it records ``restoring`` in the database (the comment on django_migrations,
              which only the owner role can change; every start of web and migrate refuses
-             the database until ``activate`` admits it), empties what the migrations seeded (groups, content types,
-             permissions: the old database's ids replace them), restores the data of the
+             the database until ``activate`` admits it), empties what the migrations seeded (alert rules, groups,
+             content types, permissions: the old database's ids replace them), restores the data of the
              tables in one transaction (``pg_restore --data-only --single-transaction
              --exit-on-error``; the foreign keys are deferred and checked at its end, the
              triggers stay enabled), sets each sequence to give next what the old one would,
@@ -103,10 +103,11 @@ SCHEMA = "public"
 RECORD = "django_migrations"
 RECORD_SEQUENCE = "django_migrations_id_seq"
 # What the migrations of a new installation put in the tables besides django_migrations: the
-# groups of the console, and the content types and permissions of every app. The old database's
-# own replace them (their ids are what the rest of its data refers to). The last two are in every
-# migrated database, so that a destination without them was emptied by an earlier attempt.
-SEEDED = ("auth_group_permissions", "auth_group", "auth_permission", "django_content_type")
+# default alert rules, the groups of the console, and the content types and permissions of every
+# app. The old database's own replace them (their ids are what the rest of its data refers to).
+# The last two are in every migrated database, so that a destination without them was emptied by
+# an earlier attempt.
+SEEDED = ("alerts_alertrule", "auth_group_permissions", "auth_group", "auth_permission", "django_content_type")
 ALWAYS_SEEDED = ("django_content_type", "auth_permission")
 READ_ONLY = "-c default_transaction_read_only=on"
 # What a command of the db container runs with: the login and the database of the container,
