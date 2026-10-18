@@ -37,6 +37,7 @@ function renderApp(route = '/', width = DESKTOP) {
         <Route path="docker" element={<p>docker page</p>} />
         <Route path="alerts" element={<p>alerts page</p>} />
         <Route path="customers" element={<p>customers placeholder</p>} />
+        <Route path="settings/*" element={<p>settings page</p>} />
         <Route path="loading" element={<NeverLoads />} />
         <Route path="boom" element={<Boom />} />
       </Route>
@@ -115,6 +116,25 @@ describe('AppShell: landmarks and skip links', () => {
 })
 
 describe('AppShell: responsive layout', () => {
+  it.each(
+    [DESKTOP, LAPTOP, TABLET, PHONE].flatMap((width) =>
+      ['notifications', 'alert-rules', 'alert-rules/new', 'system'].map((section) => ({
+        width,
+        section,
+      })),
+    ),
+  )('hides monitoring filters on Settings/$section at $width px', async ({ width, section }) => {
+    renderApp(`/settings/${section}?customer=acme&site=athens&range=6h`, width)
+    await act(async () => {})
+    const banner = within(screen.getByRole('banner'))
+    expect(banner.queryByRole('combobox', { name: 'Customer' })).not.toBeInTheDocument()
+    expect(banner.queryByRole('combobox', { name: 'Site' })).not.toBeInTheDocument()
+    expect(banner.queryByRole('radiogroup', { name: 'Time range' })).not.toBeInTheDocument()
+    expect(banner.queryByRole('button', { name: /Filters/ })).not.toBeInTheDocument()
+    expect(banner.queryByText('acme')).not.toBeInTheDocument()
+    expect(banner.queryByText('athens-dc')).not.toBeInTheDocument()
+  })
+
   it('at 1600px shows the expanded sidebar, the full topbar and the status bar', async () => {
     renderApp('/', DESKTOP)
     expect(screen.getByRole('button', { name: 'Collapse sidebar' })).toBeInTheDocument()
@@ -176,7 +196,7 @@ describe('AppShell: navigation drawer', () => {
     expect(dialog().tagName).toBe('DIALOG')
     expect(dialog()).toHaveAttribute('open')
     expect(within(dialog()).getByRole('navigation', { name: 'Primary' })).toBeInTheDocument()
-    expect(within(dialog()).getAllByRole('link')).toHaveLength(8)
+    expect(within(dialog()).getAllByRole('link')).toHaveLength(9)
   })
 
   it('closes on Escape and returns focus to the menu button', async () => {

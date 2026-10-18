@@ -9,14 +9,12 @@ never the SMTP server's own message (which can echo what it was sent).
 from __future__ import annotations
 
 from django.conf import settings
-from django.core import mail
 from django.core.exceptions import ValidationError
 from django.core.management.base import BaseCommand, CommandError
 from django.core.validators import validate_email
-from django.utils import timezone
 
 from apps.alerts.models import DeliveryFailure
-from apps.alerts.notifications import classify, email_enabled, password_missing, smtp_connection
+from apps.alerts.notifications import classify, email_enabled, password_missing, smtp_connection, test_message
 
 
 class Command(BaseCommand):
@@ -37,16 +35,7 @@ class Command(BaseCommand):
         except ValidationError:
             raise CommandError("That is not an email address.") from None
         server = f"{settings.SENTINEL_SMTP_HOST}:{settings.SENTINEL_SMTP_PORT} ({settings.SENTINEL_SMTP_SECURITY})"
-        message = mail.EmailMessage(
-            subject="[Sentinel] Test email",
-            body=(
-                f"This is a test email from SSphere Sentinel, sent at {timezone.now():%Y-%m-%d %H:%M UTC} "
-                f"through {server}.\n\nIncident emails will come from this address.\n"
-            ),
-            from_email=settings.SENTINEL_EMAIL_FROM,
-            to=[address],
-            headers={"Auto-Submitted": "auto-generated"},
-        )
+        message = test_message(address)
         connection = smtp_connection()
         try:
             connection.send_messages([message])

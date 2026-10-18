@@ -51,7 +51,8 @@ frontend/
       types.ts              domain view-models
       client.ts             SentinelApi: the port (one method per panel resource)
       context.ts errors.ts
-      http/                 the console API adapter (transport, session, scope, servers, containers)
+      http/                 the console API adapter (transport, session, scope, servers, containers, targets,
+                            devices, incidents, alert rules, notifications, system)
       mock/                 the sample fleet of servers and containers (development and tests only)
     app/                  providers and cross-cutting state
       providers.tsx         router > data source > prefs > live layer > summary
@@ -73,6 +74,7 @@ frontend/
       overview/           hero/ queue/ load/ health/ alerts/ (latency/ holds components for data the
                           console API does not serve yet; the Overview does not mount them)
       alerts/             incident list (table, cards, filters), incident page (summary, timeline), acknowledge
+      settings/           notifications (preferences, test email), alert rules (list, form), system status
       servers/            list (table, cards, search/filter/sort) and detail (summary with sparklines, history chart, containers)
       placeholder/        honest "not designed yet" screens
       design-system/      dev-only gallery at /_ds
@@ -393,6 +395,53 @@ that cannot be read is an error with Retry, not a blank. The sample fleet record
 its engine has never run; a failed request is always that panel's error, and nothing stands in
 for it.
 
+## Settings screen
+
+`/settings` holds three sections under one layout (`features/settings/SettingsLayout`): **Notifications**
+(`/settings/notifications`), **Alert rules** (`/settings/alert-rules`, `/new` and `/:id`) and **System**
+(`/settings/system`). The section links shown are the ones this account is offered; `/settings` itself
+goes to the first of them. There is no General section: nothing in the console is a global preference.
+Ten methods of `SentinelApi` serve it: `getNotificationSettings`, `saveNotificationPreferences`,
+`requestTestEmail`, `getTestEmail`, `listAlertRules`, `getAlertRule`, `getAlertRuleOptions`,
+`createAlertRule`, `updateAlertRule` and `getSystemStatus`. Each adapter (`api/http/notifications.ts`,
+`alertRules.ts`, `system.ts`) names every field it reads, so nothing an answer holds beyond the contract
+(a secret, were one ever sent) reaches a screen, and names every field it writes: a preference body is
+exactly its three preferences, a rule's change never carries its kind, and a test email names no address.
+
+**Capabilities.** The session carries `capabilities` (`viewAlertRules`, `createAlertRules`,
+`editAlertRules`, `manageOwnNotifications`, `sendTestEmail`, `viewSystemStatus`, and the incidents'
+`acknowledgeIncidents`). `AuthProvider` exposes them through `useAuth`; absent (an anonymous session, an
+older server, the sample fleet) means none. They decide what is offered and when a request is made at
+all: a page whose capability is missing says so and asks the server for nothing. They never decide what is
+allowed: every answer, 403 included, is the server's, and a refused read is shown as a refusal even where
+the session said otherwise.
+
+**Notifications.** The form is the user's own preferences (the address is the account's, read-only here).
+A save sends the three preferences and shows what the server kept; its validation errors, by field, sit
+under the field. The test email panel asks for one test email, to the account's own address, and follows it
+only while it is `pending` or `sending` (`useTestEmail`: one reading every three seconds, slower after a
+failed reading, never after a final status, an unmount or a 404). A 429 reads `Retry-After` into a
+countdown, and 409 `email_disabled`, `no_email_address` and `test_email_pending` are said in words and read
+the settings again. A failure is its category and the server's own label, never a mail server's message.
+
+**Alert rules.** The list is the server's: search, filters (state, kind, severity, scope), sort and page are
+in the URL, and the state chips carry the API's counts. The form's choices (kinds, the conditions of a
+kind, the reasons of a condition, the limits and defaults) come from `alert-rules/options/`: nothing is
+assumed. A rule's kind and its default key are read-only on an existing rule. A change sends only what
+changed, with the `version` that was read (`ruleDraft.toPatch`); a 409 `version_conflict` is never retried
+or overwritten: the form locks, says the rule changed elsewhere and offers to load the latest version.
+Before a change that ends open incidents, `lib/ruleChanges.previewChange` reads the `changeEffects`
+contract (which fields close incidents, why, and which of them) and the rule's open incidents, and the
+screen asks for confirmation with the safe button focused; a change that ends nothing, or finds none open,
+goes straight through. The list's enable and disable action uses the same preview. A rule is never deleted.
+
+**System.** `system/status/` is read-only and only requested for an account that may see it (its counts
+concern every customer). The engine and the notifier are drawn in the state they report: `running` is the
+only healthy one; `failed` is critical, `stale` a warning, `never_started` unknown, and `disabled` idle,
+because a server that sends no email has no notifier to be healthy. The mail server settings shown
+(`smtpConfigured`, `authenticationConfigured`) are what the notifier reported; the deployment's settings
+and retention are read-only text. No password, user name or key is served or shown.
+
 ## Docker screen
 
 `SentinelApi.listContainers` is one page of the containers of every visible server, and the
@@ -502,6 +551,9 @@ BrowserRouter > ModeContext > AuthProvider > ApiProvider > LimitsProvider > Pref
   `http` source, which makes nothing live by itself: the registry says which features the
   console reads (`overview`, `servers`, `site-links`). Adding a method and marking its
   feature connected is how a screen goes live, together.
+- **Capabilities.** What the account may do beyond reading (`capabilities` of the session, refreshed
+  with it every minute) is carried by `useAuth().capabilities`. It is an offer, not a permission: a screen
+  hides or disables what the account cannot do, and the server still decides on every request.
 - **Limits.** The health limits the console API publishes with the session
   (`thresholds`) are what the meters, the history chart and the footers use
   (`app/LimitsProvider`, read through `useResourceLimits`); without them (mock mode)
@@ -510,9 +562,10 @@ BrowserRouter > ModeContext > AuthProvider > ApiProvider > LimitsProvider > Pref
 
 ## Routing and navigation
 
-All eight screens are routed from day one. **Overview**, **Servers** (`/servers`,
-`/servers/:id`) and **Docker** (`/docker`) are designed; the others render an explicit placeholder. `config/nav.ts` drives the sidebar, the
-palette, the `g <key>` go-to chords and route titles.
+All nine screens are routed. **Overview**, **Servers** (`/servers`, `/servers/:id`), **Docker** (`/docker`),
+**Network**, **SNMP**, **Topology**, **Alerts** and **Settings** (above) are designed; **Customers & Sites**
+renders an explicit placeholder. `config/nav.ts` drives the sidebar, the palette, the `g <key>` go-to chords
+(`g e` opens Settings) and route titles.
 
 Responsive: Tailwind breakpoints `sm 40rem`, `md 48rem`, `lg 64rem`, `xl 80rem`,
 `2xl 90rem`. Below `md` an app bar replaces the top bar; below `lg` the sidebar is
@@ -553,6 +606,13 @@ STALE tag, and only marks and large figures dim.
   status hues and the greys under simulated color vision.
 - `app/auth`, `api/http`, `app/providers.test.tsx`: the transport (CSRF, 401, timeouts), the session
   state, the route guard, `next` handling and the production-mode refusal.
+- `features/settings/`: each page against a stubbed port: who is offered what (and that nothing is
+  requested without a capability), the notification form and its errors, the test email lifecycle (fake
+  timers: polling only while open, stopping at a final status, the `Retry-After` countdown, the 409 codes),
+  the rule list (filters in the URL, paging, phone cards, enabling and disabling), the rule form (create,
+  edit, field errors, the immutable kind, the version conflict, the closure warning from the contract) and
+  the system page (every notifier state, no secret). `api/http/*.test.ts` hold the adapters, including what
+  each request is allowed to carry.
 - `architecture.test.ts`: the layering rules above, and that every chart goes
   through `ChartFrame` (nothing else calls the chart runtime).
 - `features/design-system/chartContract.test.tsx`: the chart interaction contract

@@ -1,7 +1,7 @@
 import { act, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import type { AuthClient, ConsoleSession } from '@/api/auth'
+import { NO_CAPABILITIES, type AuthClient, type ConsoleSession } from '@/api/auth'
 import { ApiError } from '@/api/errors'
 import { AuthProvider, REVALIDATE_MS } from './AuthProvider'
 import { useAuth } from './auth'
@@ -32,6 +32,12 @@ function Probe() {
       <output aria-label="status">{auth.status}</output>
       <output aria-label="user">{auth.user?.username ?? 'nobody'}</output>
       <output aria-label="signed-out">{String(auth.signedOut)}</output>
+      <output aria-label="capabilities">
+        {Object.entries(auth.capabilities)
+          .filter(([, granted]) => granted)
+          .map(([name]) => name)
+          .join(',')}
+      </output>
       <output aria-label="error">{auth.error ?? ''}</output>
       <button onClick={() => void auth.signIn('alice', 'pw').catch(() => {})}>in</button>
       <button onClick={() => void auth.signOut()}>out</button>
@@ -402,6 +408,101 @@ describe('AuthProvider', () => {
       await waitFor(() => expect(status()).toBe('authenticated'))
       act(() => signals.forbidden.emit())
       await waitFor(() => expect(status()).toBe('denied'))
+    })
+  })
+
+  describe('capabilities', () => {
+    const GRANTED = {
+      ...NO_CAPABILITIES,
+      viewAlertRules: true,
+      manageOwnNotifications: true,
+    }
+    const capabilities = () => screen.getByLabelText('capabilities').textContent
+
+    it('carries what the server says the signed-in account may do', async () => {
+      render(
+        <AuthProvider
+          client={client({ getSession: vi.fn(async () => ({ ...ALICE, capabilities: GRANTED })) })}
+        >
+          <Probe />
+        </AuthProvider>,
+      )
+      await waitFor(() => expect(status()).toBe('authenticated'))
+      expect(capabilities()).toBe('viewAlertRules,manageOwnNotifications')
+    })
+
+    it('offers nothing while the server is being asked, and to nobody', async () => {
+      render(
+        <AuthProvider client={client()}>
+          <Probe />
+        </AuthProvider>,
+      )
+      expect(capabilities()).toBe('')
+      await waitFor(() => expect(status()).toBe('anonymous'))
+      expect(capabilities()).toBe('')
+    })
+
+    it('offers nothing when the session carries none (an older server)', async () => {
+      render(
+        <AuthProvider client={client({ getSession: vi.fn(async () => ALICE) })}>
+          <Probe />
+        </AuthProvider>,
+      )
+      await waitFor(() => expect(status()).toBe('authenticated'))
+      expect(capabilities()).toBe('')
+    })
+
+    it('offers nothing in mock mode, where there are no accounts', () => {
+      render(
+        <AuthProvider client={null}>
+          <Probe />
+        </AuthProvider>,
+      )
+      expect(capabilities()).toBe('')
+    })
+
+    it('takes the capabilities of a sign-in, and drops them at sign-out', async () => {
+      const user = userEvent.setup()
+      render(
+        <AuthProvider
+          client={client({
+            signIn: vi.fn(async () => ({ ...ALICE, capabilities: GRANTED })),
+            signOut: vi.fn(async () => ANON),
+          })}
+        >
+          <Probe />
+        </AuthProvider>,
+      )
+      await waitFor(() => expect(status()).toBe('anonymous'))
+      await user.click(screen.getByRole('button', { name: 'in' }))
+      await waitFor(() => expect(capabilities()).toBe('viewAlertRules,manageOwnNotifications'))
+      await user.click(screen.getByRole('button', { name: 'out' }))
+      await waitFor(() => expect(status()).toBe('anonymous'))
+      expect(capabilities()).toBe('')
+    })
+
+    it('follows the server when its answer changes: a right taken away is not offered any more', async () => {
+      vi.useFakeTimers()
+      const getSession = vi
+        .fn<AuthClient['getSession']>()
+        .mockResolvedValueOnce({ ...ALICE, capabilities: GRANTED })
+        .mockResolvedValue({
+          ...ALICE,
+          capabilities: { ...NO_CAPABILITIES, manageOwnNotifications: true },
+        })
+      render(
+        <AuthProvider client={client({ getSession })}>
+          <Probe />
+        </AuthProvider>,
+      )
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(0)
+      })
+      expect(capabilities()).toBe('viewAlertRules,manageOwnNotifications')
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(REVALIDATE_MS + 10)
+      })
+      expect(capabilities()).toBe('manageOwnNotifications')
     })
   })
 

@@ -98,6 +98,11 @@ export function createMockApi(options: MockApiOptions = {}): SentinelApi {
     })
   }
 
+  const noSettings = (method: string, signal: AbortSignal | undefined) =>
+    respond<never>(method, signal, () => {
+      throw new ApiError('The sample fleet has no settings.', 403, 'forbidden')
+    })
+
   const estateAt = (clock: Clock, scope?: Scope): Estate =>
     scopeEstate(buildEstate(behavior.profile, clock), scope)
 
@@ -241,6 +246,20 @@ export function createMockApi(options: MockApiOptions = {}): SentinelApi {
         critical: 0,
         recent: [],
       })),
+
+    // The sample fleet has no accounts, no alert rules and no notifier: nothing of the settings
+    // exists in it, and every method says so. The screens never ask: no capability is offered.
+    getNotificationSettings: (request) => noSettings('getNotificationSettings', request?.signal),
+    saveNotificationPreferences: (_input, request) =>
+      noSettings('saveNotificationPreferences', request?.signal),
+    requestTestEmail: (request) => noSettings('requestTestEmail', request?.signal),
+    getTestEmail: (_id, request) => noSettings('getTestEmail', request?.signal),
+    listAlertRules: (request) => noSettings('listAlertRules', request?.signal),
+    getAlertRule: (_id, request) => noSettings('getAlertRule', request?.signal),
+    getAlertRuleOptions: (request) => noSettings('getAlertRuleOptions', request?.signal),
+    createAlertRule: (_input, request) => noSettings('createAlertRule', request?.signal),
+    updateAlertRule: (_id, _patch, request) => noSettings('updateAlertRule', request?.signal),
+    getSystemStatus: (request) => noSettings('getSystemStatus', request?.signal),
 
     getTopology: (request) =>
       scoped('getTopology', request, ({ fleet }, { now }) => mockTopology(fleet, now, request)),

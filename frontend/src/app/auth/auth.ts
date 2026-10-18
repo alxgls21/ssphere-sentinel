@@ -1,5 +1,5 @@
 import { createContext, useContext } from 'react'
-import type { ConsoleUser, PublishedThresholds } from '@/api/auth'
+import type { ConsoleUser, PublishedThresholds, SessionCapabilities } from '@/api/auth'
 
 /**
  *   checking     asking the server who is signed in
@@ -27,6 +27,12 @@ export interface AuthApi {
   user: ConsoleUser | null
   /** The limits the server judges health by; null in mock mode and while nobody is signed in. */
   thresholds: PublishedThresholds | null
+  /**
+   * What the account may do, as the server last said (it asks again every minute). Nothing is
+   * offered in mock mode and while nobody is signed in. It decides what a screen shows, never
+   * what is allowed: the server checks every request.
+   */
+  capabilities: SessionCapabilities
   /** True after an explicit sign-out: the sign-in page then does not remember where the user was. */
   signedOut: boolean
   /** Why the last check or sign-out failed, for the screens that say so. */

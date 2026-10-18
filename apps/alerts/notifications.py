@@ -73,12 +73,18 @@ from apps.alerts.models import (
     Notification,
     NotificationKind,
     NotificationSubscription,
+    NotifierErrorCategory,
+    NotifierHeartbeat,
+    TestEmailFailure,
+    TestEmailRequest,
 )
 from apps.console.access import USE_CONSOLE, Visibility
 
 logger = logging.getLogger("apps.alerts.notifier")
 
 BATCH = 100
+# Seconds between the notifier's runs, by default (``run_notifier --interval``).
+NOTIFIER_INTERVAL = 15
 MAX_PER_EMAIL = 50
 MAX_ATTEMPTS = 8
 BACKOFF_BASE_SECONDS = 60
@@ -198,6 +204,11 @@ class DeliveryReport:
     cancelled: int = 0
     released: int = 0
     failures: dict[str, int] = field(default_factory=dict)
+    # The failure of the connection that put off (part of) the run, and when: the SMTP
+    # server was not to be had. When the run last reached it (and logged in).
+    put_off: str | None = None
+    put_off_at: datetime | None = None
+    reached_at: datetime | None = None
 
     def note(self, failure: str, count: int) -> None:
         self.failures[failure] = self.failures.get(failure, 0) + count
@@ -240,6 +251,14 @@ def classify(error: BaseException) -> str:
     if isinstance(error, OSError):
         return DeliveryFailure.CONNECTION  # refused, unreachable, a name that does not resolve
     return DeliveryFailure.INTERNAL
+
+
+def connection_failure(error: BaseException) -> str:
+    """The category of a failure to open the connection: before any email, whatever the
+    server said (a 4xx or 5xx to EHLO or STARTTLS too), it is about the connection, and
+    the emails are tried again."""
+    failure = classify(error)
+    return failure if failure in CONNECTION_LEVEL else DeliveryFailure.CONNECTION
 
 
 def backoff(attempts: int) -> timedelta:
@@ -475,12 +494,10 @@ def deliver(now: datetime, *, limit: int = BATCH, should_stop: Callable[[], bool
                 try:
                     # One connection for the run (send_messages would open and close one per call).
                     connection.open()
+                    report.reached_at = timezone.now()
                 except Exception as error:  # noqa: BLE001 - recorded on every row it puts off
-                    # Before any email: whatever the server said (a 5xx to EHLO or STARTTLS too),
-                    # it is about the connection, and the emails are tried again.
-                    failure = classify(error)
-                    put_off = failure if failure in TEMPORARY else DeliveryFailure.CONNECTION
-                    logger.warning("SMTP server not available: %s; the emails of this run are put off", failure)
+                    put_off, report.put_off_at = connection_failure(error), timezone.now()
+                    logger.warning("SMTP server not available: %s; the emails of this run are put off", put_off)
             chunks = [items[start : start + MAX_PER_EMAIL] for start in range(0, len(items), MAX_PER_EMAIL)]
             stopped = False
             for index, chunk in enumerate(chunks):
@@ -501,16 +518,242 @@ def deliver(now: datetime, *, limit: int = BATCH, should_stop: Callable[[], bool
                     )
                     _retry_or_fail(chunk, token, failure, now, report)
                     if failure in CONNECTION_LEVEL:
-                        put_off = failure  # the server is not to be had: the rest waits for the next try
+                        # The server is not to be had: the rest waits for the next try.
+                        put_off, report.put_off_at = failure, timezone.now()
                     continue
-                report.sent += _finish(chunk, token, status=Notification.Status.SENT, sent_at=timezone.now(), failure="")
+                report.reached_at = timezone.now()
+                report.sent += _finish(chunk, token, status=Notification.Status.SENT, sent_at=report.reached_at, failure="")
                 report.emails += 1
             if stopped:
                 break
     finally:
+        report.put_off = put_off
         if connection is not None:
             try:
                 connection.close()
             except Exception:  # noqa: BLE001 - a connection that broke is closed already
                 pass
     return report
+
+
+# -- test emails (asked for in the console, sent here) ----------------------------------
+
+SEND_TEST_EMAIL = "alerts.send_test_email"
+# At most one a minute per user, one open at a time, and given up after ten minutes.
+TEST_EMAIL_EVERY = timedelta(minutes=1)
+TEST_EMAIL_EXPIRY = timedelta(minutes=10)
+TEST_EMAIL_BATCH = 20
+# How long a run holds a test email, from the moment it begins sending it (the lease is
+# taken again then): longer than one email can take, a dozen SMTP replies within
+# SENTINEL_SMTP_TIMEOUT (at most a minute) each.
+TEST_EMAIL_LEASE = timedelta(minutes=15)
+
+
+def test_message(address: str) -> mail.EmailMessage:
+    """The test email, from ``send_test_email`` or a console request: it names the server, never a credential."""
+    server = f"{settings.SENTINEL_SMTP_HOST}:{settings.SENTINEL_SMTP_PORT} ({settings.SENTINEL_SMTP_SECURITY})"
+    return mail.EmailMessage(
+        subject="[Sentinel] Test email",
+        body=(
+            f"This is a test email from SSphere Sentinel, sent at {timezone.now():%Y-%m-%d %H:%M UTC} "
+            f"through {server}.\n\nIncident emails will come from this address.\n"
+        ),
+        from_email=settings.SENTINEL_EMAIL_FROM,
+        to=[address],
+        headers={"Auto-Submitted": "auto-generated", "X-Auto-Response-Suppress": "All"},
+    )
+
+
+def test_email_refusal(user) -> str | None:
+    """Why ``user`` may not have a test email now (``TestEmailFailure``), or None."""
+    if user is None or not user.is_active or not user.email or not user.has_perm(USE_CONSOLE):
+        return TestEmailFailure.RECIPIENT_UNAVAILABLE
+    if not user.has_perm(SEND_TEST_EMAIL):
+        return TestEmailFailure.NOT_PERMITTED
+    return None
+
+
+def expire_test_emails(now: datetime, *, user_id=None) -> int:
+    """Give up the test emails no notifier sent in time: pending past ``expires_at``, or held by
+    a run whose lease ran out (it stopped mid-send; a test email is never sent twice)."""
+    requests = TestEmailRequest.objects.all() if user_id is None else TestEmailRequest.objects.filter(requested_by_id=user_id)
+    ended = {"status": TestEmailRequest.Status.EXPIRED, "failure": TestEmailFailure.EXPIRED, "finished_at": now}
+    with transaction.atomic():
+        count = requests.filter(status=TestEmailRequest.Status.PENDING, expires_at__lte=now).update(**ended)
+        count += requests.filter(status=TestEmailRequest.Status.SENDING, lease_expires_at__lte=now).update(
+            claim=None, lease_expires_at=None, **ended
+        )
+    return count
+
+
+@dataclass
+class TestEmailReport:
+    claimed: int = 0
+    sent: int = 0
+    failed: int = 0
+    cancelled: int = 0
+    released: int = 0
+    # As for DeliveryReport.
+    put_off: str | None = None
+    put_off_at: datetime | None = None
+    reached_at: datetime | None = None
+
+    def __str__(self) -> str:
+        return (
+            f"{self.sent} test email(s) sent, {self.failed} failed, {self.cancelled} not sent, "
+            f"{self.released} handed back"
+        )
+
+
+def _end_test_email(row: TestEmailRequest, token: uuid.UUID, status: str, failure: str = "") -> int:
+    with transaction.atomic():
+        return TestEmailRequest.objects.filter(pk=row.pk, claim=token, status=TestEmailRequest.Status.SENDING).update(
+            status=status, failure=failure, claim=None, lease_expires_at=None, finished_at=timezone.now()
+        )
+
+
+def deliver_test_emails(
+    now: datetime, *, limit: int = TEST_EMAIL_BATCH, should_stop: Callable[[], bool] | None = None
+) -> TestEmailReport:
+    """Send the test emails asked for: claimed as the outbox is (``FOR UPDATE SKIP LOCKED``), each
+    checked again just before it is sent, sent once to the account's address as it is then."""
+    report = TestEmailReport()
+    expire_test_emails(now)
+    token = uuid.uuid4()
+    with transaction.atomic():
+        ids = list(
+            TestEmailRequest.objects.select_for_update(skip_locked=True)
+            .filter(status=TestEmailRequest.Status.PENDING, expires_at__gt=now)
+            .order_by("created_at", "pk")
+            .values_list("pk", flat=True)[:limit]
+        )
+        if ids:
+            TestEmailRequest.objects.filter(pk__in=ids).update(
+                status=TestEmailRequest.Status.SENDING, claim=token, lease_expires_at=now + TEST_EMAIL_LEASE
+            )
+    report.claimed = len(ids)
+    if not ids:
+        return report
+    rows = list(TestEmailRequest.objects.filter(pk__in=ids, claim=token).order_by("created_at", "pk"))
+    connection = None
+    put_off: str | None = None
+    try:
+        for position, row in enumerate(rows):
+            if should_stop is not None and should_stop():
+                with transaction.atomic():
+                    report.released = TestEmailRequest.objects.filter(
+                        pk__in=[left.pk for left in rows[position:]], claim=token, status=TestEmailRequest.Status.SENDING
+                    ).update(status=TestEmailRequest.Status.PENDING, claim=None, lease_expires_at=None)
+                break
+            user = get_user_model().objects.filter(pk=row.requested_by_id).first()
+            refusal = test_email_refusal(user)
+            if refusal is not None:
+                report.cancelled += _end_test_email(row, token, TestEmailRequest.Status.CANCELLED, refusal)
+                continue
+            if put_off is None and connection is None:
+                connection = smtp_connection()
+                try:
+                    connection.open()
+                    report.reached_at = timezone.now()
+                except Exception as error:  # noqa: BLE001 - recorded on each request it fails
+                    put_off, report.put_off_at = connection_failure(error), timezone.now()
+            failure = put_off
+            if failure is None:
+                # Held again from now: a slow server never lets another run (or the user's
+                # page) take it for one that was not sent. Gone meanwhile: someone gave it up.
+                with transaction.atomic():
+                    held = TestEmailRequest.objects.filter(
+                        pk=row.pk, claim=token, status=TestEmailRequest.Status.SENDING
+                    ).update(lease_expires_at=timezone.now() + TEST_EMAIL_LEASE)
+                if not held:
+                    continue
+                try:
+                    if connection.send_messages([test_message(user.email)]) != 1:
+                        raise RuntimeError("the SMTP backend sent nothing")  # internal
+                except Exception as error:  # noqa: BLE001 - recorded on the request, by category
+                    failure = classify(error)
+                    if failure in CONNECTION_LEVEL:
+                        put_off, report.put_off_at = failure, timezone.now()
+            if failure is None:
+                report.reached_at = timezone.now()
+                report.sent += _end_test_email(row, token, TestEmailRequest.Status.SENT)
+            else:
+                logger.warning("test email for user %s not sent: %s", row.requested_by_id, failure)
+                report.failed += _end_test_email(row, token, TestEmailRequest.Status.FAILED, failure)
+    finally:
+        report.put_off = put_off
+        if connection is not None:
+            try:
+                connection.close()
+            except Exception:  # noqa: BLE001 - a connection that broke is closed already
+                pass
+    return report
+
+
+# -- the notifier's heartbeat ----------------------------------------------------------
+
+
+def _configured() -> dict:
+    """What the notifier's own settings say: whether email is on, and whether it logs in. Never the values."""
+    return {
+        "server_configured": email_enabled(),
+        "authentication_configured": bool(settings.SENTINEL_SMTP_USER and settings.SENTINEL_SMTP_PASSWORD),
+    }
+
+
+def server_events(reached_at: datetime | None, error_at: datetime | None, error: str | None) -> dict:
+    """The heartbeat's fields for what a cycle saw of the SMTP server: only what happened."""
+    fields = {}
+    if reached_at is not None:
+        fields["server_reached_at"] = reached_at
+    if error_at is not None:
+        fields["server_error_at"] = error_at
+        fields["server_error_category"] = error if error in NotifierErrorCategory.values else DeliveryFailure.CONNECTION
+    return fields
+
+
+def record_notifier_beat(
+    now: datetime, *, started_at: datetime, interval: int, duration_ms: int, server: dict | None = None
+) -> None:
+    """A completed cycle, and what it saw of the SMTP server (``server_events``)."""
+    NotifierHeartbeat.objects.update_or_create(
+        pk=1,
+        defaults={
+            "started_at": started_at,
+            "beat_at": now,
+            "active_at": now,
+            "last_cycle_ms": duration_ms,
+            "interval_seconds": interval,
+            **(server or {}),
+            **_configured(),
+        },
+    )
+
+
+def record_notifier_failure(
+    now: datetime, *, started_at: datetime, interval: int, error: BaseException, server: dict | None = None
+) -> None:
+    """A failed cycle: when, its kind and the exception's type (its message could carry a
+    value); and what it saw of the SMTP server before it failed."""
+    from apps.alerts.engine import error_category  # the engine imports this module
+
+    NotifierHeartbeat.objects.update_or_create(
+        pk=1,
+        defaults={
+            "started_at": started_at,
+            "interval_seconds": interval,
+            "active_at": now,
+            "last_error_at": now,
+            "last_error_category": error_category(error),
+            "last_error_type": type(error).__name__[:100],
+            **(server or {}),
+            **_configured(),
+        },
+    )
+
+
+def record_notifier_activity(now: datetime, *, started_at: datetime, interval: int) -> None:
+    """A sign of life: at the start of a cycle and, now and then, between its emails."""
+    NotifierHeartbeat.objects.update_or_create(
+        pk=1, defaults={"started_at": started_at, "interval_seconds": interval, "active_at": now, **_configured()}
+    )

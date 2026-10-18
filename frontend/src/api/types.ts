@@ -1,3 +1,4 @@
+import type { PublishedThresholds } from './auth'
 /**
  * Domain view-models consumed by the UI.
  *
@@ -1029,4 +1030,281 @@ export interface IncidentOverview {
   /** Open and critical. */
   critical: number
   recent: IncidentItem[]
+}
+
+/* ---------------------------------------------------------------- settings */
+
+/** The state of a background process the console watches: the alert engine, the notifier. */
+export type NotifierState = 'running' | 'failed' | 'stale' | 'never_started' | 'disabled'
+
+/** A console user's own email preferences. `updatedAt` null: nothing was ever saved (the defaults show). */
+export interface NotificationPreferences {
+  enabled: boolean
+  minSeverity: AlertSeverity
+  sendRecovery: boolean
+  updatedAt: Iso | null
+}
+
+/**
+ * pending: queued, no notifier has taken it. sending: a notifier is sending it. sent, failed,
+ * cancelled and expired are final. A test email is sent once and never retried.
+ */
+export type TestEmailStatus = 'pending' | 'sending' | 'sent' | 'failed' | 'cancelled' | 'expired'
+
+/** Why a test email was not sent, by category, with the server's own words for it. Never an SMTP message. */
+export interface TestEmailFailure {
+  category: string
+  label: string
+}
+
+export interface TestEmail {
+  id: string
+  status: TestEmailStatus
+  failure: TestEmailFailure | null
+  createdAt: Iso
+  expiresAt: Iso
+  finishedAt: Iso | null
+}
+
+export interface NotificationSettings {
+  generatedAt: Iso
+  preferences: NotificationPreferences
+  /** The address is the account's own, read-only here: an administrator sets it. */
+  account: { email: string | null }
+  /** `available`: this server sends email. `deliverable`: and the account has an address. */
+  email: { available: boolean; deliverable: boolean }
+  /** `allowed`: this account may ask for a test email. `latest`: its latest request, if any. */
+  testEmail: { allowed: boolean; latest: TestEmail | null }
+}
+
+/** What the preferences are saved as: exactly these three. */
+export interface NotificationPreferencesInput {
+  enabled: boolean
+  minSeverity: AlertSeverity
+  sendRecovery: boolean
+}
+
+/** A test email as it was asked for or read, with the state of the notifier that has to send it. */
+export interface TestEmailAnswer {
+  generatedAt: Iso
+  item: TestEmail
+  notifier: { state: NotifierState }
+}
+
+export type RuleScopeType = 'all' | 'customer' | 'site'
+
+/** What an alert rule is for: every object, one customer's, or one site's. */
+export interface AlertRuleScope {
+  type: RuleScopeType
+  customerId: string | null
+  customerName: string | null
+  siteId: string | null
+  siteName: string | null
+}
+
+export interface AlertRule {
+  id: string
+  /** Names the rules Sentinel installed; read-only. Null for a rule an operator made. */
+  key: string | null
+  name: string
+  description: string
+  enabled: boolean
+  /** The kind of object it concerns. It never changes. */
+  kind: IncidentEntityKind
+  /** The health it fires on, and optionally only for one reason of the kind (null: any). */
+  health: IncidentConditionHealth
+  reason: string | null
+  severity: AlertSeverity
+  activationSeconds: number
+  recoverySeconds: number
+  scope: AlertRuleScope
+  openIncidents: number
+  createdAt: Iso
+  updatedAt: Iso
+  /** Sent back with every change: a rule changed meanwhile is a conflict, never an overwrite. */
+  version: number
+  /** This user may change this rule (the capability, and the rule). */
+  canEdit: boolean
+}
+
+export type RuleEnabledFilter = 'all' | 'enabled' | 'disabled'
+export type RuleScopeFilter = 'all' | 'global' | 'customer' | 'site'
+export type RuleSortKey = 'name' | 'kind' | 'severity' | 'updated'
+
+/** Rules are global: the top bar's scope does not narrow them, and `scope` is the rules' own filter. */
+export interface AlertRuleListOptions extends Pick<RequestOptions, 'signal'> {
+  /** Words, every one of which must appear in the name, description, customer or site. */
+  q?: string
+  enabled?: RuleEnabledFilter
+  kind?: IncidentKindFilter
+  severity?: IncidentSeverityFilter
+  scope?: RuleScopeFilter
+  sort?: RuleSortKey
+  dir?: SortDirection
+  /** 1-based. */
+  page?: number
+  pageSize?: number
+}
+
+export interface AlertRuleList {
+  generatedAt: Iso
+  items: AlertRule[]
+  page: PageInfo
+  /** Over every filter but `enabled`, so the chips stay true. */
+  counts: { enabled: number; disabled: number }
+  /** Every rule, whatever the search and filters. */
+  scopeTotal: number
+}
+
+/** What closing an incident under a rule may follow from a change. */
+export type RuleClosure = 'rule_disabled' | 'rule_changed' | 'out_of_scope'
+
+/**
+ * Which changes end the rule's open incidents, as the API states them: by field, why they end
+ * (`closes`) and which of them (`which`). `to` is the value that does it, where one value does.
+ */
+export type ChangeEffects = Record<string, { to?: boolean; closes: RuleClosure; which: string }>
+
+export interface AlertRuleDetail {
+  generatedAt: Iso
+  item: AlertRule
+  changeEffects: ChangeEffects
+}
+
+/** What a rule is created with. The server fills the rest with the defaults the options list. */
+export interface AlertRuleInput {
+  name: string
+  description?: string
+  enabled?: boolean
+  kind: IncidentEntityKind
+  health: IncidentConditionHealth
+  /** Null: any reason. */
+  reason?: string | null
+  severity: AlertSeverity
+  activationSeconds?: number
+  recoverySeconds?: number
+  /** At most one of the two. */
+  customerId?: string | null
+  siteId?: string | null
+}
+
+/** A change: only the fields that change, and the version that was read. The kind never changes. */
+export type AlertRulePatch = Partial<Omit<AlertRuleInput, 'kind'>> & { version: number }
+
+/** What a change did to the rule's open incidents, when the engine next runs. */
+export interface RuleEffects {
+  /** How many were open when the change was made. */
+  openIncidents: number
+  closes: RuleClosure[]
+  closesAll: boolean
+}
+
+/** A saved change. `effects` is null when nothing changed: the rule is as it was, its version too. */
+export interface AlertRuleChange {
+  generatedAt: Iso
+  item: AlertRule
+  effects: RuleEffects | null
+}
+
+export interface RuleConditionOption {
+  health: IncidentConditionHealth
+  label: string
+  /** The reasons a rule of this kind and this health may be narrowed to. */
+  reasons: string[]
+}
+
+export interface RuleKindOption {
+  value: IncidentEntityKind
+  label: string
+  conditions: RuleConditionOption[]
+}
+
+/** What the server accepts, to build a rule form from: nothing is assumed in the console. */
+export interface AlertRuleOptions {
+  generatedAt: Iso
+  kinds: RuleKindOption[]
+  severities: { value: AlertSeverity; label: string }[]
+  defaults: { enabled: boolean; activationSeconds: number; recoverySeconds: number }
+  limits: { maxDurationSeconds: number; nameMaxLength: number; descriptionMaxLength: number }
+  changeEffects: ChangeEffects
+}
+
+/** The alert engine's state without its own timestamp (the status carries one). */
+export type EngineBody = Omit<EngineStatus, 'generatedAt'>
+
+export interface NotifierStatus {
+  state: NotifierState
+  stale: boolean
+  staleAfterSeconds: number
+  intervalSeconds: number | null
+  startedAt: Iso | null
+  lastSuccessAt: Iso | null
+  lastAttemptAt: Iso | null
+  /** Its latest sign of life, also between the emails of a long cycle. */
+  lastActiveAt: Iso | null
+  lastSmtpSuccessAt: Iso | null
+  lastCycleMs: number | null
+  /** The notifier's own failure: its database, or itself. */
+  lastError: { at: Iso; category: 'database' | 'internal' } | null
+  /** The mail server it could not reach or log in to, and why, by category. */
+  lastSmtpError: {
+    at: Iso
+    category: 'connection' | 'timeout' | 'tls' | 'authentication'
+  } | null
+  /** What the notifier itself reported: whether a mail server is set, and whether it logs in. Null before its first cycle. */
+  smtpConfigured: boolean | null
+  authenticationConfigured: boolean | null
+}
+
+export interface OutboxSummary {
+  pending: number
+  sending: number
+  oldestPendingAt: Iso | null
+  /** Emails that waited longer than they may. */
+  overdue: number
+  last24Hours: {
+    created: number
+    sent: number
+    failed: number
+    cancelled: number
+    /** By category: how many emails did not go, and why. */
+    failures: Record<string, number>
+  }
+  testEmails: { open: number; last24Hours: Record<TestEmailStatus, number> }
+}
+
+export type EmailSecurity = 'starttls' | 'tls' | 'none'
+
+/** What the deployment sets (its environment), shown here and changed there. Never a secret. */
+export interface SystemEnvironment {
+  email: {
+    enabled: boolean
+    host: string | null
+    port: number
+    security: EmailSecurity
+    fromAddress: string | null
+    timeoutSeconds: number
+    maxAgeHours: number
+    consoleUrl: string | null
+  }
+  retention: {
+    incidentDays: number
+    notificationDays: number
+    networkMeasurementDays: number
+    snmpDays: number
+    telemetryDays: number
+    absentContainerDays: number
+  }
+  monitoring: {
+    offlineThresholdSeconds: number
+    thresholds: PublishedThresholds
+  }
+}
+
+export interface SystemStatus {
+  generatedAt: Iso
+  alertEngine: EngineBody
+  notifier: NotifierStatus
+  outbox: OutboxSummary
+  environment: SystemEnvironment
 }

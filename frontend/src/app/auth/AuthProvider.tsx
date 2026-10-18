@@ -1,5 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
-import type { AuthClient, ConsoleSession, ConsoleUser, PublishedThresholds } from '@/api/auth'
+import {
+  NO_CAPABILITIES,
+  type AuthClient,
+  type ConsoleSession,
+  type ConsoleUser,
+  type PublishedThresholds,
+  type SessionCapabilities,
+} from '@/api/auth'
 import { ApiError } from '@/api/errors'
 import { AuthContext, type AuthApi, type AuthStatus } from './auth'
 import type { SessionSignals } from './signals'
@@ -14,6 +21,8 @@ interface State {
   signedOut: boolean
   /** The limits the server judges health by, from the signed-in session. */
   thresholds?: PublishedThresholds
+  /** What the signed-in account may do, from the same session. */
+  capabilities?: SessionCapabilities
 }
 
 /** While the server is being told to end the session, or could not be, no answer may show the app. */
@@ -29,6 +38,7 @@ function fromSession(session: ConsoleSession, previous: AuthStatus): State {
       error: null,
       signedOut: false,
       ...(session.thresholds ? { thresholds: session.thresholds } : {}),
+      ...(session.capabilities ? { capabilities: session.capabilities } : {}),
     }
   }
   if (session.reason === 'no_console_access')
@@ -163,6 +173,7 @@ export function AuthProvider({ client, signals, children }: AuthProviderProps) {
     () => ({
       ...state,
       thresholds: state.thresholds ?? null,
+      capabilities: state.capabilities ?? NO_CAPABILITIES,
       signIn,
       signOut,
       refresh: () => {

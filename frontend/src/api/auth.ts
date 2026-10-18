@@ -19,6 +19,31 @@ export interface PublishedThresholds {
 }
 
 /**
+ * What the console API says this account may do beyond reading what its grants let it see. It only
+ * tells the screens what to offer: every action is checked again by the server.
+ */
+export interface SessionCapabilities {
+  acknowledgeIncidents: boolean
+  viewAlertRules: boolean
+  createAlertRules: boolean
+  editAlertRules: boolean
+  manageOwnNotifications: boolean
+  sendTestEmail: boolean
+  viewSystemStatus: boolean
+}
+
+/** Nothing offered: an anonymous session, an answer without capabilities, the sample fleet. */
+export const NO_CAPABILITIES: SessionCapabilities = {
+  acknowledgeIncidents: false,
+  viewAlertRules: false,
+  createAlertRules: false,
+  editAlertRules: false,
+  manageOwnNotifications: false,
+  sendTestEmail: false,
+  viewSystemStatus: false,
+}
+
+/**
  * `reason` is only ever set on an anonymous answer: `no_console_access` means
  * the session is valid but the account may not use the console.
  */
@@ -30,6 +55,8 @@ export interface ConsoleSession {
   allCustomers: boolean
   /** The limits behind the server's health verdicts. Absent for an anonymous session. */
   thresholds?: PublishedThresholds
+  /** What this account may do. Absent for an anonymous session. */
+  capabilities?: SessionCapabilities
 }
 
 export interface AuthClient {

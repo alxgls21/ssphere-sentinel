@@ -16,7 +16,7 @@ import { MockChip } from '@/ui/provenance/Chips'
  * and the freshness cursor. The status bar is hidden on phones, so the MOCK
  * chip is what keeps a screenshot honest.
  */
-export function AppBar() {
+export function AppBar({ showFilters = true }: { showFilters?: boolean }) {
   const demo = useShowsDemoData()
   const { setMobileNavOpen, openPalette } = useShell()
   const scope = useScopeState()
@@ -32,7 +32,7 @@ export function AppBar() {
       <Wordmark nameYieldsOnPhones />
       <div className="ml-auto flex items-center gap-2">
         {demo ? <MockChip compact /> : null}
-        <FiltersMenu state={scope} iconOnly />
+        {showFilters ? <FiltersMenu state={scope} iconOnly /> : null}
         <IconButton
           aria-label="Search or run a command"
           icon={Search}

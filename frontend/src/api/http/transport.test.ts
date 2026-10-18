@@ -189,3 +189,125 @@ describe('errors', () => {
     })
   })
 })
+
+describe('writes of every method', () => {
+  it('sends PUT and PATCH with the token, a JSON body and the method named', async () => {
+    const { fetchImpl, calls } = fakeFetch(session('tok-W'), json({ ok: 1 }), json({ ok: 2 }))
+    const transport = createTransport({ fetchImpl })
+    await transport.put('settings/notifications/me/', { enabled: true })
+    await transport.patch('alert-rules/r1/', { version: 3 })
+    expect(calls.map(([url, init]) => [url, init.method])).toEqual([
+      ['/api/v1/console/session/', 'GET'],
+      ['/api/v1/console/settings/notifications/me/', 'PUT'],
+      ['/api/v1/console/alert-rules/r1/', 'PATCH'],
+    ])
+    expect(header(calls[1], 'X-CSRFToken')).toBe('tok-W')
+    expect(header(calls[2], 'X-CSRFToken')).toBe('tok-W')
+    expect(header(calls[2], 'Content-Type')).toBe('application/json')
+    expect(calls[1]?.[1].body).toBe(JSON.stringify({ enabled: true }))
+    expect(calls[2]?.[1].body).toBe(JSON.stringify({ version: 3 }))
+  })
+
+  it('sends a POST with no body as an empty object, never as nothing', async () => {
+    const { fetchImpl, calls } = fakeFetch(session(), json({ ok: true }))
+    await createTransport({ fetchImpl }).post('settings/notifications/test-email/')
+    expect(calls[1]?.[1].body).toBe('{}')
+  })
+
+  it('refreshes a stale token for a PATCH too, and sends it once more', async () => {
+    const { fetchImpl, calls } = fakeFetch(
+      session('old'),
+      failure(403, 'csrf_failed', 'CSRF check failed.'),
+      session('new'),
+      json({ ok: true }),
+    )
+    await createTransport({ fetchImpl }).patch('alert-rules/r1/', { version: 1 })
+    expect(calls).toHaveLength(4)
+    expect(header(calls[3], 'X-CSRFToken')).toBe('new')
+    expect(calls[3]?.[1].method).toBe('PATCH')
+  })
+})
+
+describe('validation errors and rate limits', () => {
+  it('keeps what is wrong with each field of a validation_error, as lists of text', async () => {
+    const { fetchImpl } = fakeFetch(
+      session(),
+      json(
+        {
+          error: {
+            code: 'validation_error',
+            message: 'Invalid request.',
+            fields: {
+              name: ['Taken.', 'Too long.'],
+              nonField: ['Not this.'],
+              bad: [1, 'ok'],
+              skip: 'no',
+            },
+          },
+        },
+        400,
+      ),
+    )
+    const error = await createTransport({ fetchImpl })
+      .patch('alert-rules/r1/', { version: 1 })
+      .catch((caught: unknown) => caught)
+    expect(error).toBeInstanceOf(ApiError)
+    expect(error).toMatchObject({
+      status: 400,
+      code: 'validation_error',
+      fields: { name: ['Taken.', 'Too long.'], nonField: ['Not this.'], bad: ['ok'] },
+    })
+  })
+
+  it('has no fields when the answer holds none that are lists of text', async () => {
+    const { fetchImpl } = fakeFetch(
+      json({ error: { code: 'validation_error', message: 'Invalid.', fields: ['x'] } }, 400),
+      json({ error: { code: 'validation_error', message: 'Invalid.', fields: { a: [] } } }, 400),
+    )
+    const transport = createTransport({ fetchImpl })
+    await expect(transport.get('x/')).rejects.toMatchObject({ fields: null })
+    await expect(transport.get('x/')).rejects.toMatchObject({ fields: null })
+  })
+
+  it('reads Retry-After of a 429 as whole seconds, and no other status’s', async () => {
+    const limited = new Response(
+      JSON.stringify({ error: { code: 'rate_limited', message: 'One a minute.' } }),
+      { status: 429, headers: { 'Content-Type': 'application/json', 'Retry-After': '42' } },
+    )
+    const other = new Response(
+      JSON.stringify({ error: { code: 'unavailable', message: 'Busy.' } }),
+      { status: 503, headers: { 'Content-Type': 'application/json', 'Retry-After': '42' } },
+    )
+    const { fetchImpl } = fakeFetch(limited, other)
+    const transport = createTransport({ fetchImpl })
+    await expect(transport.get('x/')).rejects.toMatchObject({
+      status: 429,
+      code: 'rate_limited',
+      retryAfterSeconds: 42,
+    })
+    await expect(transport.get('x/')).rejects.toMatchObject({ retryAfterSeconds: null })
+  })
+
+  it.each([
+    ['a date', 'Wed, 21 Oct 2026 07:28:00 GMT', null],
+    ['a negative number', '-5', null],
+    ['a fraction', '1.5', null],
+    ['nothing', null, null],
+    ['an absurd wait', '99999', 3600],
+    ['zero', '0', 0],
+  ])('does not believe %s as Retry-After', async (_name, value, expected) => {
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' }
+    if (value !== null) headers['Retry-After'] = value
+    const answer = new Response(
+      JSON.stringify({ error: { code: 'rate_limited', message: 'Wait.' } }),
+      {
+        status: 429,
+        headers,
+      },
+    )
+    const { fetchImpl } = fakeFetch(answer)
+    await expect(createTransport({ fetchImpl }).get('x/')).rejects.toMatchObject({
+      retryAfterSeconds: expected,
+    })
+  })
+})

@@ -44,6 +44,44 @@ describe('parseSession thresholds', () => {
   })
 })
 
+describe('parseSession capabilities', () => {
+  const granted = {
+    acknowledgeIncidents: true,
+    viewAlertRules: true,
+    createAlertRules: false,
+    editAlertRules: true,
+    manageOwnNotifications: true,
+    sendTestEmail: false,
+    viewSystemStatus: false,
+  }
+
+  it('carries what the server says the account may do, flag by flag', () => {
+    expect(parseSession({ ...signedIn, capabilities: granted }).capabilities).toEqual(granted)
+  })
+
+  it('offers nothing when the answer has none (an anonymous session, an older server)', () => {
+    expect(parseSession({ ...signedIn, capabilities: null })).not.toHaveProperty('capabilities')
+    expect(parseSession(anonymous)).not.toHaveProperty('capabilities')
+  })
+
+  it('keeps only the flags it knows: nothing else an answer holds is carried', () => {
+    const { capabilities } = parseSession({
+      ...signedIn,
+      capabilities: { ...granted, isSuperuser: true },
+    })
+    expect(capabilities).not.toHaveProperty('isSuperuser')
+  })
+
+  it.each([
+    ['not an object', 'yes'],
+    ['a flag missing', { ...granted, viewSystemStatus: undefined }],
+    ['a flag that is not a boolean', { ...granted, sendTestEmail: 'true' }],
+    ['a flag that is a number', { ...granted, editAlertRules: 1 }],
+  ])('refuses capabilities that are %s', (_what, capabilities) => {
+    expect(() => parseSession({ ...signedIn, capabilities })).toThrow(/unexpected answer/)
+  })
+})
+
 describe('parseSession', () => {
   it('reads a signed-in answer', () => {
     expect(parseSession(signedIn)).toEqual({

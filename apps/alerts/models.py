@@ -124,6 +124,9 @@ class AlertRule(models.Model):
     )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
+    # One more on every save, from the console or the admin: a change the console
+    # sends with an older version is refused rather than overwriting this one.
+    version = models.PositiveIntegerField(default=1, editable=False)
 
     class Meta:
         ordering = ["name"]
@@ -192,7 +195,14 @@ class AlertRule(models.Model):
     def save(self, *args, **kwargs):
         # Validated on every save (like the inventory), so nothing bypasses the admin's checks.
         self.full_clean()
-        return super().save(*args, **kwargs)
+        if self._state.adding:
+            return super().save(*args, **kwargs)
+        # In the database, so that two saves never write the same version.
+        self.version = F("version") + 1
+        if kwargs.get("update_fields") is not None:
+            kwargs["update_fields"] = {*kwargs["update_fields"], "version"}
+        super().save(*args, **kwargs)
+        self.refresh_from_db(fields=["version"])
 
 
 class IncidentQuerySet(models.QuerySet):
@@ -796,7 +806,247 @@ class Notification(models.Model):
                 fields=["next_attempt_at"], condition=Q(status="pending"), name="alerts_notification_due"
             ),
             models.Index(fields=["created_at"], name="alerts_notification_created"),
+            # The rows being sent, and when their lease runs out (counted by the system status).
+            models.Index(fields=["lease_expires_at"], condition=Q(status="sending"), name="alerts_notification_sending"),
+            # The oldest pending rows first (the system status; what is overdue).
+            models.Index(fields=["created_at"], condition=Q(status="pending"), name="alerts_notification_oldest"),
         ]
 
     def __str__(self) -> str:
         return f"{self.get_kind_display()} to {self.recipient_name} ({self.status})"
+
+
+class TestEmailFailure(models.TextChoices):
+    """Why a test email was not sent: what the SMTP server or the way to it did (as for
+    ``DeliveryFailure``), or what the request found before sending."""
+
+    CONNECTION = DeliveryFailure.CONNECTION.value, DeliveryFailure.CONNECTION.label
+    TIMEOUT = DeliveryFailure.TIMEOUT.value, DeliveryFailure.TIMEOUT.label
+    TLS = DeliveryFailure.TLS.value, DeliveryFailure.TLS.label
+    AUTHENTICATION = DeliveryFailure.AUTHENTICATION.value, DeliveryFailure.AUTHENTICATION.label
+    DEFERRED = DeliveryFailure.DEFERRED.value, DeliveryFailure.DEFERRED.label
+    INTERNAL = DeliveryFailure.INTERNAL.value, DeliveryFailure.INTERNAL.label
+    REJECTED = DeliveryFailure.REJECTED.value, DeliveryFailure.REJECTED.label
+    RECIPIENT_REFUSED = DeliveryFailure.RECIPIENT_REFUSED.value, DeliveryFailure.RECIPIENT_REFUSED.label
+    # Not sent, on purpose.
+    EXPIRED = "expired", "No notifier sent it in time"
+    RECIPIENT_UNAVAILABLE = "recipient_unavailable", "The account is inactive, has no address or no console access"
+    NOT_PERMITTED = "not_permitted", "The account may no longer send test emails"
+
+
+class TestEmailRequest(models.Model):
+    """A console user's request for a test email to their own address: sent by the notifier.
+
+    The web process never talks to the SMTP server (it does not hold the password):
+    it records the request, and the notifier claims it (``FOR UPDATE SKIP LOCKED``),
+    checks again that the account may have it, and sends it once to the address the
+    account has then. Never to another address, and never twice: a failure is the
+    answer the user waits for. A request no notifier has taken by ``expires_at``
+    expires. At most one per user is open (pending or sending) at a time.
+    """
+
+    class Status(models.TextChoices):
+        PENDING = "pending", "Pending"
+        SENDING = "sending", "Sending"
+        SENT = "sent", "Sent"
+        FAILED = "failed", "Failed"
+        CANCELLED = "cancelled", "Not sent"
+        EXPIRED = "expired", "Expired"
+
+    OPEN = (Status.PENDING, Status.SENDING)
+    ENDED = (Status.SENT, Status.FAILED, Status.CANCELLED, Status.EXPIRED)
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    # The record outlives the account; the name it had then stays.
+    requested_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True, related_name="+"
+    )
+    requested_by_name = models.CharField(max_length=150)
+    status = models.CharField(max_length=16, choices=Status.choices, default=Status.PENDING)
+    created_at = models.DateTimeField()
+    expires_at = models.DateTimeField()
+    # While sending: which notifier holds it, and until when.
+    claim = models.UUIDField(null=True, blank=True)
+    lease_expires_at = models.DateTimeField(null=True, blank=True)
+    finished_at = models.DateTimeField(null=True, blank=True)
+    failure = models.CharField(max_length=32, choices=TestEmailFailure.choices, blank=True)
+
+    class Meta:
+        ordering = ["-created_at", "-id"]
+        verbose_name = "test email"
+        verbose_name_plural = "test emails"
+        default_permissions = ("view",)
+        permissions = [("send_test_email", "Can send a test email to themselves")]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["requested_by"],
+                condition=Q(status__in=["pending", "sending"]),
+                name="uniq_open_test_email_per_user",
+                violation_error_message="A test email of this user is still waiting.",
+            ),
+            models.CheckConstraint(
+                condition=Q(status__in=["pending", "sending", "sent", "failed", "cancelled", "expired"]),
+                name="test_email_status",
+            ),
+            models.CheckConstraint(
+                condition=Q(status="sending", claim__isnull=False, lease_expires_at__isnull=False)
+                | (~Q(status="sending") & Q(claim__isnull=True, lease_expires_at__isnull=True)),
+                name="test_email_claimed_while_sending",
+            ),
+            models.CheckConstraint(
+                condition=Q(status__in=["pending", "sending"], finished_at__isnull=True)
+                | Q(status__in=["sent", "failed", "cancelled", "expired"], finished_at__isnull=False),
+                name="test_email_finished_at",
+            ),
+            models.CheckConstraint(
+                condition=Q(status__in=["pending", "sending", "sent"], failure="")
+                | (Q(status__in=["failed", "cancelled", "expired"]) & ~Q(failure="")),
+                name="test_email_says_why",
+            ),
+            models.CheckConstraint(
+                condition=Q(failure="") | Q(failure__in=TestEmailFailure.values), name="test_email_failure"
+            ),
+            models.CheckConstraint(condition=Q(expires_at__gt=F("created_at")), name="test_email_expires_later"),
+        ]
+        indexes = [
+            # What the notifier claims, oldest first.
+            models.Index(fields=["created_at"], condition=Q(status="pending"), name="alerts_test_email_due"),
+            # The rate limit: a user's latest request.
+            models.Index(fields=["requested_by", "-created_at"], name="alerts_test_email_by_user"),
+        ]
+
+    def __str__(self) -> str:
+        return f"Test email for {self.requested_by_name} ({self.status})"
+
+
+class NotifierErrorCategory(models.TextChoices):
+    """What made a notifier's cycle fail: its database, itself, or the SMTP server (the way to it, or its login)."""
+
+    DATABASE = ErrorCategory.DATABASE.value, ErrorCategory.DATABASE.label
+    INTERNAL = ErrorCategory.INTERNAL.value, ErrorCategory.INTERNAL.label
+    CONNECTION = DeliveryFailure.CONNECTION.value, DeliveryFailure.CONNECTION.label
+    TIMEOUT = DeliveryFailure.TIMEOUT.value, DeliveryFailure.TIMEOUT.label
+    TLS = DeliveryFailure.TLS.value, DeliveryFailure.TLS.label
+    AUTHENTICATION = DeliveryFailure.AUTHENTICATION.value, DeliveryFailure.AUTHENTICATION.label
+
+
+class NotifierHeartbeat(models.Model):
+    """The notifier's last processing cycle: one row, so a stopped notifier shows (as the engine's does).
+
+    Two kinds of failure, kept apart: of the notifier itself (its database, an internal
+    error: ``last_error_*``, until a cycle completes), and of the SMTP server it could
+    not reach or log in to (``server_error_*``, until it reaches the server again, however
+    many cycles find nothing to send meanwhile). Each SMTP event is recorded at the time
+    it happened, so a reach after a failure in the same cycle clears it.
+    """
+
+    id = models.PositiveSmallIntegerField(primary_key=True, default=1, editable=False)
+    # When the running notifier started, and when it last completed a cycle (never: null).
+    started_at = models.DateTimeField()
+    beat_at = models.DateTimeField(null=True, blank=True)
+    last_cycle_ms = models.PositiveIntegerField(null=True, blank=True)
+    # How often it was started to look for work: what makes a heartbeat late.
+    interval_seconds = models.PositiveIntegerField(null=True, blank=True)
+    # The last sign of life, also during a long cycle (between its emails).
+    active_at = models.DateTimeField(null=True, blank=True)
+    # The SMTP server: when it was last reached (and logged in to), and when it last could
+    # not be, and why (connection, timeout, tls, authentication).
+    server_reached_at = models.DateTimeField(null=True, blank=True)
+    server_error_at = models.DateTimeField(null=True, blank=True)
+    server_error_category = models.CharField(max_length=16, choices=NotifierErrorCategory.choices, blank=True)
+    # The last failed cycle: when, its kind and the exception's type only.
+    last_error_at = models.DateTimeField(null=True, blank=True)
+    last_error_category = models.CharField(max_length=16, choices=NotifierErrorCategory.choices, blank=True)
+    last_error_type = models.CharField(max_length=100, blank=True)
+    # What the notifier's own settings say (the web process does not have the password):
+    # whether an SMTP server is set, and whether it logs in to it. Never the values.
+    server_configured = models.BooleanField(default=False)
+    authentication_configured = models.BooleanField(default=False)
+
+    class Meta:
+        verbose_name = "notifier heartbeat"
+        verbose_name_plural = "notifier heartbeat"
+        default_permissions = ("view",)
+        constraints = [
+            models.CheckConstraint(condition=Q(id=1), name="notifier_heartbeat_single_row"),
+        ]
+
+    def __str__(self) -> str:
+        return f"Notifier, last cycle {self.beat_at.isoformat() if self.beat_at else 'never'}"
+
+
+class ConfigurationAction(models.TextChoices):
+    RULE_CREATED = "rule_created", "Alert rule created"
+    RULE_CHANGED = "rule_changed", "Alert rule changed"
+    RULE_ENABLED = "rule_enabled", "Alert rule enabled"
+    RULE_DISABLED = "rule_disabled", "Alert rule disabled"
+    RULE_DELETED = "rule_deleted", "Alert rule deleted"
+    SUBSCRIPTION_CHANGED = "subscription_changed", "Email subscription changed"
+    SUBSCRIPTION_DELETED = "subscription_deleted", "Email subscription deleted"
+    TEST_EMAIL_REQUESTED = "test_email_requested", "Test email requested"
+
+
+class ConfigurationTarget(models.TextChoices):
+    ALERT_RULE = "alert_rule", "Alert rule"
+    SUBSCRIPTION = "subscription", "Email subscription"
+    TEST_EMAIL = "test_email", "Test email"
+
+
+class ConfigurationSource(models.TextChoices):
+    CONSOLE = "console", "Console"
+    ADMIN = "admin", "Admin"
+    # Removed with what it belonged to (a subscription, with its account): no actor is known.
+    ACCOUNT_DELETED = "account_deleted", "Deleted with the account"
+
+
+class ConfigurationEvent(models.Model):
+    """One change of configuration, made in the console or the admin: an append-only trail.
+
+    Who (the account, and the name it had then), how, what, on what, when, and the
+    values before and after of the fields that changed. None of these objects holds
+    a credential, and only their own fields are recorded. Written in the transaction
+    of the change itself, so a change and its record exist together or not at all.
+    """
+
+    Action = ConfigurationAction
+    Target = ConfigurationTarget
+    Source = ConfigurationSource
+
+    id = models.BigAutoField(primary_key=True)
+    at = models.DateTimeField()
+    actor = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True, related_name="+")
+    actor_name = models.CharField(max_length=150)
+    source = models.CharField(max_length=16, choices=ConfigurationSource.choices)
+    action = models.CharField(max_length=32, choices=ConfigurationAction.choices)
+    target_type = models.CharField(max_length=16, choices=ConfigurationTarget.choices)
+    target_id = models.CharField(max_length=64)
+    # The target's name then (a rule's name, a subscriber's user name).
+    target_name = models.CharField(max_length=255)
+    # {"field": {"before": value, "after": value}}, of the fields that changed.
+    changes = models.JSONField(default=dict, blank=True)
+
+    class Meta:
+        ordering = ["-at", "-id"]
+        verbose_name = "configuration change"
+        verbose_name_plural = "configuration changes"
+        default_permissions = ("view",)
+        constraints = [
+            models.CheckConstraint(condition=Q(action__in=ConfigurationAction.values), name="configuration_event_action"),
+            models.CheckConstraint(condition=Q(target_type__in=ConfigurationTarget.values), name="configuration_event_target"),
+            models.CheckConstraint(condition=Q(source__in=ConfigurationSource.values), name="configuration_event_source"),
+        ]
+        indexes = [
+            models.Index(fields=["at"], name="alerts_config_event_at"),
+            models.Index(fields=["target_type", "target_id"], name="alerts_config_event_target"),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.get_action_display()}: {self.target_name} by {self.actor_name}"
+
+    def save(self, *args, **kwargs):
+        if not self._state.adding:
+            raise ValueError("a configuration event is never changed")
+        return super().save(*args, **kwargs)
+
+    def delete(self, *args, **kwargs):
+        raise ValueError("a configuration event is never deleted")

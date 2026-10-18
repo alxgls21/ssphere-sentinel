@@ -4,13 +4,15 @@ import { useMemo, useState, type ReactNode } from 'react'
 import { useLocation } from 'react-router'
 import { describe, expect, it, vi } from 'vitest'
 import type { SentinelApi } from '@/api/client'
+import { NO_CAPABILITIES } from '@/api/auth'
 import type { EntityIndex, EntityIndexItem } from '@/api/types'
+import type { AuthApi } from '@/app/auth/auth'
 import { useLive } from '@/app/live'
 import { usePrefs } from '@/app/prefs'
 import { ShellContext, type ShellApi } from '@/app/shell'
 import { useMockScenario } from '@/app/scenario'
 import { useRange } from '@/app/viewState'
-import { createTestApi, renderApp } from '@/test/render'
+import { createFakeAuth, createTestApi, renderApp } from '@/test/render'
 import { CommandPalette } from '.'
 
 const entity = (
@@ -194,14 +196,15 @@ const probe = () => screen.getByTestId('probe').textContent
 function setup({
   api = createTestApi({ getEntityIndex: vi.fn().mockResolvedValue(INDEX) }),
   route,
-}: { api?: SentinelApi; route?: string } = {}) {
+  auth,
+}: { api?: SentinelApi; route?: string; auth?: AuthApi } = {}) {
   const spy = spies()
   const user = userEvent.setup()
   renderApp(
     <Shell spy={spy}>
       <Probe />
     </Shell>,
-    { api, route },
+    { api, route, auth },
   )
   return { api, spy, user }
 }
@@ -317,10 +320,10 @@ describe('opening and closing', () => {
 })
 
 describe('empty query', () => {
-  it('lists problems, go to, actions, mock scenario and planned, in that order', async () => {
+  it('lists problems, go to, actions and mock scenario, in that order', async () => {
     const { user } = setup()
     await openLoaded(user)
-    expect(groupNames()).toEqual(['Problems', 'Go to', 'Actions', 'Mock scenario', 'Planned'])
+    expect(groupNames()).toEqual(['Problems', 'Go to', 'Actions', 'Mock scenario'])
   })
 
   it('shows the top five problems worst first, from servers and containers only', async () => {
@@ -387,7 +390,7 @@ describe('empty query', () => {
     })
   })
 
-  it('lists the eight screens with their g-key hints and a PLAN tag on the planned ones', async () => {
+  it('lists the nine screens with their g-key hints and a PLAN tag on the planned ones', async () => {
     const { user } = setup()
     await openLoaded(user)
     const goTo = group('Go to')
@@ -400,6 +403,7 @@ describe('empty query', () => {
       'Topology',
       'Alerts',
       'Customers & Sites',
+      'Settings',
     ])
     expect(within(goTo).getByRole('option', { name: /^Servers/ })).toHaveTextContent(
       'Shortcut g then s',
@@ -520,11 +524,11 @@ describe('typing', () => {
 describe('prefixes and scope chips', () => {
   const chip = (name: string) => screen.getByRole('button', { name })
 
-  it('> narrows to actions, mock scenarios and planned items', async () => {
+  it('> narrows to actions and mock scenarios', async () => {
     const { user } = setup()
     await openLoaded(user)
     await user.type(combobox(), '>')
-    expect(groupNames()).toEqual(['Actions', 'Mock scenario', 'Planned'])
+    expect(groupNames()).toEqual(['Actions', 'Mock scenario'])
     expect(chip('Actions')).toHaveAttribute('aria-pressed', 'true')
     expect(chip('All')).toHaveAttribute('aria-pressed', 'false')
   })
@@ -827,43 +831,36 @@ describe('mock scenarios', () => {
   })
 })
 
-describe('planned items', () => {
-  it('are listed disabled, with a PLANNED chip and a reason', async () => {
-    const { user } = setup()
-    await openLoaded(user)
-    const planned = group('Planned')
-    expect(titles(planned)).toEqual(['Create alert rule'])
-    for (const option of within(planned).getAllByRole('option')) {
-      expect(option).toHaveAttribute('aria-disabled', 'true')
-      expect(option).toHaveTextContent('Planned')
-    }
-    expect(within(planned).getByRole('option', { name: /^Create alert rule/ })).toHaveTextContent(
-      'Rules are managed in the admin, not in the console',
-    )
+describe('new alert rule', () => {
+  const mayCreate = createFakeAuth({
+    capabilities: { ...NO_CAPABILITIES, viewAlertRules: true, createAlertRules: true },
   })
 
-  it('stay selectable with the keyboard and explain themselves when run', async () => {
-    const { spy, user } = setup()
+  it('is not offered to an account that may not create rules', async () => {
+    const { user } = setup()
     await openLoaded(user)
+    expect(titles(group('Actions'))).not.toContain('New alert rule')
+    await user.type(combobox(), 'alert rule')
+    expect(screen.queryByRole('option', { name: /^New alert rule/ })).not.toBeInTheDocument()
+  })
+
+  it('is offered to an account that may, and opens the rule form without the view’s filters', async () => {
+    const { user } = setup({ auth: mayCreate, route: '/?customer=acme&range=6h' })
+    await openLoaded(user)
+    expect(titles(group('Actions'))).toContain('New alert rule')
     await user.type(combobox(), 'alert rule')
     const [top] = options()
-    expect(top).toHaveAccessibleName(/^Create alert rule/)
-    expect(top).toHaveAttribute('aria-selected', 'true')
+    expect(top).toHaveAccessibleName(/^New alert rule/)
+    expect(top).not.toHaveAttribute('aria-disabled', 'true')
     await user.keyboard('{Enter}')
-    expect(spy.flashStatus).toHaveBeenCalledWith(
-      'Create alert rule: not available in the console yet',
-    )
+    expect(probe()).toMatch(/^\/settings\/alert-rules\/new\|paused=/)
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
   })
 
-  it('explain themselves when clicked, and change nothing', async () => {
-    const { spy, user } = setup()
+  it('lists nothing as planned', async () => {
+    const { user } = setup({ auth: mayCreate })
     await openLoaded(user)
-    await user.click(screen.getByRole('option', { name: /^Create alert rule/ }))
-    expect(spy.flashStatus).toHaveBeenCalledWith(
-      'Create alert rule: not available in the console yet',
-    )
-    expect(probe()).toMatch(/^\/\|/)
+    expect(groupNames()).not.toContain('Planned')
   })
 })
 
@@ -875,7 +872,7 @@ describe('entity index states', () => {
     expect(dialog.querySelectorAll('[aria-hidden="true"].animate-skeleton')).toHaveLength(3)
     expect(screen.getByText('Problems')).toBeInTheDocument()
     expect(dialog).toHaveTextContent('loading entities')
-    expect(groupNames()).toEqual(['Go to', 'Actions', 'Mock scenario', 'Planned'])
+    expect(groupNames()).toEqual(['Go to', 'Actions', 'Mock scenario'])
     await user.type(combobox(), 'network{Enter}')
     expect(probe()).toMatch(/^\/network\|/)
   })
@@ -885,7 +882,7 @@ describe('entity index states', () => {
     const { user } = setup({ api })
     const dialog = await open(user)
     await within(dialog).findByText('Entity search unavailable')
-    expect(groupNames()).toEqual(['Go to', 'Actions', 'Mock scenario', 'Planned'])
+    expect(groupNames()).toEqual(['Go to', 'Actions', 'Mock scenario'])
     expect(screen.queryByText(/^No match/)).not.toBeInTheDocument()
 
     await user.type(combobox(), 'docker{Enter}')

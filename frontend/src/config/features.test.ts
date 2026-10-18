@@ -200,6 +200,7 @@ describe('the registry as shipped', () => {
       'snmp',
       'topology',
       'alerts',
+      'settings',
       'site-links',
     ])
   })
@@ -223,6 +224,7 @@ describe('the registry as shipped', () => {
       'network',
       'overview',
       'servers',
+      'settings',
       'site-links',
       'snmp',
       'topology',

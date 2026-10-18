@@ -1,13 +1,20 @@
 from django.contrib import admin
+from django.db import router, transaction
+from django.http import Http404
 
+from apps.alerts import audit
 from apps.alerts.models import (
     AlertEngineHeartbeat,
     AlertEvaluationState,
     AlertRule,
+    ConfigurationEvent,
+    ConfigurationSource,
     Incident,
     IncidentEvent,
     Notification,
     NotificationSubscription,
+    NotifierHeartbeat,
+    TestEmailRequest,
 )
 
 
@@ -45,6 +52,32 @@ class AlertRuleAdmin(admin.ModelAdmin):
         # Its incidents and evaluation states are about objects of this kind.
         fields = super().get_readonly_fields(request, obj)
         return (*fields, "entity_kind") if obj is not None else fields
+
+    # Changes made here are in the configuration trail too, in the admin's transaction.
+    def save_model(self, request, obj, form, change):
+        # The row as it is, held: the record says what this save changed, whatever was saved
+        # meanwhile (the admin form has no version: its save is the last word).
+        before = {}
+        if change:
+            stored = AlertRule.objects.select_for_update().filter(pk=obj.pk).first()
+            if stored is None:
+                raise Http404("This alert rule was deleted meanwhile.")
+            before = audit.rule_values(stored)
+        super().save_model(request, obj, form, change)
+        audit.rule_saved(request.user, obj, before, created=not change, source=ConfigurationSource.ADMIN)
+
+    def delete_model(self, request, obj):
+        audit.rule_deleted(request.user, obj, source=ConfigurationSource.ADMIN)
+        super().delete_model(request, obj)
+
+    def delete_queryset(self, request, queryset):
+        # The changelist's bulk delete runs in no transaction of its own: the records and the
+        # deletion together, of the same rows, read once and held.
+        with transaction.atomic(using=router.db_for_write(self.model)):
+            rules = list(queryset.select_for_update(of=("self",)))
+            for rule in rules:
+                audit.rule_deleted(request.user, rule, source=ConfigurationSource.ADMIN)
+            super().delete_queryset(request, AlertRule.objects.filter(pk__in=[rule.pk for rule in rules]))
 
     @admin.display(description="Scope")
     def scope(self, obj: AlertRule) -> str:
@@ -111,6 +144,36 @@ class NotificationSubscriptionAdmin(admin.ModelAdmin):
     def email(self, obj: NotificationSubscription) -> str:
         return obj.user.email or "(none: nothing is sent)"
 
+    def get_form(self, request, obj=None, change=False, **kwargs):
+        form = super().get_form(request, obj, change=change, **kwargs)
+        if obj is not None and "user" in form.base_fields:
+            # A subscription stays with its user (another user gets a subscription of their own).
+            # Disabled rather than read-only: what the model says about the user still shows on it.
+            form.base_fields["user"].disabled = True
+        return form
+
+    def save_model(self, request, obj, form, change):
+        # The row as it is, held: a change made meanwhile is either before or after this one.
+        stored = NotificationSubscription.objects.select_for_update().filter(pk=obj.pk).first() if change else None
+        if change and stored is None:
+            raise Http404("This subscription was deleted meanwhile.")
+        before = audit.subscription_values(stored)
+        super().save_model(request, obj, form, change)
+        audit.subscription_saved(request.user, obj, before, source=ConfigurationSource.ADMIN)
+
+    def delete_model(self, request, obj):
+        audit.subscription_deleted(request.user, obj, source=ConfigurationSource.ADMIN)
+        super().delete_model(request, obj)
+
+    def delete_queryset(self, request, queryset):
+        with transaction.atomic(using=router.db_for_write(self.model)):
+            subscriptions = list(queryset.select_related("user").select_for_update(of=("self",)))
+            for subscription in subscriptions:
+                audit.subscription_deleted(request.user, subscription, source=ConfigurationSource.ADMIN)
+            super().delete_queryset(
+                request, NotificationSubscription.objects.filter(pk__in=[subscription.pk for subscription in subscriptions])
+            )
+
 
 @admin.register(Notification)
 class NotificationAdmin(ReadOnlyAdmin):
@@ -124,3 +187,33 @@ class NotificationAdmin(ReadOnlyAdmin):
     search_fields = ("recipient_name", "incident__entity_label")
     date_hierarchy = "created_at"
     ordering = ("-created_at", "-pk")
+
+
+@admin.register(TestEmailRequest)
+class TestEmailRequestAdmin(ReadOnlyAdmin):
+    """Test emails console users asked for, and what became of each (sent by the notifier)."""
+
+    list_display = ("created_at", "requested_by_name", "status", "failure", "finished_at")
+    list_filter = ("status", "failure")
+    search_fields = ("requested_by_name",)
+    date_hierarchy = "created_at"
+    ordering = ("-created_at", "-pk")
+
+
+@admin.register(NotifierHeartbeat)
+class NotifierHeartbeatAdmin(ReadOnlyAdmin):
+    list_display = (
+        "started_at", "beat_at", "interval_seconds", "last_cycle_ms", "last_error_at", "last_error_category",
+        "server_configured", "authentication_configured",
+    )
+
+
+@admin.register(ConfigurationEvent)
+class ConfigurationEventAdmin(ReadOnlyAdmin):
+    """Who changed which alert rule or email subscription, from where, and what changed: append-only."""
+
+    list_display = ("at", "actor_name", "source", "action", "target_name")
+    list_filter = ("action", "source", "target_type")
+    search_fields = ("actor_name", "target_name", "target_id")
+    date_hierarchy = "at"
+    ordering = ("-at", "-pk")

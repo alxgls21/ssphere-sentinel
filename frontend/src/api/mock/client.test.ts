@@ -337,6 +337,45 @@ describe('alerts in the sample fleet', () => {
   })
 })
 
+describe('settings in the sample fleet', () => {
+  const asks: [string, (api: SentinelApi) => Promise<unknown>][] = [
+    ['getNotificationSettings', (api) => api.getNotificationSettings()],
+    [
+      'saveNotificationPreferences',
+      (api) =>
+        api.saveNotificationPreferences({
+          enabled: true,
+          minSeverity: 'critical',
+          sendRecovery: false,
+        }),
+    ],
+    ['requestTestEmail', (api) => api.requestTestEmail()],
+    ['getTestEmail', (api) => api.getTestEmail('t1')],
+    ['listAlertRules', (api) => api.listAlertRules()],
+    ['getAlertRule', (api) => api.getAlertRule('r1')],
+    ['getAlertRuleOptions', (api) => api.getAlertRuleOptions()],
+    [
+      'createAlertRule',
+      (api) =>
+        api.createAlertRule({
+          name: 'N',
+          kind: 'device',
+          health: 'critical',
+          severity: 'critical',
+        }),
+    ],
+    ['updateAlertRule', (api) => api.updateAlertRule('r1', { enabled: false, version: 1 })],
+    ['getSystemStatus', (api) => api.getSystemStatus()],
+  ]
+
+  it.each(asks)(
+    'refuses %s with a 403: the sample fleet has no accounts, rules or notifier',
+    async (_name, ask) => {
+      await expect(ask(apiFor('normal'))).rejects.toMatchObject({ status: 403, code: 'forbidden' })
+    },
+  )
+})
+
 describe('determinism and the clock', () => {
   it('answers every method identically for the same clock', async () => {
     const a = apiFor('normal')

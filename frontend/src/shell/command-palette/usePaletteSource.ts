@@ -15,6 +15,7 @@ import {
 import { useMemo } from 'react'
 import { useLocation, useNavigate } from 'react-router'
 import { useApi } from '@/api/context'
+import { useAuth } from '@/app/auth/auth'
 import { useApiMode } from '@/app/mode'
 import type { EntityIndex } from '@/api/types'
 import { useLive } from '@/app/live'
@@ -56,6 +57,8 @@ export function usePaletteSource({
   const { search } = useLocation()
   const { source: dataSource } = useApi()
   const apiMode = useApiMode()
+  const { capabilities } = useAuth()
+  const mayCreateRules = capabilities.createAlertRules
   const { paused, togglePause, refresh } = useLive()
   const { tz, toggleTz, singleKeyShortcuts, setSingleKeyShortcuts, motion, setMotion } = usePrefs()
   const { sidebarCollapsed, toggleSidebar, openShortcuts, flashStatus } = useShell()
@@ -183,6 +186,20 @@ export function usePaletteSource({
         hint: keys('?'),
         run: openShortcuts,
       },
+      // Offered to an account that may create rules; the server decides again when one is saved.
+      ...(mayCreateRules
+        ? [
+            {
+              id: 'action:new-alert-rule',
+              group: 'actions' as const,
+              title: 'New alert rule',
+              subtitle: 'Opens the rule form in Settings',
+              icon: BellPlus,
+              keywords: ['create', 'add', 'incident', 'condition', 'settings'],
+              run: () => navigate({ pathname: '/settings/alert-rules/new' }),
+            },
+          ]
+        : []),
     ]
 
     const scenarios: PaletteItem[] =
@@ -198,19 +215,6 @@ export function usePaletteSource({
             run: () => setScenario(name),
           }))
         : []
-
-    // Listed so an operator learns they are coming; selecting one only says why it is unavailable.
-    const planned: PaletteItem[] = [
-      {
-        id: 'planned:alert-rule',
-        group: 'planned',
-        title: 'Create alert rule',
-        subtitle: 'Rules are managed in the admin, not in the console',
-        icon: BellPlus,
-        badge: 'planned',
-        run: null,
-      },
-    ]
 
     const entities = (index?.items ?? []).map((entity) =>
       entityItem(entity, ({ kind, id }) =>
@@ -229,7 +233,7 @@ export function usePaletteSource({
       'go-to': screenItems((screen) => open(screen.path), singleKeyShortcuts),
       actions,
       scenario: scenarios,
-      planned,
+      planned: [],
       help: helpItems(choosePrefix),
     }
   }, [
@@ -238,6 +242,7 @@ export function usePaletteSource({
     search,
     dataSource,
     apiMode,
+    mayCreateRules,
     paused,
     togglePause,
     refresh,

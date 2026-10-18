@@ -49,6 +49,7 @@ export function AppShell() {
   const { sidebarCollapsed, mobileNavOpen, setMobileNavOpen } = useShell()
   const { phone, drawer, compact } = useLayoutMode()
   const title = screenTitle(pathname)
+  const showFilters = navItemForPath(pathname)?.id !== 'settings'
   // A designed screen shows demo data until every feature behind the screens is connected and live.
   const demo = useShowsDemoData()
   const showsDemoData = demo && navItemForPath(pathname)?.designed === true
@@ -101,7 +102,11 @@ export function AppShell() {
 
         {drawer ? null : <Sidebar variant={sidebarCollapsed ? 'rail' : 'expanded'} />}
         <div className="flex min-w-0 flex-1 flex-col">
-          {phone ? <AppBar /> : <Topbar title={title} compact={compact} drawer={drawer} />}
+          {phone ? (
+            <AppBar showFilters={showFilters} />
+          ) : (
+            <Topbar title={title} compact={compact} drawer={drawer} showFilters={showFilters} />
+          )}
           {showsDemoData ? <DemoStrip /> : null}
           <main
             id={MAIN_ID}

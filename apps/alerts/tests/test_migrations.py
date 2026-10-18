@@ -99,14 +99,18 @@ class MigrationTests(TransactionTestCase):
                 "alerts_alertengineheartbeat",
                 "alerts_notificationsubscription",
                 "alerts_notification",
+                "alerts_testemailrequest",
+                "alerts_notifierheartbeat",
+                "alerts_configurationevent",
             },
         )
         self.migrate([("alerts", "0002_default_rules")])
         self.assertNotIn("alerts_notification", self.tables())  # email comes and goes on its own
         self.migrate([("alerts", None)])
         self.assertEqual(self.tables(), set())
-        self.migrate([("alerts", "0003_notifications")])
+        self.migrate([("alerts", "0004_settings_administration")])
         self.assertEqual(set(AlertRule.objects.values_list("key", flat=True)), DEFAULT_KEYS)
+        self.assertEqual(set(AlertRule.objects.values_list("version", flat=True)), {1})
 
     @override_settings(SENTINEL_SMTP_HOST="smtp.example.com", SENTINEL_EMAIL_FROM="sentinel@example.com")
     def test_the_workers_see_a_pending_migration_and_wait_for_it_never_applying_it(self):
@@ -122,12 +126,14 @@ class MigrationTests(TransactionTestCase):
         stop.set()
         with self.assertLogs(log, "WARNING") as logs:
             self.assertFalse(wait_for_migrations(stop, logger=log, liveness=None, within=60, poll=0))
-        self.assertIn("1 migration(s) not applied yet: waiting for the web or migrate service", logs.output[0])
+        self.assertRegex(logs.output[0], r"\d+ migration\(s\) not applied yet: waiting for the web or migrate service")
         self.assertNotIn("alerts_notification", self.tables())
 
         # They start once another process (web) has applied it.
         def web_applies_it(seconds):
-            self.migrate([("alerts", "0003_notifications")])
+            executor = MigrationExecutor(connection)
+            executor.loader.build_graph()
+            executor.migrate(executor.loader.graph.leaf_nodes())
             return False
 
         stop = threading.Event()
@@ -139,7 +145,7 @@ class MigrationTests(TransactionTestCase):
         """No raw SQL: no trigger or function (the separate database logins refuse objects that run code)."""
         executor = MigrationExecutor(connection)
         allowed = (migrations.CreateModel, migrations.AddConstraint, migrations.AddIndex, migrations.AddField, migrations.RunPython)
-        for name in ("0001_initial_alerts", "0002_default_rules", "0003_notifications"):
+        for name in ("0001_initial_alerts", "0002_default_rules", "0003_notifications", "0004_settings_administration"):
             for operation in executor.loader.get_migration("alerts", name).operations:
                 with self.subTest(migration=name, operation=type(operation).__name__):
                     self.assertIsInstance(operation, allowed)

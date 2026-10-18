@@ -12,7 +12,8 @@ of the Django backend**.
 > history, the busiest servers by load, the containers of every visible server, and the network
 > targets (ICMP and TCP probes) with their measurements and history, and the SNMP devices with
 > their polls, interfaces, rates and history, and the incidents the alert engine opens, with the
-> engine's own state. The
+> engine's own state, and, in Settings, the alert rules, your own email preferences and the
+> system's status. The
 > Overview is built from four of those lists, the worst first of each, and from the counts
 > the API itself reports: the verdict, the tiles, the attention queue and the health by
 > domain and site are servers, containers, probe targets and SNMP devices, nothing else. Those panels say
@@ -22,11 +23,11 @@ of the Django backend**.
 > chip and one sentence saying why, and no number, chart or sample row. The built-in sample
 > fleet exists only in a development run with `VITE_SENTINEL_API=mock` (servers and
 > containers, marked `DEMO DATA`); a production bundle holds none of it.
-> Six screens are designed and built: **Overview**, **Servers**, **Docker** (every container of every
+> Eight screens are designed and built: **Overview**, **Servers**, **Docker** (every container of every
 > visible server), **Network** (every probe target, with a page for each), **SNMP** (every device,
-> with a page for each and the history of each of its interfaces) and **Alerts** (every incident,
-> with a page for each and an Acknowledge action); lists are searched,
-> filtered, sorted and paged by the server. The other three are routed and show
+> with a page for each and the history of each of its interfaces), **Topology**, **Alerts** (every incident,
+> with a page for each and an Acknowledge action) and **Settings** (Notifications, Alert rules, System);
+> lists are searched, filtered, sorted and paged by the server. **Customers & Sites** is routed and shows
 > an honest "not designed yet" placeholder. The Overview's queue and sites are built from the worst rows
 > the API returns; where more exist than those rows hold, they say so, and the domain counts stay the API's
 > whole-fleet counts.
@@ -109,6 +110,24 @@ settings in `.env.local` (ignored by git).
   screen and returns to `/login` with a note, then to the page the user was on.
 - Signing out ends the session on the server and forgets the page.
 
+## Settings and permissions
+
+Settings has three sections, each offered only to an account that has something in it:
+
+| Section       | What it does                                                                                                                          | Who is offered it                                                                                                       |
+| ------------- | ------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
+| Notifications | Your own email preferences (on or off, minimum severity, recoveries), and a test email to your own address                            | Every signed-in user; the test email needs `alerts.send_test_email`                                                     |
+| Alert rules   | Lists, creates, edits, enables and disables rules (a rule is never deleted here: an incident keeps its rule)                          | `alerts.view_alertrule` or `change_alertrule` to see, `add_` to create, `change_` to edit, and access to every customer |
+| System        | The alert engine, the notifier, the email outbox and what the deployment sets (read-only; no password or other secret is ever served) | `console.view_system_status` and access to every customer                                                               |
+
+The session answer carries these as `capabilities`. They only decide what the console offers: the
+server checks every request again, and a refusal (403) is shown as one. In the sample fleet
+(`VITE_SENTINEL_API=mock`) there are no accounts, so no capability is offered and no Settings
+section shows a request. A rule that changes while it is open is never overwritten: the console
+says it changed elsewhere and offers to load the latest version. A change that would end open
+incidents (disabling a rule, a new condition, severity or scope) says so, from the API's own
+`changeEffects`, before it is saved.
+
 ## Reviewing every state without a backend
 
 In mock mode (`VITE_SENTINEL_API=mock`) the sample API has scenarios. Pick one with `?mock=<name>` in the URL or from the
@@ -130,7 +149,7 @@ color-vision and grayscale simulator.
 ## Keyboard
 
 `Ctrl/Cmd+K` opens the command palette; `?` lists every shortcut. `g` then
-`o s d n p t a c` jumps between screens (`g s` opens Servers), `1`–`6` focus a panel, `p` pauses live
+`o s d n p t a c e` jumps between screens (`g s` opens Servers), `1`–`6` focus a panel, `p` pauses live
 updates, `r` refreshes. Single-key shortcuts can be turned off in the Display menu or, at any width, from the command palette.
 
 ## Documentation

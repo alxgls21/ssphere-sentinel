@@ -27,6 +27,7 @@ export type FeatureId =
   | 'snmp'
   | 'topology'
   | 'alerts'
+  | 'settings'
   | 'events'
   | 'customers'
   | 'site-links'
@@ -120,6 +121,15 @@ export const FEATURES: Record<FeatureId, FeatureInfo> = {
     connected: true,
     requires: 'the alert engine running, and at least one enabled alert rule',
     note: 'The console API serves the incidents the alert engine opens and the engine’s own state; the Alerts screen, the topbar indicator and the Overview read them. Incidents are acknowledged here and end when the engine confirms a recovery.',
+  },
+  settings: {
+    id: 'settings',
+    label: 'Settings',
+    backend: 'console-api',
+    connected: true,
+    requires:
+      'an account with the console permissions for what is to be changed (alert rules, system status), and a mail server set in the deployment for email',
+    note: 'The console API serves the signed-in user’s own email preferences and test emails, the alert rules and the system status. What an account may do is its own: the console offers only that, and the server checks every request.',
   },
   events: {
     id: 'events',
@@ -278,5 +288,6 @@ export const DATA_FEATURES: readonly FeatureId[] = [
   'snmp',
   'topology',
   'alerts',
+  'settings',
   'site-links',
 ]

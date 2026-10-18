@@ -29,8 +29,9 @@ session-authenticated console API.
 Sentinel has two independently packaged parts:
 
 - **Server (`ssphere-sentinel`)** — Django, Gunicorn, and PostgreSQL. It accepts
-  agent heartbeats at `POST /api/v1/agent/heartbeat/`, exposes the read-only
-  console API below `/api/v1/console/`, and provides Django admin.
+  agent heartbeats at `POST /api/v1/agent/heartbeat/`, exposes the console API
+  below `/api/v1/console/` (reads, and the administration a permission allows),
+  and provides Django admin.
 - **Agent (`ssphere-sentinel-agent`)** — a Python 3.11+ process for Linux or
   macOS. It has no Django dependency and does not require Docker. The agent
   always initiates connections to the server.
@@ -248,8 +249,10 @@ starting point for network and SNMP configuration.
 ## Console API contract
 
 The browser console uses Django sessions and CSRF protection, never agent
-tokens. It is read-only except for sign-in and sign-out. Access is deny-by-
-default and filtered by customer/site grants; see
+tokens. Besides sign-in and sign-out it writes only what an account is
+permitted to administer (acknowledging incidents, alert rules, its own email
+preferences, test emails), every change checked on the server. Access is
+deny-by-default and filtered by customer/site grants; see
 [console access control](docs/security.md#console-authentication-and-access-control).
 
 | Endpoint | Purpose |
@@ -262,6 +265,10 @@ default and filtered by customer/site grants; see
 | `GET /api/v1/console/servers/<id>/` | One visible server and its containers |
 | `GET /api/v1/console/servers/<id>/series/` | CPU, memory, and disk series for `15m`, `1h`, `6h`, or `24h` |
 | `GET /api/v1/console/containers/` | Filtered, sorted, paginated containers |
+| `GET`, `POST /api/v1/console/alert-rules/`; `GET`, `PATCH /api/v1/console/alert-rules/<id>/`; `GET /api/v1/console/alert-rules/options/` | Alert rules: list, create, change (with the `version` read), and the valid conditions |
+| `GET`, `PUT /api/v1/console/settings/notifications/me/` | The signed-in user's own email preferences |
+| `POST /api/v1/console/settings/notifications/test-email/`; `GET .../test-email/<id>/` | A test email to the user's own address, sent by the notifier |
+| `GET /api/v1/console/system/status/` | Alert engine, notifier, email outbox, and the settings the environment sets |
 
 Server lists accept `customer`, `site`, `q`, `status`, `sort`, `dir`, `page`,
 and `pageSize`; container lists also accept `server`. The implementation owns

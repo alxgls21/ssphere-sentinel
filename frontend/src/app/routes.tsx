@@ -21,6 +21,11 @@ const DeviceDetailPage = lazy(() => import('@/features/snmp/DeviceDetailPage'))
 const TopologyPage = lazy(() => import('@/features/topology/TopologyPage'))
 const AlertsPage = lazy(() => import('@/features/alerts/AlertsPage'))
 const IncidentDetailPage = lazy(() => import('@/features/alerts/IncidentDetailPage'))
+const SettingsLayout = lazy(() => import('@/features/settings/SettingsLayout'))
+const NotificationsPage = lazy(() => import('@/features/settings/NotificationsPage'))
+const AlertRulesPage = lazy(() => import('@/features/settings/AlertRulesPage'))
+const RuleEditorPage = lazy(() => import('@/features/settings/RuleEditorPage'))
+const SystemPage = lazy(() => import('@/features/settings/SystemPage'))
 
 // Development only: in a production build the condition is a constant, so the gallery
 // (and its chunk) is dropped entirely.
@@ -30,7 +35,7 @@ const DesignSystemPage = import.meta.env.DEV
 
 /**
  * Everything but /login needs a signed-in user (RequireAuth). Every screen in NAV_ITEMS is routed from day one. The designed ones (Overview,
- * Servers, Docker, Network, SNMP, Alerts) have their own routes; the rest render an honest placeholder. A
+ * Servers, Docker, Network, SNMP, Alerts, Settings) have their own routes; the rest render an honest placeholder. A
  * placeholder's own sub-paths stay with its screen, hence the trailing /*.
  */
 export function AppRoutes() {
@@ -46,6 +51,13 @@ export function AppRoutes() {
           </Route>
           <Route path="docker" element={<DockerPage />} />
           <Route path="topology" element={<TopologyPage />} />
+          <Route path="settings" element={<SettingsLayout />}>
+            <Route path="notifications" element={<NotificationsPage />} />
+            <Route path="alert-rules" element={<AlertRulesPage />} />
+            <Route path="alert-rules/new" element={<RuleEditorPage />} />
+            <Route path="alert-rules/:id" element={<RuleEditorPage />} />
+            <Route path="system" element={<SystemPage />} />
+          </Route>
           <Route path="alerts">
             <Route index element={<AlertsPage />} />
             <Route path=":id" element={<IncidentDetailPage />} />

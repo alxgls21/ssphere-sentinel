@@ -68,6 +68,7 @@ class ConsoleAccess(CustomerAccess):
         permissions = [
             ("use_console", "Can sign in to the monitoring console"),
             ("view_all_customers", "Can see all customers and unassigned objects"),
+            ("view_system_status", "Can see the system status in the console"),
         ]
 
 

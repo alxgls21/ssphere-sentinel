@@ -5,6 +5,11 @@ errors included, with one error shape::
 
     {"error": {"code": "unauthenticated", "message": "Sign in to continue."}}
 
+A request whose values are wrong also says which, field by field (never echoing
+what was sent)::
+
+    {"error": {"code": "validation_error", "message": "...", "fields": {"name": ["..."]}}}
+
 Responses are never cached (they are per-user) and vary on the cookie. "Everything"
 means everything that reaches a console view: the few responses Django's
 middleware produces first (a rejected ``Host`` header, an HTTPS redirect, the
@@ -13,6 +18,7 @@ trailing-slash redirect) are Django's own and carry no data.
 
 from __future__ import annotations
 
+import json
 import logging
 import time
 from functools import wraps
@@ -44,16 +50,27 @@ class ApiError(Exception):
         message: str,
         *,
         headers: dict[str, str] | None = None,
+        fields: dict[str, list[str]] | None = None,
     ) -> None:
         super().__init__(message)
         self.status = status
         self.code = code
         self.message = message
         self.headers = headers or {}
+        self.fields = fields
 
 
-def error_response(status: int, code: str, message: str, headers: dict[str, str] | None = None) -> JsonResponse:
-    response = JsonResponse({"error": {"code": code, "message": message}}, status=status)
+def validation_error(fields: dict[str, list[str]]) -> ApiError:
+    return ApiError(400, "validation_error", "Some values are not valid.", fields=fields)
+
+
+def error_response(
+    status: int, code: str, message: str, headers: dict[str, str] | None = None, fields: dict | None = None
+) -> JsonResponse:
+    error = {"code": code, "message": message}
+    if fields:
+        error["fields"] = fields
+    response = JsonResponse({"error": error}, status=status)
     for name, value in (headers or {}).items():
         response[name] = value
     return response
@@ -120,7 +137,7 @@ def console_api(*, methods: tuple[str, ...] = ("GET",), authenticated: bool = Tr
                     request.visibility = Visibility.for_user(user)
                 response = view(request, *args, **kwargs)
             except ApiError as exc:
-                response = error_response(exc.status, exc.code, exc.message, exc.headers)
+                response = error_response(exc.status, exc.code, exc.message, exc.headers, exc.fields)
             except (NotVisible, Http404):
                 # Hidden and non-existent look the same: ids cannot be probed.
                 response = error_response(404, "not_found", "Not found.")
@@ -137,6 +154,36 @@ def console_api(*, methods: tuple[str, ...] = ("GET",), authenticated: bool = Tr
         return wrapper
 
     return decorator
+
+
+def json_object(request: HttpRequest, *, max_bytes: int = 8192, empty: bool = False) -> dict:
+    """The body of a write request: a JSON object (``{}`` for no body, if ``empty``), at most ``max_bytes``."""
+    content_type = (request.content_type or "").lower()
+    try:
+        declared = int(request.META.get("CONTENT_LENGTH") or 0)
+    except ValueError:
+        raise ApiError(400, "invalid_request", "The Content-Length header is not valid.") from None
+    if declared > max_bytes:
+        raise ApiError(413, "payload_too_large", "The request is too large.")
+    if empty:
+        # No body at all, whatever it says it is, or an empty form (what some clients send
+        # for a POST without data).
+        if content_type == "multipart/form-data":
+            if not request.POST and not request.FILES:
+                return {}
+        elif not request.body:
+            return {}
+    if content_type != "application/json":
+        raise ApiError(415, "unsupported_media_type", "Send the body as application/json.")
+    if len(request.body) > max_bytes:
+        raise ApiError(413, "payload_too_large", "The request is too large.")
+    try:
+        data = json.loads(request.body)
+    except ValueError:
+        data = None
+    if not isinstance(data, dict):
+        raise ApiError(400, "invalid_request", "The body must be a JSON object.")
+    return data
 
 
 def request_scope(request: HttpRequest):
