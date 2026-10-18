@@ -11,8 +11,8 @@
 #   3. web does not receive a migration password;
 #   4. the documented restore ends with `docker compose up -d`, also after the
 #      exited migrate container was removed (as `docker container prune` does);
-#   5. the previous release starts again once the migrate container is
-#      removed as documented, and a second update works.
+#   5. the previous release starts again once the migrate and proxy
+#      containers are removed as documented, and a second update works.
 #
 # CI only: it checks out other commits (run a copy from outside the working
 # tree) and restarts the Docker daemon. Everything it creates, looks up or
@@ -230,6 +230,7 @@ web=$(container web)
 sudo systemctl restart docker
 wait_healthy "$db"
 wait_healthy "$web"
+wait_healthy "$(container proxy)"
 [ "$(container web)" = "$web" ] || fail "web was recreated by the restart"
 [ "$(container db)" = "$db" ] || fail "the database container was recreated by the restart"
 [ "$(docker inspect --format '{{.State.FinishedAt}}' "$(container migrate)")" = "$migrate_finished" ] \
@@ -249,8 +250,9 @@ assert_database_untouched "by the restore"
 assert_migrate_did_nothing "after the restore"
 
 step "Roll back to the previous release (documented procedure)"
-docker compose rm --stop --force migrate alert-engine notifier
+docker compose rm --stop --force migrate alert-engine notifier proxy
 [ -z "$(container alert-engine)" ] || fail "the alert-engine container was not removed"
+[ -z "$(container proxy)" ] || fail "the proxy container was not removed"
 assert_no_migrate_container "the migrate container was not removed"
 checkout "$PREVIOUS"
 up

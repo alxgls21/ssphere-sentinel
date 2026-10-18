@@ -1,12 +1,16 @@
-# SSphere Sentinel server: Django (Gunicorn) + PostgreSQL.
+# SSphere Sentinel server: the console (React, served by nginx) and Django
+# (Gunicorn) + PostgreSQL.
 #
 #   cp .env.example .env        # then set every secret (docs/server-deployment.md)
 #   docker compose up -d --build
 #
-# PostgreSQL is only reachable on the internal Compose network. The web port
-# is published on SENTINEL_HTTP_BIND (default: all interfaces). In production,
-# terminate TLS in front of it (reverse proxy or Cloudflare Tunnel, see
-# compose.tunnel.yml) and set SENTINEL_HTTP_BIND=127.0.0.1.
+# The proxy service is the only one published, on SENTINEL_HTTP_BIND:SENTINEL_HTTP_PORT
+# (default: all interfaces, port 8000): it serves the console and passes /api/,
+# /admin/, /static/ and /health/ on to web. Browsers and agents use it alone. It
+# shares the edge network with web only; PostgreSQL and the workers are on the
+# internal Compose network, which it cannot reach. In production, terminate TLS
+# in front of it (reverse proxy or Cloudflare Tunnel, see compose.tunnel.yml) and
+# set SENTINEL_HTTP_BIND=127.0.0.1.
 #
 # The database service comes from deploy/postgres/postgres-<SENTINEL_POSTGRES>.yml.
 # Each file defines the image, the volume and the mount of one PostgreSQL major
@@ -53,6 +57,10 @@ x-logging: &default-logging
   options:
     max-size: "10m"
     max-file: "5"
+
+networks:
+  # The front door's network: proxy and web (and cloudflared, compose.tunnel.yml).
+  edge: {}
 
 services:
   migrate:
@@ -102,8 +110,10 @@ services:
       # notifier only.
       SENTINEL_DB_MIGRATE_PASSWORD: ""
       SENTINEL_SMTP_PASSWORD: ""
-    ports:
-      - "${SENTINEL_HTTP_BIND:-0.0.0.0}:${SENTINEL_HTTP_PORT:-8000}:8000"
+    # Not published: browsers and agents reach it through the proxy service.
+    networks:
+      - default
+      - edge
     depends_on:
       db:
         condition: service_healthy
@@ -118,6 +128,42 @@ services:
     security_opt:
       - no-new-privileges:true
     # Gunicorn finishes in-flight requests for up to 30 seconds on SIGTERM.
+    stop_grace_period: 40s
+    logging: *default-logging
+
+  # The console and the front door: nginx serves the React build and passes
+  # what Django serves on to web (deploy/frontend/nginx.conf). No secret, no
+  # database: it is on the edge network only.
+  proxy:
+    build:
+      context: ./frontend
+      dockerfile: ../deploy/frontend/Dockerfile
+      additional_contexts:
+        nginx: ./deploy/frontend
+    restart: unless-stopped
+    init: true
+    ports:
+      - "${SENTINEL_HTTP_BIND:-0.0.0.0}:${SENTINEL_HTTP_PORT:-8000}:8080"
+    networks:
+      - edge
+    depends_on:
+      web:
+        condition: service_healthy
+    # The console itself, served by nginx (not through web: it answers while web restarts).
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8080/"]
+      interval: 30s
+      timeout: 5s
+      start_period: 10s
+      retries: 3
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    # nginx ends idle connections at once and waits for requests in progress.
     stop_grace_period: 40s
     logging: *default-logging
 

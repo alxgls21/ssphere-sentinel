@@ -3,6 +3,7 @@ regress silently (non-root, no Docker socket by default, no secrets)."""
 
 from __future__ import annotations
 
+import json
 import os
 import re
 import shutil
@@ -232,7 +233,7 @@ class ComposeTests(unittest.TestCase):
 
     def test_service_and_volume_names_preserve_existing_data(self):
         self.assertNotIn("name", self.compose)  # project name drives volume names
-        self.assertEqual(set(self.compose["services"]), {"web", "migrate", *WORKERS})
+        self.assertEqual(set(self.compose["services"]), {"web", "migrate", "proxy", *WORKERS})
         self.assertNotIn("volumes", self.compose)
         self.assertEqual(self.database({})["services"].keys(), {"db"})
 
@@ -396,6 +397,8 @@ class ComposeTests(unittest.TestCase):
             with self.subTest(service=name):
                 if name == "notifier":
                     self.assertNotIn("SENTINEL_SMTP_PASSWORD", service["environment"])
+                elif name == "proxy":
+                    self.assertNotIn("environment", service)
                 else:
                     self.assertEqual(service["environment"]["SENTINEL_SMTP_PASSWORD"], "")
         self.assertNotIn("SMTP", str(self.tunnel))
@@ -544,9 +547,9 @@ class ComposeTests(unittest.TestCase):
         environments = {}
         for name, service in self.compose["services"].items():
             environment = {}
-            for path in service["env_file"]:
+            for path in service.get("env_file", []):
                 environment.update(env_file(path))
-            environment.update({key: str(value) for key, value in service["environment"].items()})
+            environment.update({key: str(value) for key, value in service.get("environment", {}).items()})
             environments[name] = environment
         (include,) = self.compose["include"]
         values = {}
@@ -564,6 +567,183 @@ class ComposeTests(unittest.TestCase):
         self.assertEqual(self.compose["services"]["web"]["env_file"], [".env"])
         self.assertNotRegex(cloudflared["image"], r":latest$")
 
+
+
+FRONTEND = ROOT / "frontend"
+PROXY_DIR = ROOT / "deploy" / "frontend"
+
+
+class ProxyTests(unittest.TestCase):
+    """The proxy service: the console's build and the one way in to Django, alone on the edge network."""
+
+    def setUp(self):
+        try:
+            import yaml
+        except ImportError:  # pragma: no cover - CI installs PyYAML
+            self.skipTest("PyYAML is not installed")
+        self.compose = yaml.safe_load((ROOT / "compose.yml").read_text())
+        self.tunnel = yaml.safe_load((ROOT / "compose.tunnel.yml").read_text())
+        self.services = self.compose["services"]
+        self.proxy = self.services["proxy"]
+        self.nginx = (PROXY_DIR / "nginx.conf").read_text()
+        self.dockerfile = (PROXY_DIR / "Dockerfile").read_text()
+
+    def block(self, opening: str) -> str:
+        """The body of the nginx block that starts with ``opening``."""
+        start = self.nginx.index(opening + " {")
+        end = self.nginx.index("\n    }", start)
+        return self.nginx[start:end]
+
+    def test_only_the_proxy_is_published_at_the_address_web_had(self):
+        published = {name for name, service in self.services.items() if "ports" in service}
+        self.assertEqual(published, {"proxy"})
+        self.assertEqual(self.proxy["ports"], ["${SENTINEL_HTTP_BIND:-0.0.0.0}:${SENTINEL_HTTP_PORT:-8000}:8080"])
+        self.assertNotIn("ports", self.tunnel["services"]["cloudflared"])
+
+    def test_the_edge_network_holds_the_proxy_and_web_only(self):
+        self.assertEqual(self.compose["networks"], {"edge": {}})
+        self.assertEqual(self.proxy["networks"], ["edge"])
+        self.assertEqual(self.services["web"]["networks"], ["default", "edge"])
+        for name, service in self.services.items():
+            if name not in ("proxy", "web"):
+                with self.subTest(service=name):
+                    self.assertNotIn("networks", service)  # the default network only
+        for major in LAYOUTS:
+            db = yaml_load(POSTGRES_DIR / f"postgres-{major}.yml")["services"]["db"]
+            self.assertNotIn("networks", db)
+
+    def test_the_tunnel_reaches_the_proxy_on_the_edge_network(self):
+        cloudflared = self.tunnel["services"]["cloudflared"]
+        self.assertEqual(cloudflared["networks"], ["edge"])
+        self.assertEqual(cloudflared["depends_on"], {"proxy": {"condition": "service_healthy"}})
+        self.assertIn("http://proxy:8080", (ROOT / "compose.tunnel.yml").read_text())
+
+    def test_the_proxy_holds_no_setting_and_no_secret(self):
+        for key in ("environment", "env_file", "volumes", "secrets", "configs"):
+            self.assertNotIn(key, self.proxy)
+        self.assertNotRegex(self.dockerfile, r"(?m)^(ENV|ARG) ")
+
+    def test_proxy_hardening(self):
+        self.assertTrue(self.proxy["read_only"])
+        self.assertEqual(self.proxy["tmpfs"], ["/tmp"])
+        self.assertEqual(self.proxy["cap_drop"], ["ALL"])
+        self.assertIn("no-new-privileges:true", self.proxy["security_opt"])
+        self.assertTrue(self.proxy["init"])
+        self.assertEqual(self.proxy["restart"], "unless-stopped")
+        self.assertEqual(self.proxy["logging"]["options"]["max-size"], "10m")
+        self.assertEqual(self.proxy["depends_on"], {"web": {"condition": "service_healthy"}})
+        # Healthy on its own files: a restarting web does not take the console down with it.
+        self.assertEqual(self.proxy["healthcheck"]["test"][-1], "http://127.0.0.1:8080/")
+        # Long enough for the proxy's longest request (proxy_read_timeout) to finish.
+        self.assertGreater(int(self.proxy["stop_grace_period"].rstrip("s")), 35)
+
+    def test_the_image_is_built_from_the_frontend_and_the_proxy_configuration(self):
+        build = self.proxy["build"]
+        self.assertEqual(build["context"], "./frontend")
+        self.assertEqual(build["dockerfile"], "../deploy/frontend/Dockerfile")
+        self.assertEqual(build["additional_contexts"], {"nginx": "./deploy/frontend"})
+        self.assertNotIn("image", self.proxy)  # the release's build, never a registry's
+        self.assertIn("COPY --from=nginx nginx.conf /etc/nginx/conf.d/default.conf", self.dockerfile)
+        self.assertIn("COPY --from=build /src/dist /usr/share/nginx/html", self.dockerfile)
+        self.assertIn("RUN npm ci", self.dockerfile)
+        self.assertIn("ignore-scripts=true", (FRONTEND / ".npmrc").read_text())
+        ignored = (FRONTEND / ".dockerignore").read_text().split()
+        for name in ("node_modules", "dist", ".env*"):
+            self.assertIn(name, ignored)
+
+    def test_the_build_uses_the_node_line_ci_checks_the_console_with(self):
+        (node,) = re.findall(r"(?m)^FROM node:(\d+)-", self.dockerfile)
+        ci = (ROOT / ".github" / "workflows" / "ci.yml").read_text()
+        self.assertIn(f'node-version: "{node}"', ci)
+        minimum = re.search(r'"node": ">=(\d+)', (FRONTEND / "package.json").read_text())[1]
+        self.assertGreaterEqual(int(node), int(minimum))
+
+    def test_nginx_runs_unprivileged_from_a_supported_line(self):
+        (image,) = re.findall(r"(?m)^FROM (nginxinc/nginx-unprivileged:\S+)$", self.dockerfile)
+        self.assertRegex(image, r":1\.\d*[02468]-alpine$")  # an even minor: nginx's stable line
+        self.assertIn("listen 8080;", self.nginx)
+        self.assertIn("server_tokens off;", self.nginx)
+
+    def test_django_is_reached_by_name_and_found_again_when_web_is_recreated(self):
+        self.assertIn("resolver 127.0.0.11 ", self.nginx)
+        self.assertIn("set $web http://web:8000;", self.nginx)
+        self.assertEqual(re.findall(r"proxy_pass (\S+);", self.nginx), ["$web"])
+
+    def test_every_path_django_serves_is_passed_on(self):
+        django = self.block("location ~ ^/(api|admin|static|health)/")
+        self.assertIn("proxy_pass $web;", django)
+        # The first segment of each route (sentinel/urls.py, and the root routes of apps/core/urls.py);
+        # the static files come from WhiteNoise under STATIC_URL.
+        routes = re.findall(r'path\("([^"]*)"', (ROOT / "sentinel" / "urls.py").read_text())
+        routes += re.findall(r'path\("([^"]*)"', (ROOT / "apps" / "core" / "urls.py").read_text())
+        prefixes = {route.split("/")[0] for route in routes} - {""}
+        self.assertEqual(prefixes, {"api", "admin", "health"})
+        self.assertIn('STATIC_URL = "static/"', (ROOT / "sentinel" / "settings.py").read_text())
+
+    def test_the_host_reaches_django_and_the_scheme_stays_gunicorns_decision(self):
+        django = self.block("location ~ ^/(api|admin|static|health)/")
+        self.assertIn("proxy_set_header Host $http_host;", django)
+        for header in ("X-Forwarded-For", "X-Forwarded-Host", "X-Forwarded-Ssl", "X-Forwarded-Protocol", "Forwarded"):
+            with self.subTest(header):
+                self.assertIn(f'proxy_set_header {header} "";', django)
+        # X-Forwarded-Proto goes on as the client sent it: Gunicorn ignores it unless FORWARDED_ALLOW_IPS trusts
+        # the proxy (docs/security.md); the proxy never vouches for a scheme it did not see.
+        self.assertNotRegex(django, r"X-Forwarded-Proto\s")
+        self.assertNotIn("$proxy_add_x_forwarded_for", self.nginx)
+        self.assertNotIn("$scheme", self.nginx)
+
+    def test_an_agent_heartbeat_fits_and_gunicorn_times_out_first(self):
+        from agent.http_client import MAX_REQUEST_BYTES
+
+        size = re.search(r"client_max_body_size (\d+)m;", self.nginx)[1]
+        self.assertGreaterEqual(int(size) * 1024 * 1024, MAX_REQUEST_BYTES)
+        gunicorn = int(re.search(r"(?m)^timeout = (\d+)$", (ROOT / "gunicorn.conf.py").read_text())[1])
+        django = self.block("location ~ ^/(api|admin|static|health)/")
+        for name in ("proxy_read_timeout", "proxy_send_timeout"):
+            self.assertGreater(int(re.search(rf"{name} (\d+)s;", django)[1]), gunicorn)
+
+    def test_the_apis_answer_in_their_own_shape_while_web_is_down(self):
+        django = self.block("location ~ ^/(api|admin|static|health)/")
+        self.assertIn("error_page 502 503 504 = @unavailable;", django)
+        unavailable = self.block("location @unavailable")
+        self.assertIn("default_type application/json;", unavailable)
+        body = re.search(r"return 503 '(.*)\\n';", unavailable)[1]
+        self.assertEqual(json.loads(body)["error"]["code"], "unavailable")
+
+    def test_the_console_routes_fall_back_to_index_html(self):
+        console = self.block("location /")
+        self.assertIn("try_files $uri /index.html;", console)
+        self.assertIn('Cache-Control "no-cache"', console)
+        assets = self.block("location /assets/")
+        self.assertIn("try_files $uri =404;", assets)
+        self.assertIn("immutable", assets)
+
+    def test_the_console_files_carry_the_security_headers(self):
+        # add_header in a location replaces the server's: each location states them all.
+        headers = {}
+        for opening in ("location /assets/", "location /"):
+            block = self.block(opening)
+            found = dict(re.findall(r'add_header (\S+) "([^"]*)" always;', block))
+            found.pop("Cache-Control")
+            headers[opening] = found
+        self.assertEqual(headers["location /assets/"], headers["location /"])
+        found = headers["location /"]
+        self.assertEqual(found["X-Content-Type-Options"], "nosniff")
+        self.assertEqual(found["X-Frame-Options"], "DENY")
+        self.assertEqual(found["Referrer-Policy"], "same-origin")
+        policy = dict(directive.strip().split(" ", 1) for directive in found["Content-Security-Policy"].split(";"))
+        self.assertEqual(policy["default-src"], "'self'")
+        self.assertEqual(policy["script-src"], "'self'")
+        self.assertEqual(policy["connect-src"], "'self'")
+        self.assertEqual(policy["frame-ancestors"], "'none'")
+        self.assertEqual(policy["object-src"], "'none'")
+        self.assertNotIn("add_header", self.nginx.split("location", 1)[0])
+
+
+def yaml_load(path: Path) -> dict:
+    import yaml
+
+    return yaml.safe_load(path.read_text())
 
 class InitializationGuardTests(unittest.TestCase):
     """The PostgreSQL 18 entrypoint guard, run as Compose would run it, with a

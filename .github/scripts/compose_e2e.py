@@ -91,6 +91,8 @@ SERVICES = {
             "SENTINEL_SMTP_PASSWORD": "",
         },
     },
+    # The console's front door: no secret of any kind, and no variable that could hold one.
+    "proxy": {"kinds": set(), "variables": {}},
 }
 # Services of a Compose profile: in the configuration only once the profile is enabled.
 OPTIONAL = {"notifier", "domain-verifier"}
@@ -104,8 +106,8 @@ PROCESSES = {
     "web.processes": ("web", "gunicorn", "SENTINEL_DB_ACCESS=runtime"),
     "db.processes": ("db", "postgres", "PG_MAJOR="),
 }
-ENVIRONMENTS = ("web.env", "migrate.env", "db.env", "alert-engine.env")
-MOUNTS = ("web.mounts", "migrate.mounts", "db.mounts", "alert-engine.mounts")
+ENVIRONMENTS = ("web.env", "migrate.env", "db.env", "alert-engine.env", "proxy.env")
+MOUNTS = ("web.mounts", "migrate.mounts", "db.mounts", "alert-engine.mounts", "proxy.mounts")
 EMPTY = ("web.files",)  # what must not exist, one path per line: nothing
 LOGS = "logs"
 

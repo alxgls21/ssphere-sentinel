@@ -134,7 +134,7 @@ class ComposeCompatibilityJobTests(unittest.TestCase):
         self.assertIn("scripts/postgres-roles.sh apply", script)
         self.assertIn("scripts/postgres-roles.sh status", script)
         # What each container holds: Docker's view of its environment, and its processes' own.
-        self.assertIn("for service in web migrate db alert-engine; do", script)
+        self.assertIn("for service in web migrate db alert-engine proxy; do", script)
         # The alert engine is stopped with web wherever the roles are provisioned or changed.
         self.assertNotIn("docker compose stop web\n", script)
         self.assertIn("docker inspect --format '{{range .Config.Env}}{{println .}}{{end}}' \"$id\" > \"$dir/$service.env\"", script)

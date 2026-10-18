@@ -179,6 +179,17 @@ No screen imports the mock or the HTTP layer, so none of them changes.
 ## Deployment
 
 `npm run build` produces a static `dist/` directory. CI runs every check of
-`npm run check` (the Frontend job); the bundle is not wired into the Docker
-image yet. It expects the console API on its own origin (`/api/v1/console/`),
-served by the same host or a reverse proxy.
+`npm run check` (the Frontend job). The Compose deployment builds it into the
+image of its `proxy` service ([deploy/frontend/Dockerfile](../deploy/frontend/Dockerfile),
+Node 24) and serves it with nginx, which passes `/api/`, `/admin/`, `/static/`
+and `/health/` on to Django: the console and its API share one origin, as with
+the dev server. Every other path answers `index.html`, so the console's own
+routes can be opened and reloaded directly; `/assets/` is cached for good, and
+`index.html` is checked again on every load
+([server deployment](../docs/server-deployment.md)).
+
+The console's pages are served with a Content Security Policy that allows only
+same-origin scripts, styles, images, fonts and connections (plus inline styles)
+and no framing ([deploy/frontend/nginx.conf](../deploy/frontend/nginx.conf)):
+code that loads anything from another origin, or runs inline scripts, does not
+work in production.

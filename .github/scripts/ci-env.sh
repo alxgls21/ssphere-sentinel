@@ -44,6 +44,12 @@ elif grep -q '^SENTINEL_POSTGRES=' .env; then
 fi
 # Nothing the CI starts is reachable from outside the host it runs on.
 printf 'SENTINEL_HTTP_BIND=127.0.0.1\n' >> .env
+# A public name served over HTTPS in front of the proxy, as the deployment guide
+# sets one up (check-server.sh signs in with it).
+sed -i -e 's|^DJANGO_ALLOWED_HOSTS=.*|DJANGO_ALLOWED_HOSTS=localhost,127.0.0.1,sentinel.example.test|' .env
+grep -qx 'DJANGO_ALLOWED_HOSTS=localhost,127.0.0.1,sentinel.example.test' .env \
+    || { echo "DJANGO_ALLOWED_HOSTS is not set in .env" >&2; exit 1; }
+printf 'DJANGO_CSRF_TRUSTED_ORIGINS=https://sentinel.example.test\n' >> .env
 if grep -q '=change-me' .env; then
     echo "placeholder secret left in .env" >&2
     exit 1
