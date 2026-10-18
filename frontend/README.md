@@ -178,6 +178,7 @@ No screen imports the mock or the HTTP layer, so none of them changes.
 
 ## Deployment
 
-`npm run build` produces a static `dist/` directory. It is intentionally not
-wired into the Docker image or CI yet. The bundle expects the console API on its
-own origin (`/api/v1/console/`), served by the same host or a reverse proxy.
+`npm run build` produces a static `dist/` directory. CI runs every check of
+`npm run check` (the Frontend job); the bundle is not wired into the Docker
+image yet. It expects the console API on its own origin (`/api/v1/console/`),
+served by the same host or a reverse proxy.

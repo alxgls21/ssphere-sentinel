@@ -115,10 +115,12 @@ jobs:
   # Server job, on a disposable cluster of their own (the logins refuse a
   # cluster that holds anything else), started from that version's programs,
   # which the tests check. Strict: a skipped test, a module that runs nothing or
-  # a test database of Django's (none of them uses one) fails the cell. Twice:
-  # with the bootstrap password in PGPASSWORD, and in the connection string.
+  # a test database of Django's (none of them uses one) fails the cell. In both
+  # ways the tests can be given the bootstrap password, each in a cell of its own
+  # (one run of the suite takes about 20 minutes): in PGPASSWORD (password-free)
+  # and in the connection string (password-in-dsn).
   postgres:
-    name: Separate database logins (PostgreSQL ${{ matrix.postgres }}, Django ${{ matrix.django }})
+    name: Separate database logins (PostgreSQL ${{ matrix.postgres }}, Django ${{ matrix.django }}, ${{ matrix.password }})
     if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.repository
     runs-on: ubuntu-24.04
     timeout-minutes: 45
@@ -127,6 +129,7 @@ jobs:
       matrix:
         postgres: ["16", "18"]
         django: ["5.2", "6.1"]
+        password: ["password-free", "password-in-dsn"]
     env:
       POSTGRES_BINDIR: /usr/lib/postgresql/${{ matrix.postgres }}/bin
       SENTINEL_TEST_POSTGRES_MAJOR: ${{ matrix.postgres }}
@@ -171,19 +174,47 @@ jobs:
       - name: Start a disposable cluster
         id: cluster
         run: .github/scripts/postgres-tests.sh start
-      # Both runs, whatever the other's outcome, once the cluster runs.
-      - name: Tests, with the bootstrap password in PGPASSWORD
+      - name: Tests (${{ matrix.password }})
         if: ${{ !cancelled() && steps.cluster.outcome == 'success' }}
-        run: .github/scripts/postgres-tests.sh run password-free
-      - name: Tests, with the bootstrap password in the connection string
-        if: ${{ !cancelled() && steps.cluster.outcome == 'success' }}
-        run: .github/scripts/postgres-tests.sh run password-in-dsn
+        run: .github/scripts/postgres-tests.sh run "${{ matrix.password }}"
       - name: Server log
         if: failure() || cancelled()
         run: cat "$RUNNER_TEMP/sentinel-postgres/server.log" || true
       - name: Stop the cluster
         if: always()
         run: .github/scripts/postgres-tests.sh stop
+
+  # The browser console (frontend/): what `npm run check` runs, step by step, with
+  # the locked dependencies (npm ci; .npmrc keeps their install scripts from running).
+  frontend:
+    name: Frontend
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.repository
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Install the locked dependencies
+        run: npm ci
+      - name: Type checking
+        run: npm run typecheck
+      - name: Lint
+        run: npm run lint
+      - name: Formatting
+        run: npm run format:check
+      - name: Unit and component tests
+        run: npm test
+      - name: Production build
+        run: npm run build
 
   agent:
     name: Agent (${{ matrix.os }}, Python ${{ matrix.python }})
