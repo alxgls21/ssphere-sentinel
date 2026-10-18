@@ -60,9 +60,9 @@ was (A, or B with the old passwords). It reads POSTGRES_DB,
 SENTINEL_DB_PASSWORD and SENTINEL_DB_MIGRATE_PASSWORD, from the environment
 or, with ``--compose-config``, as Compose gives them to the db, web and
 migrate services; then it refuses a configuration that gives web, migrate or
-a worker (the alert engine, the notifier) a password not its own. ``status``
-reads the history and checks the invariants in a read-only transaction, and
-reads POSTGRES_DB.
+a worker (the alert engine, the notifier, the domain verifier) a password not
+its own. ``status`` reads the history and checks the invariants in a read-only
+transaction, and reads POSTGRES_DB.
 
 An existing installation, whose tables belong to the bootstrap superuser,
 lists each of them, partitions included, with ``--adopt-table`` (``apply``
@@ -1527,7 +1527,7 @@ def status_program(database: str, *, nonce: str | None = None) -> Program:
 
 
 # The services that log in like web, with the runtime login, when the configuration has them.
-COMPOSE_WORKERS = ("alert-engine", "notifier")
+COMPOSE_WORKERS = ("alert-engine", "notifier", "domain-verifier")
 
 
 def compose_settings(config: Mapping) -> dict[str, str | None]:

@@ -8,7 +8,8 @@
 #     the alert engine the runtime login's, migrate the migration login's, db
 #     the bootstrap superuser's, from the file only Compose reads;
 #   - the alert engine runs as a worker, which never migrates, and the SMTP
-#     password reaches the notifier only (profile "notifications");
+#     password reaches the notifier only (profile "notifications"), not the
+#     domain verifier (profile "web-monitoring");
 #   - sentinel/db_roles.py reads the passwords from the resolved configuration,
 #     and refuses one that gives web or migrate a password not its own.
 # Writes and removes .env, .env.migrate and .env.bootstrap in the working tree: CI only.
@@ -145,6 +146,28 @@ PY
 python3 -m sentinel.db_roles apply --compose-config "$work/config.json" > "$work/program" \
     || fail "the generator refused the configuration with the notifier"
 if grep -qF "$SMTP" "$work/program"; then fail "the program holds the SMTP password"; fi
+
+step "Website monitoring: the domain verifier logs in as web does, without the SMTP password"
+COMPOSE_PROFILES=notifications,web-monitoring docker compose config --format json > "$work/config.json"
+python3 - "$work/config.json" <<'PY'
+import json
+import os
+import sys
+
+sys.path.insert(0, ".")
+from sentinel.database import foreign_passwords  # noqa: E402
+
+services = json.load(open(sys.argv[1]))["services"]
+assert set(services) == {"db", "migrate", "web", "alert-engine", "notifier", "domain-verifier"}, sorted(services)
+verifier = services["domain-verifier"]["environment"]
+assert (verifier["SENTINEL_DB_ACCESS"], verifier["SENTINEL_PROCESS"]) == ("runtime", "worker")
+assert verifier.get("SENTINEL_DB_PASSWORD") == os.environ["RUNTIME"], "the verifier lacks the runtime password"
+assert not verifier.get("SENTINEL_SMTP_PASSWORD"), "the verifier gets the SMTP password"
+assert foreign_passwords(verifier) == [], "the verifier would refuse to start"
+print("the domain verifier: runtime login, no SMTP password")
+PY
+python3 -m sentinel.db_roles apply --compose-config "$work/config.json" > /dev/null \
+    || fail "the generator refused the configuration with the domain verifier"
 
 step "Moving the bootstrap password leaves the db service as it was"
 env_from tests/deployment/legacy.env.example

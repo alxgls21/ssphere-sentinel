@@ -150,6 +150,54 @@ the CSRF token.
   account's deletion is in the admin's own history. A save in the admin has no
   version check: it is the last word over a change made since the form was
   opened, and the trail records what it changed.
+- **Domains are verified before anything is monitored, by permission too.**
+  Adding a domain (`web.add_monitoreddomain`), seeing domains
+  (`web.view_monitoreddomain`) and asking for a verification
+  (`web.verify_monitoreddomain`) all need `view_all_customers` as well; a
+  restricted user is refused whatever their permissions. A domain is kept in
+  one canonical form (IDNA2008 A-labels, lowercase), once per customer; public
+  suffixes, IP addresses and names of local use are refused. Each customer's
+  token is its own (256 random bits), shown only in the domain's detail, and
+  is public DNS material, not a credential: it is never in the trail or the
+  logs. The web process only queues a verification; the `domain-verifier`
+  service asks the container's resolver only where public suffixes are served,
+  then follows the delegations from there itself and asks the domain's own
+  name servers the TXT question of the record name, or of the names its
+  aliases point to (never one with no public DNS). It never sends anything to
+  an address that is not public, nor looks up a name server whose name has no
+  public DNS, so a domain cannot make it query an internal network. A request
+  takes no options (no server, no name, no type), and is bounded: one at a
+  time per domain, one per 10 seconds per domain, 20 per user in 10 minutes,
+  200 waiting in all, a 30-second deadline and a fixed number of questions.
+  Only authoritative answers count; a delegation is followed only when most of
+  the servers asked give the very same one (no server alone chooses who is
+  asked next); more than half of the domain's name servers (the names its
+  parent delegates to, each counted once however many addresses it has) must
+  answer and agree; and a failure is never taken for absence. So one name
+  server that is not the owner's to run (a lame delegation someone else has
+  taken over) cannot verify a domain by its own answers; whoever runs more
+  than half of its name servers while the others are silent, or its DNS
+  account, can. The name servers' addresses are found the same way, never from
+  the resolver: those (glue) more than half of the servers asked give with a
+  delegation, or those the name server's own zone gives, more than half of its
+  servers answering and agreeing (at most three lookups deep); a name server
+  whose address cannot be found that way is not asked, and too few answering
+  is never verified. So a taken-over server that also serves the zone of the
+  domain's other name servers' names (`example.net` for `ns1.example.net`)
+  cannot point them to itself either. Servers are counted by name: two names
+  under one lapsed domain (`ns1` and `ns2` of a name server domain that
+  expired) are two votes for whoever registers it. What this does not cover:
+  whoever controls more than half of the names of any zone on the way (the
+  domain's, its name servers', or a public suffix's), the registries, the
+  operators of private suffixes (`github.io` and the like, from the Public
+  Suffix List's PRIVATE section) and the resolver's view of where public
+  suffixes are served, a shared DNS provider whose servers answer from a zone
+  another of its customers created under the domain, an attacker on the path
+  between Sentinel and the name servers (there is no DNSSEC validation), and a
+  domain whose DNS account is someone else's. It does not make a domain's DNS
+  secure; it makes one server's word not enough. The admin shows domains and
+  verifications read-only to staff with the view permissions, of every
+  customer, as it does servers.
 - **Nothing sensitive is returned**: no password hashes, agent tokens, SNMP
   credential profiles or secret settings; the session payload has the user
   name, display name, the access flags and what the account may administer. The server and container endpoints

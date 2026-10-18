@@ -12,6 +12,10 @@ what to offer (``/session/``).
 * The system's status (the alert engine, the notifier, the email outbox, settings
   that come from the environment): ``console.view_system_status`` and global
   visibility, since its counts concern every customer.
+* Monitored domains: Django's model permissions on ``web.MonitoredDomain`` (view, add)
+  and ``web.verify_monitoreddomain`` to ask for a verification, with **global
+  visibility**: the list names every customer's domains. Whoever may add or verify
+  domains may see them.
 """
 
 from __future__ import annotations
@@ -25,6 +29,9 @@ ADD_RULES = "alerts.add_alertrule"
 CHANGE_RULES = "alerts.change_alertrule"
 SEND_TEST_EMAIL = "alerts.send_test_email"
 VIEW_SYSTEM_STATUS = "console.view_system_status"
+VIEW_DOMAINS = "web.view_monitoreddomain"
+ADD_DOMAINS = "web.add_monitoreddomain"
+VERIFY_DOMAINS = "web.verify_monitoreddomain"
 
 
 def may_view_rules(user, visibility: Visibility) -> bool:
@@ -44,6 +51,18 @@ def may_view_system_status(user, visibility: Visibility) -> bool:
     return visibility.all_access and user.has_perm(VIEW_SYSTEM_STATUS)
 
 
+def may_add_domains(user, visibility: Visibility) -> bool:
+    return visibility.all_access and user.has_perm(ADD_DOMAINS)
+
+
+def may_verify_domains(user, visibility: Visibility) -> bool:
+    return visibility.all_access and user.has_perm(VERIFY_DOMAINS)
+
+
+def may_view_domains(user, visibility: Visibility) -> bool:
+    return visibility.all_access and any(user.has_perm(name) for name in (VIEW_DOMAINS, ADD_DOMAINS, VERIFY_DOMAINS))
+
+
 def require(allowed: bool, message: str) -> None:
     if not allowed:
         raise ApiError(403, "forbidden", message)
@@ -58,4 +77,7 @@ def capabilities(user, visibility: Visibility) -> dict[str, bool]:
         "manageOwnNotifications": True,
         "sendTestEmail": user.has_perm(SEND_TEST_EMAIL),
         "viewSystemStatus": may_view_system_status(user, visibility),
+        "viewDomains": may_view_domains(user, visibility),
+        "addDomains": may_add_domains(user, visibility),
+        "verifyDomains": may_verify_domains(user, visibility),
     }

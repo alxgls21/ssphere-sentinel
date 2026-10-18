@@ -204,7 +204,7 @@ LAYOUTS = {
     "18": ("postgres18_data", "/var/lib/postgresql"),
 }
 # The long-running processes beside web: the image again, the runtime login, no migrations.
-WORKERS = {"alert-engine": "run_alert_engine", "notifier": "run_notifier"}
+WORKERS = {"alert-engine": "run_alert_engine", "notifier": "run_notifier", "domain-verifier": "run_domain_verifier"}
 
 
 class ComposeTests(unittest.TestCase):
@@ -384,9 +384,11 @@ class ComposeTests(unittest.TestCase):
                 # SIGTERM ends the cycle in progress first.
                 self.assertRegex(worker["stop_grace_period"], r"^\d+s$")
                 self.assertGreaterEqual(int(worker["stop_grace_period"][:-1]), 60)
-        # The alert engine always runs; the notifier only once email is set up.
+        # The alert engine always runs; the notifier only once email is set up, the domain
+        # verifier once website monitoring is.
         self.assertNotIn("profiles", services["alert-engine"])
         self.assertEqual(services["notifier"]["profiles"], ["notifications"])
+        self.assertEqual(services["domain-verifier"]["profiles"], ["web-monitoring"])
 
     def test_the_smtp_password_reaches_only_the_notifier(self):
         services = self.compose["services"]

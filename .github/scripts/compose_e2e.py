@@ -81,9 +81,19 @@ SERVICES = {
             "SENTINEL_SMTP_PASSWORD": OWN,
         },
     },
+    "domain-verifier": {
+        "kinds": {"runtime", "django", "pepper"},
+        "variables": {
+            "SENTINEL_DB_PASSWORD": "runtime",
+            "DJANGO_SECRET_KEY": "django",
+            "AGENT_TOKEN_PEPPER": "pepper",
+            "SENTINEL_DB_MIGRATE_PASSWORD": "",
+            "SENTINEL_SMTP_PASSWORD": "",
+        },
+    },
 }
 # Services of a Compose profile: in the configuration only once the profile is enabled.
-OPTIONAL = {"notifier"}
+OPTIONAL = {"notifier", "domain-verifier"}
 
 # What the files of an evidence directory are. Processes: one block for each process the container
 # has, "## <pid> <command line>" and then its environment, as the separate-roles-e2e.sh collects them.

@@ -192,16 +192,19 @@ class CapabilityTests(TestCase):
         everything = (
             "alerts.view_alertrule", "alerts.add_alertrule", "alerts.change_alertrule", "alerts.send_test_email",
             "console.view_system_status", "alerts.acknowledge_incident",
+            "web.view_monitoreddomain", "web.add_monitoreddomain", "web.verify_monitoreddomain",
         )
         global_user = grant(make_user("global", all_customers=True), *everything)
         self.assertEqual(self.capabilities(global_user), {
             "acknowledgeIncidents": True, "viewAlertRules": True, "createAlertRules": True, "editAlertRules": True,
             "manageOwnNotifications": True, "sendTestEmail": True, "viewSystemStatus": True,
+            "viewDomains": True, "addDomains": True, "verifyDomains": True,
         })
         restricted = grant(make_user("restricted", customers=[acme]), *everything)
         self.assertEqual(self.capabilities(restricted), {
             "acknowledgeIncidents": True, "viewAlertRules": False, "createAlertRules": False, "editAlertRules": False,
             "manageOwnNotifications": True, "sendTestEmail": True, "viewSystemStatus": False,
+            "viewDomains": False, "addDomains": False, "verifyDomains": False,
         })
         plain = make_user("plain", all_customers=True)
         self.assertEqual({name for name, value in self.capabilities(plain).items() if value}, {"manageOwnNotifications"})
@@ -215,6 +218,9 @@ class CapabilityTests(TestCase):
     def test_no_group_is_made_for_the_new_permissions(self):
         from django.contrib.auth.models import Group
 
-        for codename in ("send_test_email", "view_system_status", "add_alertrule", "change_alertrule"):
+        for codename in (
+            "send_test_email", "view_system_status", "add_alertrule", "change_alertrule",
+            "view_monitoreddomain", "add_monitoreddomain", "verify_monitoreddomain",
+        ):
             with self.subTest(codename=codename):
                 self.assertFalse(Group.objects.filter(permissions__codename=codename).exists())

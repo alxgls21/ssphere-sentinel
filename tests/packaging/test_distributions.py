@@ -101,7 +101,9 @@ class ServerMetadataTests(unittest.TestCase):
 
     def test_server_dependencies(self):
         names = {requirement_name(req) for req in self.project["dependencies"]}
-        self.assertEqual(names, {"django", "gunicorn", "psycopg", "whitenoise"})
+        self.assertEqual(
+            names, {"django", "gunicorn", "psycopg", "whitenoise", "dnspython", "idna", "publicsuffixlist"}
+        )
 
     def test_server_distribution_does_not_ship_the_agent(self):
         include = self.pyproject["tool"]["setuptools"]["packages"]["find"]["include"]

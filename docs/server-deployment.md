@@ -195,7 +195,7 @@ once), then optional **Network targets**. Install the agent on the host with
 
 ```bash
 docker compose logs -f web    # Gunicorn and Django (stderr), errors with tracebacks
-docker compose logs -f alert-engine notifier
+docker compose logs -f alert-engine notifier domain-verifier
 docker compose logs -f db
 ```
 
@@ -294,6 +294,70 @@ To stop emailing, remove `COMPOSE_PROFILES=notifications` and the
 `SENTINEL_SMTP_*` settings from `.env`, then `docker compose stop notifier`
 and `docker compose up -d`.
 
+### Website domains
+
+A website is monitored only once its domain is verified: a customer proves the
+domain is theirs with a TXT record in its DNS. In the console, a user with the
+domain permissions and access to every customer adds the domain for a customer
+(a registrable domain such as `example.co.uk`, or a name under one; never a
+public suffix such as `co.uk` or `github.io`, an IP address, or a name of local
+use such as `.local`), and gets the record to add:
+
+```text
+_ssphere-sentinel.example.com.  TXT  "ssphere-verification=<token>"
+```
+
+Each customer gets its own token, also for a domain another customer has; the
+token proves who can change the domain's DNS and is not a credential. The record
+stays in the DNS. Then the user asks for a verification, which the
+`domain-verifier` service answers, not the web process:
+
+1. It asks the resolver of its container (the host's, through Docker; never
+   one a user names) only where public suffixes (`com`, `co.uk`) are served.
+   From there it follows the delegations itself, without recursion, down to
+   the domain's own name servers, and asks every one of them: TXT over UDP,
+   and again over TCP when the answer is cut short. A delegation is followed
+   only when most of the servers asked give the very same one, so no single
+   server, of the domain or above it, can add a name server to those asked; a
+   domain delegated to more than 13 name servers is not verified. The name
+   servers' addresses are found the same way, never from the resolver: those
+   more than half of the servers asked give with the delegation (glue), or
+   those the name server's own zone gives, more than half of its servers
+   answering and all of them agreeing (at most three lookups deep). A name
+   server whose address cannot be found that way is not asked. No cache stands
+   between, so a record just added is seen at once. What this protects
+   against, and what it does not, is in [the security
+   notes](security.md#console-authentication-and-access-control).
+2. Only authoritative answers count. The domain is verified when every name
+   server that answered has the record and more than half of the domain's name
+   servers answered: the names the delegation gives, each counted once however
+   many addresses it has (only the parent adds a name). When they disagree the
+   change is still spreading (ask again later); when too few answered, or they
+   failed, nothing is concluded either way. A CNAME (or a DNAME) is followed,
+   at most eight times, but not to a name with no public DNS.
+3. It never sends anything to an address that is not public (private, loopback,
+   link-local, shared or reserved ranges, IPv4 inside IPv6), nor looks up a name
+   server whose name has no public DNS: a domain whose name servers are there is
+   not verified. Each verification has a deadline of 30 seconds and a bounded
+   number of questions.
+
+To run it, add the profile to `.env` (beside `notifications` if email is on), and
+allow the server to reach the internet on port 53 (UDP and TCP):
+
+```dotenv
+COMPOSE_PROFILES=notifications,web-monitoring
+```
+
+A verification no verifier takes within ten minutes expires, and the console
+says whether a verifier runs. One domain may be verified every 10 seconds, a
+user may ask for 20 verifications in 10 minutes, and at most 200 wait at once.
+The permissions (*Can add monitored domain*, *Can view monitored domain*, *Can
+ask for a domain's verification*) are granted in the admin, to users or groups
+of your own; the admin shows domains and verifications read-only. Every domain
+added, verification asked for and answer is in the configuration trail
+(*Alerts > Configuration changes*). In this release a domain stays verified once
+verified; nothing is monitored yet.
+
 ### Upgrades
 
 1. Back up the database (see [Backups](#backups)).
@@ -320,11 +384,12 @@ units that start the stack with `docker compose start` must use
 
 To roll back, check out the previous tag and restore the backup taken before
 the upgrade: migrations are not guaranteed to be reversible. Before checking
-out a release without the `migrate` service or the alert engine, remove their
-containers (a service the older `compose.yml` does not know would keep running):
+out a release without the `migrate` service, the alert engine or the domain
+verifier, remove their containers (a service the older `compose.yml` does not
+know would keep running):
 
 ```bash
-docker compose rm --stop --force migrate alert-engine notifier
+docker compose rm --stop --force migrate alert-engine notifier domain-verifier
 git checkout <previous-tag>
 docker compose up -d --build
 ```
@@ -349,8 +414,8 @@ console users see a server as soon as it has a site they are granted.
 ### Database migrations
 
 Applied automatically when the `web` container starts (the `migrate` service
-has nothing to do in the default configuration); the `alert-engine` and
-`notifier` services never apply them. To inspect or run them by hand:
+has nothing to do in the default configuration); the `alert-engine`,
+`notifier` and `domain-verifier` services never apply them. To inspect or run them by hand:
 
 ```bash
 docker compose exec web python manage.py showmigrations
@@ -371,7 +436,7 @@ no Sentinel process holds a superuser's password or connects as one:
 
 | Login | Used by | Can | Password in |
 | --- | --- | --- | --- |
-| `sentinel_app` | `web`, `alert-engine`, `notifier` | read and write the application's rows | `.env` (`SENTINEL_DB_PASSWORD`) |
+| `sentinel_app` | `web`, `alert-engine`, `notifier`, `domain-verifier` | read and write the application's rows | `.env` (`SENTINEL_DB_PASSWORD`) |
 | `sentinel_migrate` | `migrate` | change the schema, as `sentinel_owner` | `.env.migrate` (`SENTINEL_DB_MIGRATE_PASSWORD`) |
 | bootstrap superuser | `db`, and the operator through `docker compose exec db` | everything | `.env.bootstrap` (`POSTGRES_PASSWORD`) |
 
@@ -548,7 +613,7 @@ Continue with [Start](#2-start) from `createsuperuser`.
 The tables of an existing installation belong to the bootstrap superuser;
 `apply` hands them to `sentinel_owner` in the same transaction that creates
 the logins. Plan a short maintenance window: the application (`web`,
-`alert-engine` and `notifier`) stays stopped from step 1 to step 4. Nothing here touches the database volume: never add `--volumes`
+`alert-engine`, `notifier` and `domain-verifier`) stays stopped from step 1 to step 4. Nothing here touches the database volume: never add `--volumes`
 to a Compose command, and leave `SENTINEL_POSTGRES` in `.env` as it is (an
 installation still on PostgreSQL 16 stays on it).
 
@@ -557,7 +622,7 @@ installation still on PostgreSQL 16 stays on it).
 
    ```bash
    cp .env env.legacy.backup
-   docker compose stop web alert-engine notifier
+   docker compose stop web alert-engine notifier domain-verifier
    ```
 
 2. Move the bootstrap password, unchanged, out of `.env` into
@@ -737,7 +802,7 @@ Agents keep queueing network measurements while the application is stopped
 so that nothing writes to the old database, and read it into a private bundle:
 
 ```bash
-docker compose --project-directory "$OLD" stop web alert-engine notifier
+docker compose --project-directory "$OLD" stop web alert-engine notifier domain-verifier
 umask 077
 python3 -m sentinel.recovery export --compose-dir "$OLD" --bundle /var/backups/sentinel-recovery/bundle
 ```
@@ -830,8 +895,8 @@ service step 2 stopped), take both to the same release, and start over.
 At any point until you have chosen to keep the new installation: stop the new
 stack (`docker compose --project-directory "$NEW" down`, without `--volumes`)
 and start the old one (`docker compose --project-directory "$OLD" up -d`, which
-starts `web`, `alert-engine` and `notifier` again: `start web` would leave the
-other two stopped). The old project, its database volume and its `.env` were
+starts `web` and the workers again: `start web` would leave the
+others stopped). The old project, its database volume and its `.env` were
 never changed, so it starts exactly as it was when it was stopped; whatever the new installation
 accepted since then is not in it. Remove the old project's volume only once a
 backup of the new database has been restored elsewhere and checked.
@@ -844,7 +909,7 @@ backup of the new database has been restored elsewhere and checked.
   service.
 * `manage.py dbshell` is disabled. Use psql in the `db` container.
 * New passwords for the two logins: change them in `.env` and `.env.migrate`,
-  stop the application (`docker compose stop web alert-engine notifier`), run
+  stop the application (`docker compose stop web alert-engine notifier domain-verifier`), run
   `scripts/postgres-roles.sh apply`, then `docker compose up -d`.
 * Keep `.env.bootstrap` and `.env.migrate` private (`chmod 600`) and back them
   up with `.env`. Compose reads `.env.bootstrap` on every command, so it stays
@@ -863,7 +928,7 @@ docker compose exec -T db sh -c 'pg_dump -U "$POSTGRES_USER" -d "$POSTGRES_DB" -
 Restore into the existing database (stops the application meanwhile):
 
 ```bash
-docker compose stop web alert-engine notifier
+docker compose stop web alert-engine notifier domain-verifier
 docker compose exec -T db sh -c \
     'pg_restore -U "$POSTGRES_USER" -d "$POSTGRES_DB" --clean --if-exists --single-transaction --exit-on-error' \
     < sentinel-<timestamp>.dump
@@ -999,7 +1064,7 @@ cd /opt/ssphere-sentinel
 git checkout <tag>                 # a release that includes PostgreSQL 18 support
 docker compose build
 scripts/postgres-preflight.sh      # expected: existing PostgreSQL 16 installation
-docker compose stop web alert-engine notifier
+docker compose stop web alert-engine notifier domain-verifier
 
 docker compose exec -T db sh -c 'pg_dump -U "$POSTGRES_USER" -d "$POSTGRES_DB" --format=custom' \
     > sentinel-pg16.dump

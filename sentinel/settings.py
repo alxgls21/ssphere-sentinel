@@ -317,6 +317,7 @@ INSTALLED_APPS = [
     "apps.snmp",
     "apps.console",
     "apps.alerts",
+    "apps.web",
 ]
 
 MIDDLEWARE = [

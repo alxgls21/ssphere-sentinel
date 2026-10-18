@@ -984,12 +984,17 @@ class ConfigurationAction(models.TextChoices):
     SUBSCRIPTION_CHANGED = "subscription_changed", "Email subscription changed"
     SUBSCRIPTION_DELETED = "subscription_deleted", "Email subscription deleted"
     TEST_EMAIL_REQUESTED = "test_email_requested", "Test email requested"
+    DOMAIN_CREATED = "domain_created", "Domain added"
+    DOMAIN_VERIFICATION_REQUESTED = "domain_verification_requested", "Domain verification requested"
+    DOMAIN_VERIFIED = "domain_verified", "Domain verified"
+    DOMAIN_VERIFICATION_FAILED = "domain_verification_failed", "Domain verification failed"
 
 
 class ConfigurationTarget(models.TextChoices):
     ALERT_RULE = "alert_rule", "Alert rule"
     SUBSCRIPTION = "subscription", "Email subscription"
     TEST_EMAIL = "test_email", "Test email"
+    DOMAIN = "domain", "Monitored domain"
 
 
 class ConfigurationSource(models.TextChoices):
@@ -997,6 +1002,8 @@ class ConfigurationSource(models.TextChoices):
     ADMIN = "admin", "Admin"
     # Removed with what it belonged to (a subscription, with its account): no actor is known.
     ACCOUNT_DELETED = "account_deleted", "Deleted with the account"
+    # The answer to a request someone made (the actor): what the domain verifier found.
+    VERIFIER = "verifier", "Domain verifier"
 
 
 class ConfigurationEvent(models.Model):
@@ -1004,8 +1011,10 @@ class ConfigurationEvent(models.Model):
 
     Who (the account, and the name it had then), how, what, on what, when, and the
     values before and after of the fields that changed. None of these objects holds
-    a credential, and only their own fields are recorded. Written in the transaction
-    of the change itself, so a change and its record exist together or not at all.
+    a credential, and only their own fields are recorded (a domain's verification
+    token never). Written in the transaction of the change itself, so a change and its
+    record exist together or not at all. A domain verifier's answer is recorded with
+    the account that asked for it.
     """
 
     Action = ConfigurationAction
