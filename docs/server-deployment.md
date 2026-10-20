@@ -121,24 +121,30 @@ Cloudflare and forwards requests to `proxy` over the `edge` network (it cannot
 reach PostgreSQL or the workers).
 
 1. In Cloudflare Zero Trust, create a tunnel (**Networks → Tunnels → Create a
-   tunnel → Cloudflared**) and copy its token.
-2. Add a **public hostname** to the tunnel: `sentinel.example.com`, service
-   type `HTTP`, URL `proxy:8080`. (A tunnel set up for an earlier release
-   points to `web:8000`, which no longer serves the console: change it to
-   `proxy:8080` in the dashboard.)
-3. Store the token in its own file, so the `web` container never sees it:
+   tunnel → Cloudflared**) and give it a name. The next page shows commands to
+   install a connector: copy only the token (the long value after `--token`)
+   and install nothing. The connector is the `cloudflared` service of the
+   Compose stack. The page's button to continue stays disabled until a
+   connector connects, which happens in step 3: leave the page there.
+2. Store the token in its own file, so the `web` container never sees it:
 
    ```bash
    install -m 0600 /dev/null .env.tunnel
    echo 'TUNNEL_TOKEN=<tunnel-token>' > .env.tunnel
    ```
 
-4. Start everything with the tunnel overlay:
+3. Start everything with the tunnel overlay:
 
    ```bash
    docker compose -f compose.yml -f compose.tunnel.yml up -d --build
    ```
 
+4. Once the tunnel's status is **Healthy**, open it from the list of tunnels
+   (**Networks → Tunnels**, the tunnel, **Edit**) and add a **public hostname**
+   (in newer versions of the dashboard, a published application route):
+   `sentinel.example.com`, service type `HTTP`, URL `proxy:8080`. A tunnel set
+   up for an earlier release points to `web:8000`, which does not serve the
+   console: change it to `proxy:8080`.
 5. In the Cloudflare dashboard for the zone, enable **SSL/TLS → Edge
    Certificates → Always Use HTTPS** and HSTS there.
 

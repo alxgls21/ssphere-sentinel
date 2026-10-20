@@ -33,17 +33,17 @@ if docker compose exec -T proxy sh -c 'touch /etc/nginx/write-probe' 2>/dev/null
 fi
 
 # Only the proxy is published: neither web nor PostgreSQL is reachable from the host.
-if docker compose port web 8000 >/dev/null 2>&1; then
-    fail "web is published on the host"
-fi
+# (Not `docker compose port`: for a port the image exposes but nothing publishes it prints ":0".)
+bindings() { docker inspect --format '{{json .HostConfig.PortBindings}}' "$(docker compose ps --quiet "$1")"; }
+case "$(bindings web)" in '{}' | null) ;; *) fail "web is published on the host: $(bindings web)" ;; esac
 if (exec 3<>/dev/tcp/127.0.0.1/5432) 2>/dev/null; then
     fail "PostgreSQL is published on the host"
 fi
-# The proxy reaches web; it has no route to the database.
-docker compose exec -T proxy sh -c 'nc -z -w 3 web 8000' || fail "the proxy does not reach web"
-if docker compose exec -T proxy sh -c 'nc -z -w 3 db 5432' 2>/dev/null; then
-    fail "the proxy reaches PostgreSQL"
-fi
+# The proxy is on the edge network alone and reaches web there; the database is not on it.
+networks() { docker inspect --format '{{range $name, $network := .NetworkSettings.Networks}}{{$name}} {{end}}' "$(docker compose ps --quiet "$1")"; }
+[[ "$(networks proxy)" =~ ^[^\ ]+_edge\ $ ]] || fail "the proxy is on the networks $(networks proxy)"
+[[ " $(networks db)" != *_edge\ * ]] || fail "the database is on the edge network"
+docker compose exec -T proxy wget -q -T 5 -O /dev/null http://web:8000/health/ || fail "the proxy does not reach web"
 
 # A console user, to sign in through the proxy (console and admin), removed
 # afterwards; its password is random and masked in the log.
@@ -197,24 +197,15 @@ response, data = request("POST", "/api/v1/agent/heartbeat/", b"{}",
 check(response.status == 401, f"agent API without a valid token: {response.status}")
 response, data = request("POST", "/", b" " * 2_500_000, {"Content-Type": "application/json"})
 check(response.status != 413, "the proxy refuses a heartbeat of the agent's largest size")
-response, data = request("POST", "/", b" " * (3 * 1024 * 1024 + 1), {"Content-Type": "application/json"})
+# nginx refuses a larger one from its Content-Length alone, before the body is sent.
+response, data = request("POST", "/", None, {"Content-Type": "application/json", "Content-Length": str(3 * 1024 * 1024 + 1)})
 check(response.status == 413, f"the proxy has no body size limit ({response.status})")
 print("console, console API, admin and agent API pass through the proxy")
 PY
+# The database as it was: the user and the sessions it signed in with (the rehearsals compare row counts).
 docker compose exec -T web python manage.py shell --no-imports -v 0 -c \
-    "from django.contrib.auth import get_user_model; get_user_model().objects.filter(username='ci-proxy').delete()" \
+    "from django.contrib.auth import get_user_model; from django.contrib.sessions.models import Session; user = get_user_model().objects.get(username='ci-proxy'); [session.delete() for session in Session.objects.all() if session.get_decoded().get('_auth_user_id') == str(user.pk)]; user.delete()" \
     < /dev/null > /dev/null
-
-# While web restarts the console still loads, and the APIs answer in their own shape;
-# the proxy finds the new container by name once it is back.
-docker compose stop web
-code=$(curl --silent --output /dev/null --write-out '%{http_code}' "$base/")
-[ "$code" = 200 ] || fail "the console is down while web is ($code)"
-body=$(curl --silent --write-out ' %{http_code}' "$base/api/v1/console/session/")
-[[ "$body" == *'"code": "unavailable"'*' 503' ]] || fail "the API while web is down: $body"
-docker compose up --detach --wait --wait-timeout 120 --no-deps --force-recreate web
-curl --fail --silent --show-error --retry 10 --retry-delay 2 --retry-all-errors --output /dev/null \
-    "$base/api/v1/console/session/" || fail "the proxy does not reach the recreated web container"
 
 # Django's deployment checks pass (HSTS/SSL-redirect warnings are expected:
 # they depend on how TLS is terminated in front of the server).

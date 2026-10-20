@@ -47,8 +47,12 @@ UUIDs.
 
 ## 2. Install
 
+Every command in steps 2 to 5 can be run again, for example after an
+interrupted installation: what exists already is kept.
+
 ```bash
-sudo useradd --system --home-dir /var/lib/ssphere-sentinel-agent --no-create-home \
+id -u sentinel-agent > /dev/null 2>&1 || sudo useradd --system \
+    --home-dir /var/lib/ssphere-sentinel-agent --no-create-home \
     --shell /usr/sbin/nologin sentinel-agent
 
 sudo python3 -m venv /opt/ssphere-sentinel-agent/venv
@@ -75,11 +79,13 @@ for file in sentinel-agent.service agent.env.example enable-unprivileged-icmp.sh
 done
 ```
 
-Install the environment file with root-only permissions and edit it:
+Install the environment file with root-only permissions (unless it exists:
+it holds the token) and edit it:
 
 ```bash
 sudo install -d -m 0755 /etc/ssphere-sentinel-agent
-sudo install -m 0600 -o root -g root agent.env.example /etc/ssphere-sentinel-agent/agent.env
+sudo test -e /etc/ssphere-sentinel-agent/agent.env || \
+    sudo install -m 0600 -o root -g root agent.env.example /etc/ssphere-sentinel-agent/agent.env
 sudoedit /etc/ssphere-sentinel-agent/agent.env
 ```
 
