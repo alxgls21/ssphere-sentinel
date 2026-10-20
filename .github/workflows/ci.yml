@@ -391,6 +391,18 @@ jobs:
           [ "$(query 'SHOW data_directory')" = /var/lib/postgresql/18/docker ]
       - name: Check the running server
         run: .github/scripts/check-server.sh
+      - name: While web restarts, the console loads and the APIs answer 503
+        # docker stop, not docker compose stop: Compose may stop the proxy with the service it depends on.
+        run: |
+          docker stop "$(docker compose ps --quiet web)"
+          [ "$(curl --silent --output /dev/null --write-out '%{http_code}' http://127.0.0.1:8000/)" = 200 ]
+          body=$(curl --silent --write-out ' %{http_code}' http://127.0.0.1:8000/api/v1/console/session/)
+          echo "$body"
+          [[ "$body" == *'"code": "unavailable"'*' 503' ]]
+          # A new container, at a new address: the proxy finds it by name.
+          docker compose up --detach --wait --wait-timeout 180 --no-deps --force-recreate web
+          curl --fail --silent --show-error --retry 15 --retry-delay 2 --retry-all-errors --output /dev/null \
+            http://127.0.0.1:8000/api/v1/console/session/
       - name: Deploy the agent with the hardened systemd unit
         run: sudo .github/scripts/agent-systemd-e2e.sh
       - name: Container logs

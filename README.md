@@ -289,7 +289,11 @@ Liveness is derived from the server's last heartbeat and
 `SENTINEL_OFFLINE_THRESHOLD` (90 seconds by default). A stale telemetry snapshot
 is retained as the last known reading and returned with `stale: true`, but it is
 excluded from current health, counts, and resource sorting. Container state also
-becomes unknown when its host or Docker report is no longer current.
+becomes unknown when its host or Docker report is no longer current. A container
+its host no longer lists (removed, or its stack taken down) leaves the console
+with the next Docker report; its row stays in the database for
+`SENTINEL_DOCKER_ABSENT_CONTAINER_RETENTION_DAYS` until
+`purge_absent_docker_containers` deletes it.
 
 ## Data retention and history
 
