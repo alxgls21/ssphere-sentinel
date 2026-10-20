@@ -335,9 +335,25 @@ start() {  # start <name> <ordered arguments>: docker compose up --wait, started
     events_end
     ordered "$name" "$@"
 }
+# What the web container is when a check of it fails: its networks (it needs default for the database and edge for
+# the proxy), its state and health checks, and the end of its log.
+describe_web() {
+    local id
+    id=$(container web)
+    [ -n "$id" ] || { echo "web: no container" >&2; return 0; }
+    {
+        echo "web $id"
+        docker inspect --format 'networks: {{range $name, $network := .NetworkSettings.Networks}}{{$name}} {{end}}' "$id"
+        docker inspect --format 'state: {{.State.Status}}, restarts: {{.RestartCount}}, started: {{.State.StartedAt}}' "$id"
+        docker inspect --format '{{if .State.Health}}health: {{.State.Health.Status}}{{range .State.Health.Log}}
+  check at {{.Start}}: exit {{.ExitCode}} {{.Output}}{{end}}{{end}}' "$id"
+        echo "log:"
+        docker logs --tail 30 "$id" 2>&1 | indented
+    } >&2 || true
+}
 recreate_web() {  # recreate_web <name>: web created again, by force, from the files as they are; started, and healthy
     events_begin "$1"
-    docker compose up --detach --wait --wait-timeout 180 --no-deps --force-recreate web || { events_end; fail "web did not start again: $1"; }
+    docker compose up --detach --wait --wait-timeout 180 --no-deps --force-recreate web || { events_end; describe_web; fail "web did not start again: $1"; }
     events_end
     ordered "$1" --expect web:start web:healthy
 }
@@ -363,7 +379,7 @@ refused_web_start() {  # refused_web_start <name> <seconds> <message>: web, star
     [ "$(docker inspect --format '{{.State.Health.Status}}' "$(container web)")" != healthy ] || fail "web is healthy after a refusal: $name"
     restarts=$(docker inspect --format '{{.RestartCount}}' "$(container web)")
     [ "$restarts" -ge 1 ] || fail "web did not fail and start again: $name"
-    grep -qF "$3" <<<"$(service_log web)" || fail "web did not say why: $3"
+    grep -qF "$3" <<<"$(service_log web)" || { describe_web; fail "web did not say why: $3"; }
     docker compose stop web alert-engine
 }
 unapply_admin() {  # the migrations of the admin app undone by the migrate login, so that there is something to apply
