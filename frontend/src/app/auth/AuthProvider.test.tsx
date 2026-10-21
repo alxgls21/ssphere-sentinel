@@ -1,5 +1,6 @@
 import { act, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import { useState } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { NO_CAPABILITIES, type AuthClient, type ConsoleSession } from '@/api/auth'
 import { ApiError } from '@/api/errors'
@@ -21,6 +22,8 @@ function client(overrides: Partial<AuthClient> = {}): AuthClient {
     getSession: vi.fn(async () => ANON),
     signIn: vi.fn(async () => ALICE),
     signOut: vi.fn(async () => ANON),
+    getSetup: vi.fn(async () => false),
+    createFirstAdministrator: vi.fn(async () => ALICE),
     ...overrides,
   }
 }
@@ -408,6 +411,90 @@ describe('AuthProvider', () => {
       await waitFor(() => expect(status()).toBe('authenticated'))
       act(() => signals.forbidden.emit())
       await waitFor(() => expect(status()).toBe('denied'))
+    })
+  })
+
+  describe('first-run setup', () => {
+    const FIRST = { code: 'K7QX-M2P9-A4TR', username: 'root', email: '', password: 'pw' }
+    function SetupProbe() {
+      const auth = useAuth()
+      const [required, setRequired] = useState('unasked')
+      return (
+        <div>
+          <output aria-label="status">{auth.status}</output>
+          <output aria-label="required">{required}</output>
+          <button onClick={() => void auth.checkSetup().then((r) => setRequired(String(r)))}>
+            check
+          </button>
+          <button onClick={() => void auth.completeSetup(FIRST).catch(() => {})}>create</button>
+        </div>
+      )
+    }
+
+    it('asks the server whether setup is required', async () => {
+      const user = userEvent.setup()
+      const getSetup = vi.fn(async () => true)
+      render(
+        <AuthProvider client={client({ getSetup })}>
+          <SetupProbe />
+        </AuthProvider>,
+      )
+      await user.click(screen.getByRole('button', { name: 'check' }))
+      await waitFor(() => expect(screen.getByLabelText('required')).toHaveTextContent('true'))
+      expect(getSetup).toHaveBeenCalledTimes(1)
+    })
+
+    it('says nothing is required without a server (mock mode)', async () => {
+      const user = userEvent.setup()
+      render(
+        <AuthProvider client={null}>
+          <SetupProbe />
+        </AuthProvider>,
+      )
+      await user.click(screen.getByRole('button', { name: 'check' }))
+      await waitFor(() => expect(screen.getByLabelText('required')).toHaveTextContent('false'))
+    })
+
+    it('signs the new administrator in with what the server answered', async () => {
+      const user = userEvent.setup()
+      const createFirstAdministrator = vi.fn(async () => ALICE)
+      render(
+        <AuthProvider client={client({ createFirstAdministrator })}>
+          <SetupProbe />
+        </AuthProvider>,
+      )
+      await waitFor(() => expect(status()).toBe('anonymous'))
+      await user.click(screen.getByRole('button', { name: 'create' }))
+      await waitFor(() => expect(status()).toBe('authenticated'))
+      expect(createFirstAdministrator).toHaveBeenCalledWith(FIRST)
+    })
+
+    it('stays anonymous when the server refuses, and lets the refusal reach the caller', async () => {
+      const refusal = new ApiError('The setup code is not valid.', 400, 'invalid_code')
+      const createFirstAdministrator = vi.fn(async () => {
+        throw refusal
+      })
+      let caught: unknown
+      function Catching() {
+        const auth = useAuth()
+        return (
+          <button
+            onClick={() => void auth.completeSetup(FIRST).catch((e: unknown) => (caught = e))}
+          >
+            go
+          </button>
+        )
+      }
+      render(
+        <AuthProvider client={client({ createFirstAdministrator })}>
+          <Probe />
+          <Catching />
+        </AuthProvider>,
+      )
+      await waitFor(() => expect(status()).toBe('anonymous'))
+      await userEvent.click(screen.getByRole('button', { name: 'go' }))
+      await waitFor(() => expect(caught).toBe(refusal))
+      expect(status()).toBe('anonymous')
     })
   })
 

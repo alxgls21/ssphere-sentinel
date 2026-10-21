@@ -96,7 +96,9 @@ settings in `.env.local` (ignored by git).
 
 ## Sign-in and sessions
 
-- Every route except `/login` needs a signed-in user. An anonymous visitor is sent
+- On a new installation with no user, the sign-in page goes to `/setup`, where the first administrator is
+  created with the one-time setup code printed in the server's log (`docker compose logs web | grep setup:`).
+- Every route except `/login` and `/setup` needs a signed-in user. An anonymous visitor is sent
   to `/login?next=<page>` and brought back after signing in. `next` is only
   followed when it is a path inside the application: absolute URLs,
   protocol-relative URLs (`//host`), other schemes and backslash tricks are

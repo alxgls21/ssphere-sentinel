@@ -1,4 +1,5 @@
 export const LOGIN_PATH = '/login'
+export const SETUP_PATH = '/setup'
 
 /** The parser answers with this origin for an in-app path, so anything pointing elsewhere is visible. */
 const BASE = 'http://app.invalid'
@@ -8,7 +9,7 @@ const MAX_LENGTH = 2048
  * The page to return to after signing in, from `?next=`. Only a path inside
  * this application is accepted: external URLs, protocol-relative ones
  * (`//host`), other schemes, backslash tricks and control characters all fall
- * back to `fallback`, as does the sign-in page itself (no redirect loop).
+ * back to `fallback`, as do the sign-in and first-run setup pages themselves (no redirect loop).
  * The result is rebuilt from the parsed URL, never echoed from the input.
  */
 export function safeNextPath(raw: string | null | undefined, fallback = '/'): string {
@@ -25,6 +26,7 @@ export function safeNextPath(raw: string | null | undefined, fallback = '/'): st
   }
   if (url.origin !== BASE || url.pathname.startsWith('//')) return fallback
   if (url.pathname === LOGIN_PATH || url.pathname.startsWith(`${LOGIN_PATH}/`)) return fallback
+  if (url.pathname === SETUP_PATH || url.pathname.startsWith(`${SETUP_PATH}/`)) return fallback
   return `${url.pathname}${url.search}${url.hash}`
 }
 

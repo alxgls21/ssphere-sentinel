@@ -1,5 +1,10 @@
 import { createContext, useContext } from 'react'
-import type { ConsoleUser, PublishedThresholds, SessionCapabilities } from '@/api/auth'
+import type {
+  ConsoleUser,
+  FirstAdministrator,
+  PublishedThresholds,
+  SessionCapabilities,
+} from '@/api/auth'
 
 /**
  *   checking     asking the server who is signed in
@@ -38,6 +43,10 @@ export interface AuthApi {
   /** Why the last check or sign-out failed, for the screens that say so. */
   error: string | null
   signIn: (username: string, password: string) => Promise<void>
+  /** Whether the installation has no user yet (first-run setup). False without a server (mock mode). */
+  checkSetup: (signal?: AbortSignal) => Promise<boolean>
+  /** Creates the first administrator, signed in on success. Rejects with the server's ApiError. */
+  completeSetup: (input: FirstAdministrator) => Promise<void>
   /** Ends the session. Never rejects: a failure is the `signout-failed` status, retried by calling this again. */
   signOut: () => Promise<void>
   /** Asks the server again (retry after "unreachable", revalidate on focus). */

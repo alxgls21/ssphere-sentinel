@@ -1,8 +1,9 @@
 import { lazy } from 'react'
 import { Route, Routes } from 'react-router'
 import { RequireAuth } from './auth/RequireAuth'
-import { LOGIN_PATH } from './auth/safeNext'
+import { LOGIN_PATH, SETUP_PATH } from './auth/safeNext'
 import LoginPage from '@/features/login/LoginPage'
+import SetupPage from '@/features/login/SetupPage'
 import { NAV_ITEMS } from '@/config/nav'
 import { NotFoundPage } from '@/features/placeholder/NotFoundPage'
 import { ScreenPlaceholder } from '@/features/placeholder/ScreenPlaceholder'
@@ -34,7 +35,7 @@ const DesignSystemPage = import.meta.env.DEV
   : null
 
 /**
- * Everything but /login needs a signed-in user (RequireAuth). Every screen in NAV_ITEMS is routed from day one. The designed ones (Overview,
+ * Everything but /login and /setup needs a signed-in user (RequireAuth). Every screen in NAV_ITEMS is routed from day one. The designed ones (Overview,
  * Servers, Docker, Network, SNMP, Alerts, Settings) have their own routes; the rest render an honest placeholder. A
  * placeholder's own sub-paths stay with its screen, hence the trailing /*.
  */
@@ -42,6 +43,7 @@ export function AppRoutes() {
   return (
     <Routes>
       <Route path={LOGIN_PATH} element={<LoginPage />} />
+      <Route path={SETUP_PATH} element={<SetupPage />} />
       <Route element={<RequireAuth />}>
         <Route element={<AppShell />}>
           <Route index element={<OverviewPage />} />

@@ -538,6 +538,14 @@ BrowserRouter > ModeContext > AuthProvider > ApiProvider > LimitsProvider > Pref
   minute, and both lead to `expired`: the guard sends the user to
   `/login?next=<page>&reason=expired`. A 403 `forbidden` re-reads the session
   (the account lost its console permission).
+- **First-run setup.** While the installation has no user, `GET setup/` answers `required: true`: the
+  sign-in page asks once and goes to `/setup`, which creates the first administrator from the one-time
+  setup code the server prints in its log (`POST setup/`: code, user name, optional email, password; the
+  confirmation is checked in the browser only). The server's answers are shown as they come: a wrong code
+  under the code field, the password rules under the password, too many attempts as a notice. A created
+  administrator is signed in at once; a setup that is not pending (404) or a failed check goes to
+  `/login`, so the check can never block signing in. `/setup` is never a `next` target. Nothing typed is
+  stored, and the sample fleet (no server) is never asked.
 - **`/login?next=`** is followed only for paths inside the application
   (`app/auth/safeNext.ts`): absolute and protocol-relative URLs, other schemes,
   backslashes and control characters are ignored, and the sign-in page is never

@@ -99,6 +99,25 @@ export function createAuthClient(transport: Transport): AuthClient {
     signIn: async (username, password, signal) =>
       parseSession(await transport.post('auth/login/', { username, password }, { signal })),
     signOut: async (signal) => parseSession(await transport.post('auth/logout/', {}, { signal })),
+    getSetup: async (signal) => {
+      const answer = await transport.get<unknown>('setup/', { signal })
+      if (!isRecord(answer) || typeof answer.required !== 'boolean') throw bad()
+      return answer.required
+    },
+    // Named field by field: nothing else the caller holds can go out, and no email is sent as an empty string.
+    createFirstAdministrator: async (input, signal) =>
+      parseSession(
+        await transport.post(
+          'setup/',
+          {
+            code: input.code,
+            username: input.username,
+            email: input.email.trim() === '' ? null : input.email.trim(),
+            password: input.password,
+          },
+          { signal },
+        ),
+      ),
   }
 }
 

@@ -37,6 +37,8 @@ describe('safeNextPath', () => {
     expect(safeNextPath('/login')).toBe('/')
     expect(safeNextPath('/login?next=/servers')).toBe('/')
     expect(safeNextPath('/login/')).toBe('/')
+    expect(safeNextPath('/setup')).toBe('/')
+    expect(safeNextPath('/setup?next=/servers')).toBe('/')
   })
 
   it('uses the fallback it is given', () => {
