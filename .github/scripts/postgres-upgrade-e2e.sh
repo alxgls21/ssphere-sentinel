@@ -56,13 +56,16 @@ data_directory() { echo 'SHOW data_directory;' | sql; }
 
 # Exact row count of every table, to compare before and after. Not those of the
 # alert engine, which writes on its own while it runs (its evaluation of the
-# seeded objects): the dump and restore carry them like any other table.
+# seeded objects), nor the setup code, which web replaces at every start while
+# there is no user and removes once there is (apps/console/setup.py): the dump
+# and restore carry them like any other table.
 table_counts() {
     sql <<'SQL'
 SELECT table_name || ' ' || (xpath('/row/c/text()',
     query_to_xml(format('SELECT count(*) AS c FROM %I', table_name), false, true, '')))[1]::text
 FROM information_schema.tables
 WHERE table_schema = 'public' AND table_type = 'BASE TABLE' AND table_name NOT LIKE 'alerts\_%'
+    AND table_name <> 'console_setupcode'
 ORDER BY 1;
 SQL
 }
