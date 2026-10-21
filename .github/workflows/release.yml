@@ -1,0 +1,205 @@
+name: Release
+
+# A version tag on main (vX.Y.Z, or vX.Y.Z-rc.N for a pre-release): every check of CI on the tagged commit,
+# the server and proxy images on the GitHub Container Registry, the installation bundle tested as a server
+# runs it (on a clean runner, from the images, without a checkout or a build), then the GitHub Release.
+# Each job starts only when the ones before it passed: no release points at an untested image.
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  PIP_DISABLE_PIP_VERSION_CHECK: "1"
+  PYTHONUNBUFFERED: "1"
+
+jobs:
+  verify:
+    name: Tag and version
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      minor: ${{ steps.version.outputs.minor }}
+      stable: ${{ steps.version.outputs.stable }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - name: The tag names the version the server and the agent declare
+        id: version
+        run: |
+          version=$(python3 .github/scripts/release_bundle.py version "$GITHUB_REF_NAME")
+          echo "$version"
+          echo "$version" >> "$GITHUB_OUTPUT"
+      - name: The tagged commit is on main
+        run: git merge-base --is-ancestor "$GITHUB_SHA" refs/remotes/origin/main
+
+  ci:
+    name: CI
+    needs: verify
+    uses: ./.github/workflows/ci.yml
+    permissions:
+      contents: read
+
+  images:
+    name: Images
+    needs: [verify, ci]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+      attestations: write
+    outputs:
+      server: ${{ steps.server.outputs.image }}
+      proxy: ${{ steps.proxy.outputs.image }}
+    env:
+      VERSION: ${{ needs.verify.outputs.version }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Sign in to the GitHub Container Registry
+        env:
+          TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: printf '%s' "$TOKEN" | docker login ghcr.io --username "$GITHUB_ACTOR" --password-stdin
+      - name: A builder that records the provenance and the contents of each image
+        run: docker buildx create --name release --driver docker-container --use
+      - name: The server image
+        id: server
+        run: .github/scripts/release-image.sh ssphere-sentinel . --file Dockerfile
+      - name: The proxy image (the console)
+        id: proxy
+        run: .github/scripts/release-image.sh ssphere-sentinel-proxy ./frontend --file deploy/frontend/Dockerfile --build-context nginx=./deploy/frontend
+      - name: Attest the server image
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-name: ${{ steps.server.outputs.name }}
+          subject-digest: ${{ steps.server.outputs.digest }}
+          push-to-registry: true
+      - name: Attest the proxy image
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-name: ${{ steps.proxy.outputs.name }}
+          subject-digest: ${{ steps.proxy.outputs.digest }}
+          push-to-registry: true
+
+  bundle:
+    name: Installation bundle, installed from the images
+    needs: [verify, images]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    permissions:
+      contents: read
+      packages: read
+    env:
+      VERSION: ${{ needs.verify.outputs.version }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: The bundle
+        run: |
+          python3 .github/scripts/release_bundle.py bundle --version "$VERSION" \
+            --server "${{ needs.images.outputs.server }}" --proxy "${{ needs.images.outputs.proxy }}" \
+            --out "$RUNNER_TEMP/release"
+      - name: Unpacked where nothing of the repository is
+        run: |
+          cd "$RUNNER_TEMP/release"
+          sha256sum --check SHA256SUMS
+          mkdir "$RUNNER_TEMP/install"
+          tar -xzf "sentinel-$VERSION.tar.gz" -C "$RUNNER_TEMP/install" --strip-components 1
+          cd "$RUNNER_TEMP/install"
+          if grep -q '^ *build:' compose.yml; then echo "the bundle builds an image" >&2; exit 1; fi
+          ls -la
+      - name: Sign in to the GitHub Container Registry (the images are private until made public)
+        env:
+          TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: printf '%s' "$TOKEN" | docker login ghcr.io --username "$GITHUB_ACTOR" --password-stdin
+      - name: A new installation, as the guide sets one up
+        working-directory: ${{ runner.temp }}/install
+        run: |
+          "$GITHUB_WORKSPACE/.github/scripts/ci-env.sh"
+          scripts/postgres-preflight.sh
+          docker compose pull
+          docker compose up --detach --no-build --wait --wait-timeout 300
+      - name: Check the running server
+        working-directory: ${{ runner.temp }}/install
+        run: '"$GITHUB_WORKSPACE/.github/scripts/check-server.sh"'
+      - name: Container logs
+        if: failure()
+        working-directory: ${{ runner.temp }}/install
+        run: docker compose logs --no-color
+      - name: Stop the stack
+        if: always()
+        working-directory: ${{ runner.temp }}/install
+        run: if [ -f compose.yml ]; then docker compose down --volumes; fi
+      - name: Keep the bundle for the release
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: release-bundle
+          path: |
+            ${{ runner.temp }}/release/sentinel-${{ needs.verify.outputs.version }}.tar.gz
+            ${{ runner.temp }}/release/SHA256SUMS
+          if-no-files-found: error
+          retention-days: 7
+
+  publish:
+    name: GitHub Release
+    needs: [verify, images, bundle]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: write
+      packages: write
+    env:
+      VERSION: ${{ needs.verify.outputs.version }}
+      MINOR: ${{ needs.verify.outputs.minor }}
+      STABLE: ${{ needs.verify.outputs.stable }}
+      SERVER: ${{ needs.images.outputs.server }}
+      PROXY: ${{ needs.images.outputs.proxy }}
+    steps:
+      - name: The bundle that was tested
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: release-bundle
+          path: dist
+      - name: The release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          (cd dist && sha256sum --check SHA256SUMS)
+          cat > notes.md <<EOF
+          Install: download \`sentinel-$VERSION.tar.gz\` and \`SHA256SUMS\`, check it with \`sha256sum --check SHA256SUMS\`,
+          unpack it and follow the server deployment guide (docs/server-deployment.md, "Install from a release").
+
+          Images (named by digest in the bundle's \`compose.yml\`):
+
+          - \`$SERVER\`
+          - \`$PROXY\`
+          EOF
+          prerelease=()
+          if [ "$STABLE" != true ]; then prerelease=(--prerelease); fi
+          gh release create "$GITHUB_REF_NAME" dist/* --repo "$GITHUB_REPOSITORY" --verify-tag \
+            --title "SSphere Sentinel $VERSION" --notes "$(cat notes.md)" --generate-notes "${prerelease[@]}"
+      - name: Sign in to the GitHub Container Registry
+        if: needs.verify.outputs.stable == 'true'
+        env:
+          TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: printf '%s' "$TOKEN" | docker login ghcr.io --username "$GITHUB_ACTOR" --password-stdin
+      - name: The X.Y and latest tags of a stable release
+        if: needs.verify.outputs.stable == 'true'
+        run: |
+          for image in "$SERVER" "$PROXY"; do
+            name=${image%@*}
+            docker buildx imagetools create --tag "$name:$MINOR" --tag "$name:latest" "$image"
+          done

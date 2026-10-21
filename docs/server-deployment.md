@@ -30,11 +30,48 @@ Requirements: Docker Engine 24+ with Docker Compose 2.24 or later
 
 ## 1. Configure
 
+Install from a release (prebuilt images: nothing is built on the server) or
+from a checkout of the repository (the images are built on the server).
+
+### Install from a release
+
+Each [release](https://github.com/alxgls21/ssphere-sentinel/releases) has an
+installation bundle, `sentinel-<version>.tar.gz`, and its checksum. The bundle
+holds the Compose files, with the release's images named by their digest, the
+settings template and the preflight script:
+
+```bash
+version=0.1.0   # the release you deploy
+mkdir -p /opt/ssphere-sentinel && cd /opt/ssphere-sentinel
+base=https://github.com/alxgls21/ssphere-sentinel/releases/download/v$version
+curl -fsSLO "$base/sentinel-$version.tar.gz"
+curl -fsSLO "$base/SHA256SUMS"
+sha256sum --check SHA256SUMS
+tar -xzf "sentinel-$version.tar.gz" --strip-components 1
+```
+
+The images (`ghcr.io/alxgls21/ssphere-sentinel` and
+`ghcr.io/alxgls21/ssphere-sentinel-proxy`) carry a provenance attestation of
+the workflow that built them; with the GitHub CLI, check one with
+`gh attestation verify oci://<image>@<digest> --repo alxgls21/ssphere-sentinel`
+(the digests are in the release notes and in `compose.yml`). The separate
+database logins ([below](#separate-database-logins)) need a checkout:
+`scripts/postgres-roles.sh` runs Python code of the repository.
+
+Then create `.env` as below. Every command in this guide works the same; the
+`--build` of `docker compose up -d --build` has nothing to build.
+
+### Install from a checkout
+
 ```bash
 git clone https://github.com/alxgls21/ssphere-sentinel.git /opt/ssphere-sentinel
 cd /opt/ssphere-sentinel
 git checkout <tag>
+```
 
+### Settings
+
+```bash
 cp .env.example .env
 chmod 600 .env
 ```
@@ -415,6 +452,13 @@ verified; nothing is monitored yet.
    docker compose up -d --build
    docker compose ps
    ```
+
+   Installed from a release: download and check the new release's bundle as in
+   [Install from a release](#install-from-a-release), unpack it over the
+   installation (`.env` is not in the bundle and stays as it is), compare
+   `.env.example` with your `.env` for new settings, then
+   `scripts/postgres-preflight.sh`, `docker compose pull` and
+   `docker compose up -d`.
 
 Migrations run automatically when the new `web` container starts. Scripts or
 units that start the stack with `docker compose start` must use

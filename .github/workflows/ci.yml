@@ -3,12 +3,14 @@ name: CI
 # Every push (branches, not tags), pull requests from forks and manual runs.
 # A pull request from a branch of this repository is already covered by the
 # push run for the same commit, so the pull_request run skips it: one run per
-# commit, whichever way it was opened.
+# commit, whichever way it was opened. A release tag runs all of it again,
+# through release.yml, before anything is published.
 on:
   push:
     branches: ["**"]
   pull_request:
   workflow_dispatch:
+  workflow_call:
 
 permissions:
   contents: read
