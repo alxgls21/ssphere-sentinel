@@ -111,9 +111,14 @@ services:
       SENTINEL_DB_MIGRATE_PASSWORD: ""
       SENTINEL_SMTP_PASSWORD: ""
     # Not published: browsers and agents reach it through the proxy service.
+    # Distinct priorities: Docker Compose 2.24.6 attaches a container to its
+    # networks in an unstable order when they are equal, and then leaves one out
+    # at random (docker/compose#11533, fixed in 2.24.7).
     networks:
-      - default
-      - edge
+      default:
+        priority: 20
+      edge:
+        priority: 10
     depends_on:
       db:
         condition: service_healthy

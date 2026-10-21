@@ -253,10 +253,10 @@ describe('ServerDetailPage resource sparklines', () => {
 
   it('stops calling the newest sample "now" once the series can no longer be refreshed', async () => {
     const real = mock()
-    let calls = 0
+    // The test decides when refreshes start failing, so it never depends on how fast the runner is.
+    let refreshFails = false
     const getServerSeries = vi.fn(async (options: Parameters<typeof real.getServerSeries>[0]) => {
-      calls += 1
-      if (calls > 1) throw new Error('Service unavailable')
+      if (refreshFails) throw new Error('Service unavailable')
       return real.getServerSeries(options)
     })
     renderApp(
@@ -273,6 +273,7 @@ describe('ServerDetailPage resource sparklines', () => {
     const found = await within(summary).findAllByRole('img', { name: /history of ath-db-01/ })
     expect(found[0]).toHaveAccessibleName(/, now \d+(\.\d)? percent/)
 
+    refreshFails = true
     await waitFor(() => expect(screen.getByText('Refresh failed')).toBeInTheDocument())
     await waitFor(() =>
       expect(sparks(summary)[0]).toHaveAccessibleName(/, last \d+(\.\d)? percent/),

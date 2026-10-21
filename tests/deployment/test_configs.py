@@ -603,7 +603,8 @@ class ProxyTests(unittest.TestCase):
     def test_the_edge_network_holds_the_proxy_and_web_only(self):
         self.assertEqual(self.compose["networks"], {"edge": {}})
         self.assertEqual(self.proxy["networks"], ["edge"])
-        self.assertEqual(self.services["web"]["networks"], ["default", "edge"])
+        # Distinct priorities, or Compose 2.24.6 leaves one of them out at random (docker/compose#11533).
+        self.assertEqual(self.services["web"]["networks"], {"default": {"priority": 20}, "edge": {"priority": 10}})
         for name, service in self.services.items():
             if name not in ("proxy", "web"):
                 with self.subTest(service=name):
