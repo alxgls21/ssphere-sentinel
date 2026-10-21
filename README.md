@@ -51,7 +51,7 @@ queued measurements, subject to the configured age and size limits.
 | Audience | Document |
 | --- | --- |
 | Contributors and local development | This README |
-| Production server operators: installation, HTTPS, upgrades, migrations, backup and restore, PostgreSQL recovery | [Server deployment](docs/server-deployment.md) |
+| Production server operators: installation (one command: `curl -fsSL https://github.com/alxgls21/ssphere-sentinel/releases/latest/download/install.sh \| sudo bash`), HTTPS, upgrades, migrations, backup and restore, PostgreSQL recovery | [Server deployment](docs/server-deployment.md) |
 | Agent operators: hardened systemd installation, Docker/SNMP enablement, upgrades, token rotation, troubleshooting | [Agent deployment](docs/agent-deployment.md) |
 | SNMP operators and integrators: configuration, credential rules, payload contract, retention | [SNMP monitoring](docs/snmp.md) |
 | Security reviewers and operators: trust boundaries, access control, hardening, limitations | [Security model](docs/security.md) |
@@ -353,8 +353,9 @@ after the version in `pyproject.toml` and `agent/__init__.py` has been set to
 [`.github/workflows/release.yml`](.github/workflows/release.yml): the whole CI
 on the tagged commit, then the server and proxy images on the GitHub Container
 Registry (linux/amd64, with an SBOM and a provenance attestation), then the
-installation bundle installed from those images on a clean runner and checked,
-and only then the GitHub Release with the bundle and `SHA256SUMS`. A stable
+installation bundle installed by the release's own `scripts/install.sh` on a
+clean runner and checked, and only then the GitHub Release with the bundle,
+`install.sh` and `SHA256SUMS`. A stable
 release also moves the images' `X.Y` and `latest` tags; a pre-release does not.
 A release that fails part-way publishes no release and moves no tag (images
 it already pushed keep only their version tag): fix the cause and tag the next

@@ -30,15 +30,53 @@ Requirements: Docker Engine 24+ with Docker Compose 2.24 or later
 
 ## 1. Configure
 
-Install from a release (prebuilt images: nothing is built on the server) or
-from a checkout of the repository (the images are built on the server).
+Install with one command (recommended), from a release by hand, or from a
+checkout of the repository (the images are built on the server).
+
+### Install with one command
+
+On a Linux server with Docker Engine 24+ and its Compose plugin (2.24+):
+
+```bash
+curl -fsSL https://github.com/alxgls21/ssphere-sentinel/releases/latest/download/install.sh | sudo bash
+```
+
+It asks for the console's address and how it is reached (Cloudflare Tunnel,
+with the tunnel's token, typed hidden; a reverse proxy on this server; or the
+local network only, over plain HTTP), downloads the latest release's bundle,
+checks its SHA-256, writes `.env` in `/opt/ssphere-sentinel` (no secret: they
+are created on the first start, [Settings](#settings)), starts everything and
+prints the setup code of the first administrator. It checks the server first:
+Linux, Docker Engine and Compose versions, memory, the port. It never installs
+Docker itself.
+
+The same command updates an installation it made: it takes a backup first
+(`pg_dump` of the database, and `.env`, `.env.tunnel` and `./secrets`, in
+`/opt/ssphere-sentinel/backups`; `--no-backup` skips it), keeps the settings
+and the secrets, and starts the new release. It never goes back to an older
+release (restore the backup instead), and it never touches a checkout of the
+repository.
+
+To read it before it runs, download `install.sh` and `SHA256SUMS` from the
+[release](https://github.com/alxgls21/ssphere-sentinel/releases), check them
+(`sha256sum --check --ignore-missing SHA256SUMS`), then run
+`sudo bash install.sh`. `bash install.sh --help` lists the options that answer
+its questions on the command line (`--url`, `--tunnel`,
+`--tunnel-token-file`, `--proxy`, `--local`, `--port`, `--version`, `--dir`,
+`--yes`). The checksum shows that the files are the release's as published;
+that the release was built by this repository's workflow, the attestation of
+its images shows (below).
+
+Then continue with [HTTPS](#3-https): the Cloudflare public hostname, or the
+reverse proxy.
 
 ### Install from a release
 
 Each [release](https://github.com/alxgls21/ssphere-sentinel/releases) has an
 installation bundle, `sentinel-<version>.tar.gz`, and its checksum. The bundle
 holds the Compose files, with the release's images named by their digest, the
-settings template and the preflight script:
+settings template and the preflight script; this is what `install.sh` does,
+by hand:
 
 ```bash
 version=0.1.0   # the release you deploy
@@ -46,7 +84,7 @@ mkdir -p /opt/ssphere-sentinel && cd /opt/ssphere-sentinel
 base=https://github.com/alxgls21/ssphere-sentinel/releases/download/v$version
 curl -fsSLO "$base/sentinel-$version.tar.gz"
 curl -fsSLO "$base/SHA256SUMS"
-sha256sum --check SHA256SUMS
+sha256sum --check --ignore-missing SHA256SUMS
 tar -xzf "sentinel-$version.tar.gz" --strip-components 1
 ```
 
@@ -498,7 +536,9 @@ verified; nothing is monitored yet.
    docker compose ps
    ```
 
-   Installed from a release: download and check the new release's bundle as in
+   Installed with one command: run the same command again
+   ([Install with one command](#install-with-one-command)); it takes the backup
+   of step 1 itself. Installed from a release by hand: download and check the new release's bundle as in
    [Install from a release](#install-from-a-release), unpack it over the
    installation (`.env` is not in the bundle and stays as it is), compare
    `.env.example` with your `.env` for new settings, then
