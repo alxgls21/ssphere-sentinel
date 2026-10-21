@@ -59,6 +59,15 @@ export interface ConsoleSession {
   capabilities?: SessionCapabilities
 }
 
+/** What the first-run setup page sends: the setup code the server printed, and the first administrator. */
+export interface FirstAdministrator {
+  code: string
+  username: string
+  /** Empty means none: the server takes it as optional. */
+  email: string
+  password: string
+}
+
 export interface AuthClient {
   /** The current session. Always answers (an anonymous caller gets `authenticated: false`). */
   getSession(signal?: AbortSignal): Promise<ConsoleSession>
@@ -66,4 +75,11 @@ export interface AuthClient {
   signIn(username: string, password: string, signal?: AbortSignal): Promise<ConsoleSession>
   /** Ends the session; resolves with the anonymous session. */
   signOut(signal?: AbortSignal): Promise<ConsoleSession>
+  /** Whether the installation has no user yet, so the first administrator must be created. Needs no session. */
+  getSetup(signal?: AbortSignal): Promise<boolean>
+  /**
+   * Creates the first administrator and signs them in. Rejects with ApiError: 400 `invalid_code`, 400
+   * `validation_error` (per field), 400 `invalid_request`, 429 `too_many_attempts`, 404 when no setup is pending.
+   */
+  createFirstAdministrator(input: FirstAdministrator, signal?: AbortSignal): Promise<ConsoleSession>
 }

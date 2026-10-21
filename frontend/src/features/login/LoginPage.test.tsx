@@ -19,6 +19,7 @@ function renderLogin(auth: Partial<AuthApi> = {}, route = '/login') {
     <>
       <Routes>
         <Route path="/login" element={<LoginPage />} />
+        <Route path="/setup" element={<p>setup page</p>} />
         <Route path="*" element={<p>somewhere</p>} />
       </Routes>
       <Where />
@@ -32,6 +33,40 @@ const fill = async (user: ReturnType<typeof userEvent.setup>, name = 'alice', pw
   await user.type(screen.getByLabelText('User name'), name)
   await user.type(screen.getByLabelText('Password'), pw)
 }
+
+describe('LoginPage and first-run setup', () => {
+  it('asks the server once whether the installation has a user', async () => {
+    const auth = renderLogin()
+    await waitFor(() => expect(auth.checkSetup).toHaveBeenCalledTimes(1))
+    expect(screen.getByLabelText('User name')).toBeVisible()
+  })
+
+  it('goes to /setup when the installation has no user', async () => {
+    renderLogin({ checkSetup: vi.fn(async () => true) })
+    expect(await screen.findByText('setup page')).toBeInTheDocument()
+    expect(screen.getByTestId('location')).toHaveTextContent('/setup')
+  })
+
+  it('stays a sign-in page when a user exists', async () => {
+    const auth = renderLogin({ checkSetup: vi.fn(async () => false) })
+    await waitFor(() => expect(auth.checkSetup).toHaveBeenCalled())
+    expect(screen.getByLabelText('User name')).toBeVisible()
+    expect(screen.queryByText('setup page')).not.toBeInTheDocument()
+  })
+
+  it('stays a sign-in page when the check fails: it never blocks signing in', async () => {
+    const auth = renderLogin({
+      checkSetup: vi.fn(async () => Promise.reject(new ApiError('Busy.', 503))),
+    })
+    await waitFor(() => expect(auth.checkSetup).toHaveBeenCalled())
+    expect(screen.getByLabelText('User name')).toBeVisible()
+  })
+
+  it('does not ask when the session just ran out: a user exists', () => {
+    const auth = renderLogin({ status: 'expired' })
+    expect(auth.checkSetup).not.toHaveBeenCalled()
+  })
+})
 
 describe('LoginPage', () => {
   it('is a labelled form for a user name and a password, with the right autofill hints', () => {

@@ -1,11 +1,12 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react'
 import { Navigate, useSearchParams } from 'react-router'
 import { useAuth } from '@/app/auth/auth'
-import { safeNextPath } from '@/app/auth/safeNext'
+import { SETUP_PATH, safeNextPath } from '@/app/auth/safeNext'
 import { Button, TextField } from '@/ui/controls'
 import { AuthFrame } from './AuthFrame'
 import { AuthGate } from './AuthGate'
 import { describeSignInError } from './signInError'
+import { useSetupRequired } from './useSetupRequired'
 
 /**
  * The sign-in page. It returns to `?next=` afterwards, but only to a path inside
@@ -26,6 +27,8 @@ export default function LoginPage() {
   const passwordRef = useRef<HTMLInputElement>(null)
 
   const askable = status === 'anonymous' || status === 'expired'
+  // An installation with no user has nobody to sign in: it goes to the first-run setup instead.
+  const setupRequired = useSetupRequired(status === 'anonymous')
   useEffect(() => {
     if (askable) userRef.current?.focus()
   }, [askable])
@@ -41,6 +44,7 @@ export default function LoginPage() {
 
   if (status === 'authenticated') return <Navigate replace to={next} />
   if (!askable) return <AuthGate />
+  if (setupRequired) return <Navigate replace to={SETUP_PATH} />
 
   const submit = async (event: FormEvent) => {
     event.preventDefault()

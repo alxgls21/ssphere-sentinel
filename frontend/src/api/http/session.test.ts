@@ -164,6 +164,55 @@ describe('the clients', () => {
     expect(t.post).toHaveBeenCalledWith('auth/logout/', {}, { signal: undefined })
   })
 
+  it('asks whether setup is required, with no body', async () => {
+    const yes = transport({ required: true })
+    await expect(createAuthClient(yes).getSetup()).resolves.toBe(true)
+    expect(yes.get).toHaveBeenCalledWith('setup/', { signal: undefined })
+    await expect(createAuthClient(transport({ required: false })).getSetup()).resolves.toBe(false)
+  })
+
+  it.each([[{}], [{ required: 'yes' }], [null], [[true]]])(
+    'refuses a setup answer that is not {required: boolean}: %j',
+    async (answer) => {
+      await expect(createAuthClient(transport(answer)).getSetup()).rejects.toMatchObject({
+        code: 'bad_response',
+      })
+    },
+  )
+
+  it('creates the first administrator with exactly the four fields, and no empty email', async () => {
+    const t = transport(signedIn)
+    const input = {
+      code: 'K7QX-M2P9-A4TR',
+      username: 'root',
+      email: '  ',
+      password: 'pw',
+      isSuperuser: true,
+    } as unknown as Parameters<ReturnType<typeof createAuthClient>['createFirstAdministrator']>[0]
+    const result = await createAuthClient(t).createFirstAdministrator(input)
+    expect(t.post).toHaveBeenCalledWith(
+      'setup/',
+      { code: 'K7QX-M2P9-A4TR', username: 'root', email: null, password: 'pw' },
+      { signal: undefined },
+    )
+    expect(result.user).toEqual(user)
+  })
+
+  it('sends a trimmed email when there is one', async () => {
+    const t = transport(signedIn)
+    await createAuthClient(t).createFirstAdministrator({
+      code: 'c',
+      username: 'root',
+      email: ' root@example.com ',
+      password: 'pw',
+    })
+    expect(t.post).toHaveBeenCalledWith(
+      'setup/',
+      expect.objectContaining({ email: 'root@example.com' }),
+      { signal: undefined },
+    )
+  })
+
   it('reads the scope', async () => {
     const t = transport({ customers: [], sites: [] })
     await expect(getScopeOptions(t)()).resolves.toEqual({ customers: [], sites: [] })

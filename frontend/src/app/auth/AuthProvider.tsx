@@ -4,6 +4,7 @@ import {
   type AuthClient,
   type ConsoleSession,
   type ConsoleUser,
+  type FirstAdministrator,
   type PublishedThresholds,
   type SessionCapabilities,
 } from '@/api/auth'
@@ -147,6 +148,22 @@ export function AuthProvider({ client, signals, children }: AuthProviderProps) {
     [client, commit],
   )
 
+  const checkSetup = useCallback(
+    async (signal?: AbortSignal) => (client ? client.getSetup(signal) : false),
+    [client],
+  )
+
+  const completeSetup = useCallback(
+    async (input: FirstAdministrator) => {
+      if (!client) return
+      const mine = ++transitions.current
+      const session = await client.createFirstAdministrator(input)
+      // As for a sign-in: a sign-out or expiry that came in meanwhile has the last word.
+      if (mine === transitions.current) commit(fromSession(session, 'anonymous'))
+    },
+    [client, commit],
+  )
+
   const signOut = useCallback(async () => {
     if (!client) return
     const mine = ++transitions.current
@@ -175,13 +192,15 @@ export function AuthProvider({ client, signals, children }: AuthProviderProps) {
       thresholds: state.thresholds ?? null,
       capabilities: state.capabilities ?? NO_CAPABILITIES,
       signIn,
+      checkSetup,
+      completeSetup,
       signOut,
       refresh: () => {
         if (statusRef.current === 'unreachable') commit(CHECKING)
         void check()
       },
     }),
-    [state, signIn, signOut, check, commit],
+    [state, signIn, checkSetup, completeSetup, signOut, check, commit],
   )
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>
 }
