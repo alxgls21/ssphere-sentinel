@@ -344,6 +344,25 @@ after any version or volume change. See [Operations](docs/operations.md) for
 secret rotation and symptom-based recovery, and [Security](docs/security.md)
 for deployment warnings that must not be relaxed for convenience.
 
+## Releases
+
+A release is a tag `vX.Y.Z` (or `vX.Y.Z-rc.N` for a pre-release) on `main`,
+after the version in `pyproject.toml` and `agent/__init__.py` has been set to
+`X.Y.Z` in a commit. Pushing the tag starts
+[`.github/workflows/release.yml`](.github/workflows/release.yml): the whole CI
+on the tagged commit, then the server and proxy images on the GitHub Container
+Registry (linux/amd64, with an SBOM and a provenance attestation), then the
+installation bundle installed from those images on a clean runner and checked,
+and only then the GitHub Release with the bundle and `SHA256SUMS`. A stable
+release also moves the images' `X.Y` and `latest` tags; a pre-release does not.
+A release that fails part-way publishes no release and moves no tag (images
+it already pushed keep only their version tag): fix the cause and tag the next
+patch version.
+
+The first release creates the two packages on GitHub as private: make them
+public once, in each package's settings (*Package settings → Change
+visibility*), so that servers can pull them without signing in.
+
 ## Project layout
 
 ```text
