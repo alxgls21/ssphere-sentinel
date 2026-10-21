@@ -581,4 +581,11 @@ def main(argv: list[str], environ: Mapping[str, str]) -> int:
 if __name__ == "__main__":  # pragma: no cover - exercised through the entrypoint
     import os
 
+    from sentinel import secrets
+
+    try:
+        secrets.load(os.environ)
+    except RuntimeError as exc:
+        print(f"entrypoint: {exc}", file=sys.stderr)
+        sys.exit(2)
     sys.exit(main(sys.argv, os.environ))

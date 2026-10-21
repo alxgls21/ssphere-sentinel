@@ -133,3 +133,24 @@ class LoginThrottle(models.Model):
 
     def __str__(self) -> str:
         return self.key
+
+
+class SetupCode(models.Model):
+    """The one-time code that creates the first administrator from the console (``apps.console.setup``).
+
+    It exists only while the installation has no user at all: the web service makes a new one at every start
+    until then (``manage.py setup_code``) and prints it in its log; the first administrator, or any user created
+    otherwise, ends it. Only its hash is stored.
+    """
+
+    id = models.BigAutoField(primary_key=True)
+    code_hash = models.CharField(max_length=64)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        default_permissions = ()
+        verbose_name = "setup code"
+        verbose_name_plural = "setup codes"
+
+    def __str__(self) -> str:
+        return f"setup code of {self.created_at:%Y-%m-%d %H:%M}"

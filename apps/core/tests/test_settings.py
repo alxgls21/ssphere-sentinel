@@ -38,6 +38,10 @@ print(json.dumps({
     "SNMP_RETENTION_DAYS": s.SENTINEL_SNMP_RETENTION_DAYS,
     "SNMP_MAX_AGE_DAYS": s.SENTINEL_SNMP_MAX_AGE_DAYS,
     "DATABASES": s.DATABASES,
+    "SENTINEL_URL": s.SENTINEL_URL,
+    "SENTINEL_CONSOLE_URL": s.SENTINEL_CONSOLE_URL,
+    "SECRET_KEY": s.SECRET_KEY,
+    "AGENT_TOKEN_PEPPER": s.AGENT_TOKEN_PEPPER,
 }))
 """
 
@@ -203,3 +207,103 @@ class ProductionSettingsTests(SimpleTestCase):
         result = load_settings(SENTINEL_DB_ROLES="separate", SENTINEL_DB_PASSWORD="app-secret")
         self.assertNotIn("unused", result.stderr)  # the value of POSTGRES_PASSWORD
         self.assertNotIn("app-secret", result.stderr)
+
+
+class SiteAddressTests(SimpleTestCase):
+    """SENTINEL_URL: the one setting a new installation needs."""
+
+    def settings_for(self, **overrides):
+        result = load_settings(**overrides)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        return json.loads(result.stdout)
+
+    def test_an_https_address_gives_the_host_the_origin_the_emails_and_secure_cookies(self):
+        conf = self.settings_for(SENTINEL_URL="https://Sentinel.Example.com/")
+        self.assertEqual(conf["SENTINEL_URL"], "https://sentinel.example.com")
+        self.assertEqual(conf["ALLOWED_HOSTS"], ["localhost", "127.0.0.1", "sentinel.example.com"])
+        self.assertEqual(conf["CSRF_TRUSTED_ORIGINS"], ["https://sentinel.example.com"])
+        self.assertEqual(conf["SENTINEL_CONSOLE_URL"], "https://sentinel.example.com")
+        self.assertTrue(conf["SESSION_COOKIE_SECURE"] and conf["CSRF_COOKIE_SECURE"])
+
+    def test_a_port_is_part_of_the_origin_not_of_the_host(self):
+        conf = self.settings_for(SENTINEL_URL="https://sentinel.example.com:8443")
+        self.assertEqual(conf["ALLOWED_HOSTS"][-1], "sentinel.example.com")
+        self.assertEqual(conf["CSRF_TRUSTED_ORIGINS"], ["https://sentinel.example.com:8443"])
+
+    def test_a_plain_http_address_on_a_local_network_gets_cookies_a_browser_keeps(self):
+        conf = self.settings_for(SENTINEL_URL="http://192.168.1.10:8000")
+        self.assertEqual(conf["ALLOWED_HOSTS"][-1], "192.168.1.10")
+        self.assertFalse(conf["SESSION_COOKIE_SECURE"] or conf["CSRF_COOKIE_SECURE"])
+
+    def test_the_detailed_settings_still_apply(self):
+        conf = self.settings_for(
+            SENTINEL_URL="https://sentinel.example.com",
+            DJANGO_ALLOWED_HOSTS="sentinel.example.com,admin.example.com",
+            DJANGO_CSRF_TRUSTED_ORIGINS="https://admin.example.com",
+            DJANGO_SESSION_COOKIE_SECURE="false",
+            SENTINEL_CONSOLE_URL="https://console.example.com",
+        )
+        self.assertEqual(conf["ALLOWED_HOSTS"], ["sentinel.example.com", "admin.example.com"])
+        self.assertEqual(conf["CSRF_TRUSTED_ORIGINS"], ["https://admin.example.com", "https://sentinel.example.com"])
+        self.assertFalse(conf["SESSION_COOKIE_SECURE"])
+        self.assertTrue(conf["CSRF_COOKIE_SECURE"])
+        self.assertEqual(conf["SENTINEL_CONSOLE_URL"], "https://console.example.com")
+
+    def test_without_an_address_nothing_changes(self):
+        conf = self.settings_for()
+        self.assertEqual(conf["SENTINEL_URL"], "")
+        self.assertEqual(conf["ALLOWED_HOSTS"], ["localhost", "127.0.0.1"])
+        self.assertEqual(conf["CSRF_TRUSTED_ORIGINS"], [])
+
+    def test_what_is_not_an_address_is_refused(self):
+        for value in ("sentinel.example.com", "https://sentinel.example.com/console", "https://a.example.com?x=1",
+                      "ftp://sentinel.example.com", "https://user@sentinel.example.com", "https://*.example.com",
+                      "https://sentinel.example.com:port", "https://"):
+            with self.subTest(value=value):
+                result = load_settings(SENTINEL_URL=value)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn("SENTINEL_URL must be the address of the console", result.stderr)
+
+
+class SecretFileTests(SimpleTestCase):
+    """The secrets .env leaves out come from ./secrets (sentinel/secrets.py)."""
+
+    def setUp(self):
+        import tempfile
+
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        self.secrets = Path(directory.name)
+        for name, value in (("django_secret_key", "file-secret-key-0123456789abcdef"),
+                            ("agent_token_pepper", "file-pepper"), ("postgres_password", "file-password")):
+            (self.secrets / name).write_text(value + "\n")
+
+    def settings_for(self, **overrides):
+        result = load_settings(SENTINEL_SECRETS_DIR=str(self.secrets), **overrides)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        return json.loads(result.stdout)
+
+    def test_an_installation_without_secrets_in_env_reads_its_files(self):
+        conf = self.settings_for(DJANGO_SECRET_KEY=None, AGENT_TOKEN_PEPPER=None, POSTGRES_PASSWORD="")
+        self.assertEqual(conf["SECRET_KEY"], "file-secret-key-0123456789abcdef")
+        self.assertEqual(conf["AGENT_TOKEN_PEPPER"], "file-pepper")
+        self.assertEqual(conf["DATABASES"]["default"]["PASSWORD"], "file-password")
+
+    def test_env_always_wins(self):
+        conf = self.settings_for()
+        self.assertEqual(conf["SECRET_KEY"], BASE_ENV["DJANGO_SECRET_KEY"])
+        self.assertEqual(conf["AGENT_TOKEN_PEPPER"], BASE_ENV["AGENT_TOKEN_PEPPER"])
+        self.assertEqual(conf["DATABASES"]["default"]["PASSWORD"], BASE_ENV["POSTGRES_PASSWORD"])
+
+    def test_with_separate_logins_no_process_may_even_hold_the_superusers_password_file(self):
+        result = load_settings(SENTINEL_SECRETS_DIR=str(self.secrets), SENTINEL_DB_ROLES="separate",
+                               SENTINEL_DB_PASSWORD="runtime-secret", POSTGRES_PASSWORD=None)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("holds the database superuser's password", result.stderr)
+        self.assertNotIn("file-password", result.stderr)
+        (self.secrets / "postgres_password").unlink()
+        conf = self.settings_for(SENTINEL_DB_ROLES="separate", SENTINEL_DB_PASSWORD="runtime-secret",
+                                 POSTGRES_PASSWORD=None, DJANGO_SECRET_KEY=None)
+        self.assertEqual(conf["SECRET_KEY"], "file-secret-key-0123456789abcdef")
+        self.assertEqual(conf["DATABASES"]["default"]["PASSWORD"], "runtime-secret")
+

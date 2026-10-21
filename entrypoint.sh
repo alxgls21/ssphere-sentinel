@@ -81,4 +81,10 @@ case "$mode" in
         ;;
 esac
 
+# The web server of an installation without any user: the setup code of its first administrator, in the log
+# (apps/console/setup.py). A failure here must not keep the server from starting.
+if [ "$process" = web ] && [ "${mode#* }" = runtime ] && [ "${1:-}" = gunicorn ]; then
+    python manage.py setup_code || echo "entrypoint: the setup code could not be prepared" >&2
+fi
+
 exec "$@"

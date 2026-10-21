@@ -9,8 +9,10 @@ Django itself (see "HTTPS and reverse proxies" below).
 import os
 import re
 from pathlib import Path
+from urllib.parse import urlsplit
 
 from sentinel import database as sentinel_database
+from sentinel import secrets as sentinel_secrets
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 
@@ -83,6 +85,36 @@ def env_list(name: str, default: str = "") -> list[str]:
     """Comma-separated list; blank items are ignored."""
     return [item.strip() for item in env(name, default).split(",") if item.strip()]
 
+
+# Secrets .env leaves out come from the files the init service created (sentinel/secrets.py).
+sentinel_secrets.load(os.environ)
+
+
+def site_address(value: str) -> tuple[str, str]:
+    """``SENTINEL_URL`` as (origin, host name), the origin also its address; both empty when it is not set."""
+    value = value.strip().rstrip("/")
+    if not value:
+        return "", ""
+    problem = RuntimeError(
+        "SENTINEL_URL must be the address of the console, such as https://sentinel.example.com "
+        "(a scheme and a host, a port if any, and no path)"
+    )
+    try:
+        parts = urlsplit(value)
+        host = parts.hostname or ""
+        parts.port  # noqa: B018 - a port that is not a number raises ValueError here
+    except ValueError:
+        raise problem from None
+    if parts.scheme not in ("https", "http") or not host or "*" in host or parts.username is not None \
+            or parts.path or parts.query or parts.fragment:
+        raise problem
+    return f"{parts.scheme}://{parts.netloc.lower()}", host
+
+
+# The installation's address (https://sentinel.example.com): the one setting a new installation needs. It adds
+# its host to ALLOWED_HOSTS and its origin to CSRF_TRUSTED_ORIGINS, sets the address in the emails, and makes the
+# cookies Secure when it is https. The detailed settings below, when set, still apply.
+SENTINEL_URL, SENTINEL_URL_HOST = site_address(env("SENTINEL_URL", default=""))
 
 # Prefix of the example secrets in .env.example.
 PLACEHOLDER_SECRET_PREFIX = "change-me"
@@ -250,7 +282,7 @@ if SENTINEL_SMTP_HOST and not one_mailbox(SENTINEL_EMAIL_FROM):
         "when SENTINEL_SMTP_HOST is set"
     )
 # The console's address (https://sentinel.example.com), for links in the emails; none without it.
-SENTINEL_CONSOLE_URL = env("SENTINEL_CONSOLE_URL", default="").strip().rstrip("/")
+SENTINEL_CONSOLE_URL = env("SENTINEL_CONSOLE_URL", default="").strip().rstrip("/") or SENTINEL_URL
 if SENTINEL_CONSOLE_URL and not SENTINEL_CONSOLE_URL.startswith(("https://", "http://")):
     raise RuntimeError("SENTINEL_CONSOLE_URL must start with https:// or http://")
 # An email not sent within this many hours (the notifier was stopped, the SMTP
@@ -277,9 +309,13 @@ MAILERS = {
 }
 
 ALLOWED_HOSTS = env_list("DJANGO_ALLOWED_HOSTS", default="localhost,127.0.0.1")
+if SENTINEL_URL_HOST and SENTINEL_URL_HOST not in ALLOWED_HOSTS:
+    ALLOWED_HOSTS.append(SENTINEL_URL_HOST)
 # Full origins (``https://sentinel.example.com``) allowed to submit admin forms
 # when TLS is terminated in front of Django (reverse proxy, Cloudflare Tunnel).
 CSRF_TRUSTED_ORIGINS = env_list("DJANGO_CSRF_TRUSTED_ORIGINS")
+if SENTINEL_URL and SENTINEL_URL not in CSRF_TRUSTED_ORIGINS:
+    CSRF_TRUSTED_ORIGINS.append(SENTINEL_URL)
 
 # HTTPS and reverse proxies.
 #
@@ -296,8 +332,10 @@ SECURE_HSTS_INCLUDE_SUBDOMAINS = env_bool("DJANGO_SECURE_HSTS_INCLUDE_SUBDOMAINS
 SECURE_HSTS_PRELOAD = env_bool("DJANGO_SECURE_HSTS_PRELOAD")
 # Secure cookies by default outside DEBUG. Browsers send them over HTTPS only,
 # so admin login over plain http:// needs both set to false (testing only).
-SESSION_COOKIE_SECURE = env_bool("DJANGO_SESSION_COOKIE_SECURE", default=not DEBUG)
-CSRF_COOKIE_SECURE = env_bool("DJANGO_CSRF_COOKIE_SECURE", default=not DEBUG)
+# With SENTINEL_URL, its scheme decides: a browser keeps no Secure cookie from an http:// address.
+COOKIES_SECURE_DEFAULT = SENTINEL_URL.startswith("https://") if SENTINEL_URL else not DEBUG
+SESSION_COOKIE_SECURE = env_bool("DJANGO_SESSION_COOKIE_SECURE", default=COOKIES_SECURE_DEFAULT)
+CSRF_COOKIE_SECURE = env_bool("DJANGO_CSRF_COOKIE_SECURE", default=COOKIES_SECURE_DEFAULT)
 
 INSTALLED_APPS = [
     "django.contrib.admin",

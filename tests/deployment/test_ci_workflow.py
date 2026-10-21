@@ -378,3 +378,17 @@ class PostgresTestReportTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class FirstRunJobTests(unittest.TestCase):
+    def test_a_new_installation_from_its_address_alone_runs_on_real_containers(self):
+        job = load_workflow(self)["jobs"]["first-run"]
+        runs = [step.get("run", "") for step in job["steps"]]
+        self.assertIn(".github/scripts/first-run-e2e.sh", runs)
+        script = (ROOT / ".github" / "scripts" / "first-run-e2e.sh").read_text()
+        # The .env of the run names no secret: whatever the stack has, it made itself.
+        (env_line,) = [line for line in script.splitlines() if "> .env" in line]
+        self.assertNotRegex(env_line, r"SECRET|PEPPER|PASSWORD|INITIALIZE")
+        for check in ("setup:     ", "/api/v1/console/setup/", "--force-recreate web", "sudo mv secrets secrets.lost"):
+            self.assertIn(check, script)
+

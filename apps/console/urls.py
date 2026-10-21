@@ -9,6 +9,7 @@ from apps.console import (
     incidents,
     notification_settings,
     servers,
+    setup,
     system,
     targets,
     topology,
@@ -18,6 +19,7 @@ from apps.console.http import not_found
 
 urlpatterns = [
     path("session/", views.session, name="console-session"),
+    path("setup/", setup.setup, name="console-setup"),
     path("auth/login/", views.sign_in, name="console-login"),
     path("auth/logout/", views.sign_out, name="console-logout"),
     path("scope/", views.scope, name="console-scope"),

@@ -75,6 +75,19 @@ They return no configuration, version, host or error details.
 
 ## Console authentication and access control
 
+**The first administrator.** While the installation has no user at all, the
+web service makes a one-time setup code at every start and prints it in its
+log (12 characters of a 32-letter alphabet, 60 bits; only its SHA-256 is
+stored, and each start replaces it). `POST /api/v1/console/setup/` creates the
+first administrator with it, under CSRF, in one transaction that holds the
+code (two requests at once cannot make two administrators), and under the
+sign-in throttle with a key of its own (wrong codes only: a right code with a
+password the validators refuse is not counted). Only someone who can read the
+server's logs, that is, who has Docker on it, can create the administrator,
+even when the console is already on the internet. Once any user exists, the
+code is deleted and the endpoint answers `404`; `GET` only says whether a
+setup is pending.
+
 The web console reads data through `/api/v1/console/`. It shares nothing with
 the agent API: agents authenticate with bearer tokens (`apps/agents`), the
 console with Django sessions (`apps/console`), and neither accepts the other's
@@ -237,7 +250,17 @@ it is exposed to the internet.
   capabilities and `no-new-privileges`; only `/tmp` is writable (tmpfs).
 - Dependencies are installed from `requirements/server.txt`: exact versions,
   verified by SHA-256 hash, wheels only.
-- No secret is part of the image; they come from `.env` at runtime. The
+- No secret is part of the image; they come from `.env` at runtime, or, for a
+  new installation whose `.env` leaves them out, from `./secrets`: created on
+  the first start by the one-shot `init` service (no network, no capability
+  but changing a file's owner and reading the database's directory, which it
+  mounts read-only), one file each, owned by the application's user and
+  readable by it alone, mounted read-only into the application's containers
+  and the database. The proxy and `cloudflared` never see them. They are only
+  created for an installation with no database: for an existing database,
+  missing or partial secrets are refused, never replaced. With the separate
+  database logins no container may hold the superuser's password, not even as
+  that file: every Sentinel process refuses to start while it exists. The
   Cloudflare Tunnel token is in a separate `.env.tunnel` that only the
   `cloudflared` container reads.
 - PostgreSQL is reachable only on the internal Compose network. The `proxy`

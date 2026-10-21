@@ -414,6 +414,23 @@ jobs:
         if: always()
         run: docker compose down --volumes
 
+  # A new installation whose .env holds its address alone (.github/scripts/first-run-e2e.sh): the secrets the
+  # init service creates, the first administrator from the setup code, a second start, and lost secrets.
+  first-run:
+    name: New installation from its address alone
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.repository
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install, set up, start again, lose the secrets
+        run: .github/scripts/first-run-e2e.sh
+      - name: Container logs
+        if: failure()
+        run: docker compose logs --no-color
+
   # Docker Compose releases operators run: 2.24.6, the oldest supported (the
   # README and docs/server-deployment.md say 2.24; it is what Ubuntu 24.04
   # packages), and the current one. Earlier releases are not
