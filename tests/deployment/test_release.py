@@ -68,7 +68,7 @@ class BundleTests(unittest.TestCase):
         self.assertEqual(self.members[prefix + "scripts/postgres-preflight.sh"].mode, 0o755)
         self.assertEqual(self.members[prefix + "compose.yml"].mode, 0o644)
         for name, data in self.files.items():
-            if not name.endswith("compose.yml"):
+            if name.removeprefix(prefix) not in release.BUILDS:
                 self.assertEqual(data, (ROOT / name.removeprefix(prefix)).read_bytes(), name)
 
     def test_every_file_the_compose_files_name_is_in_it(self):
@@ -94,6 +94,16 @@ class BundleTests(unittest.TestCase):
             self.assertEqual({key: value for key, value in service.items() if key != "image"}, expected, name)
         self.assertEqual({key: value for key, value in compose.items() if key != "services"},
                          {key: value for key, value in repository.items() if key != "services"})
+
+    def test_the_init_service_runs_the_server_image(self):
+        text = self.files[f"sentinel-{VERSION}/deploy/postgres/postgres-18.yml"].decode()
+        document = load_yaml(self, text)
+        self.assertEqual(document["services"]["init"]["image"], SERVER)
+        self.assertNotIn("build", document["services"]["init"])
+        repository = load_yaml(self, (ROOT / "deploy" / "postgres" / "postgres-18.yml").read_text())
+        expected = {key: value for key, value in repository["services"]["init"].items() if key != "build"}
+        self.assertEqual({key: value for key, value in document["services"]["init"].items() if key != "image"}, expected)
+        self.assertEqual(document["services"]["db"], repository["services"]["db"])
 
     def test_the_checksum_is_the_archive_s(self):
         digest = hashlib.sha256(self.archive.read_bytes()).hexdigest()

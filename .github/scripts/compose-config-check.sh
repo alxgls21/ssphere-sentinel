@@ -48,7 +48,9 @@ from sentinel.database import foreign_passwords  # noqa: E402
 
 services = json.load(open(sys.argv[1]))["services"]
 layout = sys.argv[2]
-assert set(services) == {"db", "migrate", "web", "alert-engine", "proxy"}, sorted(services)
+assert set(services) - {"init"} == {"db", "migrate", "web", "alert-engine", "proxy"}, sorted(services)
+# The init service (the secrets of a new installation) comes with PostgreSQL 18 only.
+assert ("init" in services) == services["db"]["image"].startswith("postgres:18"), sorted(services)
 # The front door: the proxy alone is published; it holds no secret and reaches web, not the database.
 assert [name for name, service in services.items() if service.get("ports")] == ["proxy"], "another service is published"
 assert [port["target"] for port in services["proxy"]["ports"]] == [8080]
@@ -141,7 +143,9 @@ sys.path.insert(0, ".")
 from sentinel.database import foreign_passwords  # noqa: E402
 
 services = json.load(open(sys.argv[1]))["services"]
-assert set(services) == {"db", "migrate", "web", "alert-engine", "proxy", "notifier"}, sorted(services)
+assert set(services) - {"init"} == {"db", "migrate", "web", "alert-engine", "proxy", "notifier"}, sorted(services)
+# The init service (the secrets of a new installation) comes with PostgreSQL 18 only.
+assert ("init" in services) == services["db"]["image"].startswith("postgres:18"), sorted(services)
 holders = sorted(name for name, service in services.items()
                  if (service.get("environment") or {}).get("SENTINEL_SMTP_PASSWORD"))
 assert holders == ["notifier"], holders
@@ -167,7 +171,9 @@ sys.path.insert(0, ".")
 from sentinel.database import foreign_passwords  # noqa: E402
 
 services = json.load(open(sys.argv[1]))["services"]
-assert set(services) == {"db", "migrate", "web", "alert-engine", "proxy", "notifier", "domain-verifier"}, sorted(services)
+assert set(services) - {"init"} == {"db", "migrate", "web", "alert-engine", "proxy", "notifier", "domain-verifier"}, sorted(services)
+# The init service (the secrets of a new installation) comes with PostgreSQL 18 only.
+assert ("init" in services) == services["db"]["image"].startswith("postgres:18"), sorted(services)
 verifier = services["domain-verifier"]["environment"]
 assert (verifier["SENTINEL_DB_ACCESS"], verifier["SENTINEL_PROCESS"]) == ("runtime", "worker")
 assert verifier.get("SENTINEL_DB_PASSWORD") == os.environ["RUNTIME"], "the verifier lacks the runtime password"

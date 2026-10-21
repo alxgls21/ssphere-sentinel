@@ -71,6 +71,42 @@ git checkout <tag>
 
 ### Settings
 
+A new installation needs its address and its PostgreSQL version, nothing
+secret:
+
+```bash
+umask 077
+printf '%s\n' \
+    'SENTINEL_URL=https://sentinel.example.com' \
+    'SENTINEL_POSTGRES=18' \
+    'SENTINEL_HTTP_BIND=127.0.0.1' > .env
+```
+
+`SENTINEL_URL` is the address the console is opened at. It is the host Django
+answers to, the origin sign-ins come from, the address in the emails, and,
+being `https://`, makes the session and CSRF cookies Secure. (An `http://`
+address, for a trusted local network only, makes them plain, and
+`manage.py check --deploy` warns about it.) `SENTINEL_HTTP_BIND=127.0.0.1`
+keeps the plain-HTTP port of the proxy for the TLS front end on this host.
+
+The secrets are created on the first start: the one-shot `init` service
+writes the Django secret key, the agents' token pepper and the database
+password to `./secrets`, each a file that only the application's user
+(UID 10001) can read, mounted read-only into the application's containers and
+the database. It also authorizes the new database, so this installation needs
+no `SENTINEL_POSTGRES_INITIALIZE`. Back the directory up with `.env`
+([Backups](#backups)): without it the database does not open and every agent
+token is invalid.
+
+Every setting of [.env.example](../.env.example) may be added to `.env`;
+`DJANGO_ALLOWED_HOSTS` and `DJANGO_CSRF_TRUSTED_ORIGINS` add to what
+`SENTINEL_URL` gives.
+
+#### Secrets in .env
+
+Installations made before, and anyone who prefers it, keep the secrets in
+`.env`; whatever `.env` sets is used, and `./secrets` stays empty:
+
 ```bash
 cp .env.example .env
 chmod 600 .env
@@ -109,15 +145,24 @@ scripts/postgres-preflight.sh         # read-only check of the database volumes
 docker compose up -d --build
 docker compose ps                     # db, web, alert-engine and proxy "healthy"
 curl -fsS http://127.0.0.1:8000/health/ready/
-docker compose exec web python manage.py createsuperuser
+docker compose logs web | grep 'setup:'   # the setup code
 ```
+
+The first administrator is created in the console: while the installation has
+no user, the console asks for the setup code that `web` prints in its log (a
+new one at every start of `web`, until the administrator exists), then for the
+administrator's user name, email and password. Only someone who can read the
+server's logs can do this, even when the console is already on the internet.
+(Or create the administrator on the server:
+`docker compose exec web python manage.py createsuperuser`, which ends the
+setup as well.)
 
 Once HTTPS is set up (step 3), the console is at `https://sentinel.example.com/`
 and the admin at `https://sentinel.example.com/admin/`. The superuser may use
 both; other console users are created in the admin.
 
-Once the first start has succeeded, delete the `SENTINEL_POSTGRES_INITIALIZE`
-line from `.env` and run `docker compose up -d` (the `db` container is
+With the secrets in `.env`: once the first start has succeeded, delete the
+`SENTINEL_POSTGRES_INITIALIZE` line from `.env` and run `docker compose up -d` (the `db` container is
 recreated once, its data is not touched). From then on a missing database
 volume stops the database instead of silently creating an empty one.
 
@@ -708,6 +753,13 @@ the logins. Plan a short maintenance window: the application (`web`,
 to a Compose command, and leave `SENTINEL_POSTGRES` in `.env` as it is (an
 installation still on PostgreSQL 16 stays on it).
 
+If the secrets were created on the first start (`./secrets`), first put the
+database password in `.env` as `POSTGRES_PASSWORD`
+(`sudo cat secrets/postgres_password`) and delete
+`secrets/postgres_password`: with the separate logins no Sentinel container
+may hold the superuser's password, and every Sentinel process refuses to start
+while that file exists. The steps below then move it on to `.env.bootstrap`.
+
 1. Back up the database (see [Backups](#backups)) and copy `.env`. Stop the
    application (`apply` refuses while it is connected):
 
@@ -1040,8 +1092,21 @@ Schedule the dump (for example daily from cron, alongside the retention
 commands in the README), copy it off the host and test a restore regularly.
 Dumps contain hashes of admin passwords and agent tokens and all monitoring
 data: store them encrypted with restricted access. Also back up `.env` (and
-`.env.tunnel`) separately and securely; without `AGENT_TOKEN_PEPPER` every
-agent token must be regenerated.
+`.env.tunnel`, and the `./secrets` directory of an installation whose secrets
+were created on its first start) separately and securely; without
+`AGENT_TOKEN_PEPPER` every agent token must be regenerated, and without the
+database password the database does not open. The files of `./secrets` belong
+to UID 10001: keep their owners and modes,
+
+```bash
+sudo tar -czpf sentinel-secrets.tar.gz secrets      # back up
+sudo tar -xzpf sentinel-secrets.tar.gz              # restore, in the installation's directory
+```
+
+The `init` service refuses to start a database whose secrets are missing
+(`the database exists, but /run/sentinel/secrets holds none of its secrets`),
+or only some of them: restore the directory, never let new secrets be made
+for an existing database.
 
 The database volume (`postgres18_data`, or `postgres_data` on an installation
 that still runs PostgreSQL 16) must survive upgrades. `docker compose down`
@@ -1084,6 +1149,12 @@ set. A new installation sets it for its first start (the line is in
 existing installation must not carry the authorization along) and so does step
 2 of the migration below. Without it the container exits with a message and
 nothing is initialized. Remove the line once the database exists.
+
+A new installation whose secrets are created on its first start
+([Settings](#settings)) needs no such line: the `init` service authorizes the
+database when it creates the secrets, which it only does when there is neither
+a database nor a secret, and withdraws the authorization at the next start,
+once the database exists.
 
 #### Preflight check
 

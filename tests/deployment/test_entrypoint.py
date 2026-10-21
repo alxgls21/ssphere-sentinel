@@ -25,6 +25,7 @@ ENTRYPOINT = ROOT / "entrypoint.sh"
 WAIT = "-m sentinel.database wait"
 MIGRATE = "manage.py migrate --noinput"
 VERIFY = "-m sentinel.database verify"
+SETUP_CODE = "manage.py setup_code"
 # The alert engine's command in compose.yml, as the python stand-in records it.
 WORKER = ("python", "manage.py", "run_alert_engine", "--liveness-file", "/tmp/sentinel-worker.alive")
 ENGINE = " ".join(WORKER[1:])
@@ -92,7 +93,7 @@ class EntrypointTests(unittest.TestCase):
             with self.subTest(environment=environment):
                 result = self.run_entrypoint("gunicorn", "--bind", "0.0.0.0:8000", **environment)
                 self.assertEqual(result.returncode, 0, result.stderr)
-                self.assertEqual(self.recorded(), [WAIT, MIGRATE, "command --bind 0.0.0.0:8000"])
+                self.assertEqual(self.recorded(), [WAIT, MIGRATE, SETUP_CODE, "command --bind 0.0.0.0:8000"])
                 self.assertIn("entrypoint: waiting for the database at db:5432", result.stderr)
                 self.assertIn("entrypoint: applying database migrations", result.stderr)
 
@@ -111,8 +112,26 @@ class EntrypointTests(unittest.TestCase):
     def test_separate_web_waits_verifies_and_starts_without_migrating(self):
         result = self.run_entrypoint("gunicorn", SENTINEL_DB_ROLES="separate", SENTINEL_DB_ACCESS="runtime")
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(self.recorded(), [WAIT, VERIFY, "command "])
+        self.assertEqual(self.recorded(), [WAIT, VERIFY, SETUP_CODE, "command "])
         self.assertNotIn("applying database migrations", result.stderr)
+
+    def test_the_setup_code_never_keeps_web_from_starting(self):
+        result = self.run_entrypoint("gunicorn", fail="setup_code")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(self.recorded(), [WAIT, MIGRATE, SETUP_CODE, "command "])
+        self.assertIn("the setup code could not be prepared", result.stderr)
+
+    def test_only_the_web_server_prepares_the_setup_code(self):
+        # A worker, the migrate service and any other command of web: no setup code.
+        cases = (
+            (WORKER, {"SENTINEL_PROCESS": "worker"}),
+            (("gunicorn", "showmigrations"), {"SENTINEL_DB_ROLES": "separate", "SENTINEL_DB_ACCESS": "migrate"}),
+            (("python", "manage.py", "createsuperuser"), {}),
+        )
+        for command, environment in cases:
+            with self.subTest(command=command):
+                self.run_entrypoint(*command, **environment)
+                self.assertNotIn(SETUP_CODE, self.recorded())
 
     def test_separate_migrate_service_checks_applies_the_migrations_verifies_and_exits(self):
         # The roles, django_migrations included, are checked before any migration runs.

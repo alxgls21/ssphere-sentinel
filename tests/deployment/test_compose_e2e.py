@@ -215,6 +215,21 @@ class IsolationTests(unittest.TestCase):
         self.assertIn("web: mounts a bind that is not the database volume", problems)
         self.assertIn("db: mounts a bind that is not the database volume", problems)
 
+    def test_the_secrets_of_a_new_installation_are_the_one_bind_and_only_read_only(self):
+        secrets = {"Type": "bind", "Source": "/srv/sentinel/secrets", "Destination": "/run/sentinel/secrets", "RW": False}
+        with tempfile.TemporaryDirectory() as directory:
+            write_evidence(directory)
+            for service in ("web", "migrate", "alert-engine", "db"):
+                (Path(directory) / f"{service}.mounts").write_text(json.dumps([secrets]))
+            self.assertEqual(e2e.isolation(directory, secrets_file(directory)), [])
+            (Path(directory) / "web.mounts").write_text(json.dumps([{**secrets, "RW": True}]))
+            (Path(directory) / "proxy.mounts").write_text(json.dumps([secrets]))
+            (Path(directory) / "migrate.mounts").write_text(json.dumps([{**secrets, "Destination": "/app/secrets"}]))
+            problems = e2e.isolation(directory, secrets_file(directory))
+        self.assertIn("web: the secrets of the installation are mounted writable", problems)
+        self.assertIn("proxy: mounts a bind that is not the database volume", problems)
+        self.assertIn("migrate: mounts a bind that is not the database volume", problems)
+
     def test_what_cannot_be_judged_is_an_error_and_never_a_pass(self):
         with tempfile.TemporaryDirectory() as directory:
             write_evidence(directory)
@@ -270,6 +285,15 @@ class ConfigTests(unittest.TestCase):
         notifier["SENTINEL_DB_MIGRATE_PASSWORD"] = ""
         notifier["SENTINEL_SMTP_PASSWORD"] = BOOTSTRAP
         self.assertIn("notifier: SENTINEL_SMTP_PASSWORD holds the bootstrap secret", self.judge(configuration))
+
+    def test_the_init_service_may_know_whether_env_sets_the_password_and_nothing_more(self):
+        configuration = self.services()
+        configuration["services"]["init"] = {"environment": {"SENTINEL_ENV_SETS_DATABASE_PASSWORD": "yes"}}
+        self.assertEqual(self.judge(configuration), [])
+        configuration["services"]["init"]["environment"]["POSTGRES_PASSWORD"] = BOOTSTRAP
+        self.assertIn("init: POSTGRES_PASSWORD is set, and the service has no use for it", self.judge(configuration))
+        configuration["services"]["init"]["environment"] = {"SENTINEL_ENV_SETS_DATABASE_PASSWORD": BOOTSTRAP}
+        self.assertIn("init: SENTINEL_ENV_SETS_DATABASE_PASSWORD holds the bootstrap secret", self.judge(configuration))
 
     def test_a_configuration_of_other_services_is_an_error(self):
         with self.assertRaisesRegex(e2e.Evidence, "the services are"):

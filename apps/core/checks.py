@@ -26,4 +26,14 @@ def check_deployment_configuration(app_configs, **kwargs):
                 id="sentinel.W002",
             )
         )
+    if settings.SENTINEL_URL.startswith("http://"):
+        warnings.append(
+            Warning(
+                f"SENTINEL_URL is {settings.SENTINEL_URL}: passwords and session cookies cross the network "
+                "unencrypted, and the cookies are not Secure.",
+                hint="Use an https:// address with a TLS front end (docs/server-deployment.md), except on a "
+                "trusted local network.",
+                id="sentinel.W003",
+            )
+        )
     return warnings

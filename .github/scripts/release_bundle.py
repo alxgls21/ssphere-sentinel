@@ -41,8 +41,8 @@ FILES = (
 )
 EXECUTABLE = {"scripts/postgres-preflight.sh"}
 
-# The builds of compose.yml, each replaced by its image: the server image's (every service but the proxy) and
-# the proxy's.
+# The builds of the Compose files, each replaced by its image: the proxy's, and the server image's for every
+# other service (those of compose.yml and the init service of the PostgreSQL 18 file).
 SERVER_BUILD = re.compile(r"^(?P<indent> +)build: \.\n", re.MULTILINE)
 PROXY_BUILD = re.compile(
     r"^(?P<indent> +)build:\n"
@@ -52,7 +52,11 @@ PROXY_BUILD = re.compile(
     r"(?P=indent)    nginx: \./deploy/frontend\n",
     re.MULTILINE,
 )
-SERVER_SERVICES = 5  # migrate, web, alert-engine, notifier, domain-verifier
+# (proxy builds, server builds) of each file that builds an image.
+BUILDS = {
+    "compose.yml": (1, 5),  # proxy; migrate, web, alert-engine, notifier, domain-verifier
+    "deploy/postgres/postgres-18.yml": (0, 1),  # init
+}
 
 
 class ReleaseError(Exception):
@@ -81,18 +85,18 @@ def version_of(tag: str) -> dict[str, str]:
     }
 
 
-def release_compose(text: str, version: str, server: str, proxy: str) -> str:
-    """compose.yml with its builds replaced by the release's images."""
+def release_compose(text: str, version: str, server: str, proxy: str, name: str = "compose.yml") -> str:
+    """The Compose file ``name`` with its builds replaced by the release's images."""
     for image in (server, proxy):
         if not IMAGE.fullmatch(image):
             raise ReleaseError(f"{image!r} is not an image of ghcr.io named by its digest")
     text, proxies = PROXY_BUILD.subn(lambda match: f"{match['indent']}image: {proxy}\n", text)
     text, servers = SERVER_BUILD.subn(lambda match: f"{match['indent']}image: {server}\n", text)
-    if (proxies, servers) != (1, SERVER_SERVICES):
-        raise ReleaseError(f"compose.yml has {proxies} proxy and {servers} server build(s), "
-                           f"not 1 and {SERVER_SERVICES}: update release_bundle.py with it")
+    if (proxies, servers) != BUILDS[name]:
+        raise ReleaseError(f"{name} has {proxies} proxy and {servers} server build(s), not {BUILDS[name][0]} and "
+                           f"{BUILDS[name][1]}: update release_bundle.py with it")
     if re.search(r"(?m)^\s+build:", text):
-        raise ReleaseError("compose.yml still builds an image")
+        raise ReleaseError(f"{name} still builds an image")
     note = (f"# SSphere Sentinel {version}: the images are named by their digest, nothing is built here.\n"
             "# Update to another release with its bundle, then: docker compose pull && docker compose up -d\n#\n")
     return note + text
@@ -107,8 +111,8 @@ def bundle(version: str, server: str, proxy: str, out: Path) -> Path:
     with tarfile.open(archive, "w:gz", format=tarfile.PAX_FORMAT) as tar:
         for name in FILES:
             data = (ROOT / name).read_bytes()
-            if name == "compose.yml":
-                data = release_compose(data.decode(), version, server, proxy).encode()
+            if name in BUILDS:
+                data = release_compose(data.decode(), version, server, proxy, name).encode()
             info = tarfile.TarInfo(f"{prefix}/{name}")
             info.size = len(data)
             info.mode = 0o755 if name in EXECUTABLE else 0o644

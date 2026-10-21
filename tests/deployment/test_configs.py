@@ -283,14 +283,17 @@ class ComposeTests(unittest.TestCase):
                 document = self.version_file(major)
                 db = document["services"]["db"]
                 self.assertEqual(db["image"], f"postgres:{major}-alpine")
-                self.assertEqual(db["volumes"], [f"{volume}:{mount}"])
+                self.assertEqual(db["volumes"][0], f"{volume}:{mount}")
+                # PostgreSQL 18 also reads the secrets of a new installation, and only those.
+                self.assertEqual(db["volumes"][1:], [] if major == "16" else ["./secrets:/run/sentinel/secrets:ro"])
                 self.assertEqual(set(document["volumes"]), {volume})
                 # The image's own PGDATA belongs to its layout.
                 self.assertNotIn("PGDATA", db["environment"])
         self.assertEqual(len({volume for volume, _ in LAYOUTS.values()}), len(LAYOUTS))
 
     def test_version_files_differ_only_in_image_volume_and_initialization_guard(self):
-        guard = ("entrypoint", "command")
+        # The guard, and on PostgreSQL 18 (new installations) the secrets the init service creates.
+        guard = ("entrypoint", "command", "depends_on")
 
         def comparable(major: str) -> dict:
             document = self.version_file(major)
@@ -300,13 +303,40 @@ class ComposeTests(unittest.TestCase):
             db["environment"] = {
                 name: value
                 for name, value in db["environment"].items()
-                if name != "SENTINEL_POSTGRES_INITIALIZE"
+                if name not in ("SENTINEL_POSTGRES_INITIALIZE", "POSTGRES_PASSWORD")
             }
             return {"services": {"db": db}, "top_level_keys": sorted(document)}
 
         majors = sorted(LAYOUTS)
         for other in majors[1:]:
             self.assertEqual(comparable(majors[0]), comparable(other))
+
+    def test_postgresql_16_is_unchanged_and_only_18_creates_secrets(self):
+        sixteen, eighteen = self.version_file("16"), self.version_file("18")
+        self.assertEqual(set(sixteen["services"]), {"db"})
+        self.assertEqual(sixteen["services"]["db"]["environment"]["POSTGRES_PASSWORD"],
+                         "${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}")
+        self.assertEqual(set(eighteen["services"]), {"init", "db"})
+        self.assertEqual(eighteen["services"]["db"]["environment"]["POSTGRES_PASSWORD"], "${POSTGRES_PASSWORD:-}")
+        self.assertEqual(eighteen["services"]["db"]["depends_on"],
+                         {"init": {"condition": "service_completed_successfully"}})
+
+    def test_the_init_service_holds_no_secret_and_reaches_nothing(self):
+        init = self.version_file("18")["services"]["init"]
+        self.assertEqual(init["entrypoint"], ["python", "-m", "sentinel.secrets", "init"])
+        self.assertEqual(init["build"], ".")
+        self.assertEqual(init["network_mode"], "none")
+        self.assertEqual(init["restart"], "no")
+        self.assertTrue(init["read_only"])
+        self.assertEqual(init["cap_drop"], ["ALL"])
+        # Root, to give the files to the application's user; and the database's directory, read-only.
+        self.assertEqual(init["user"], "0:0")
+        self.assertEqual(init["cap_add"], ["CHOWN", "DAC_READ_SEARCH"])
+        self.assertIn("no-new-privileges:true", init["security_opt"])
+        self.assertEqual(init["volumes"], ["./secrets:/run/sentinel/secrets", "postgres18_data:/var/lib/postgresql:ro"])
+        # Whether .env sets the database password, never the password itself.
+        self.assertEqual(init["environment"], {"SENTINEL_ENV_SETS_DATABASE_PASSWORD": "${POSTGRES_PASSWORD:+yes}"})
+        self.assertNotIn("env_file", init)
 
     def test_a_selection_without_a_version_file_cannot_resolve(self):
         for value in ("17", "18-alpine", "latest", "../x"):
@@ -468,7 +498,8 @@ class ComposeTests(unittest.TestCase):
 
     def test_no_application_service_names_a_password_or_passes_one_through(self):
         # A variable listed without a value is taken from the shell that runs Compose;
-        # nothing may arrive that way, nor through a mount, a secret or a config.
+        # nothing may arrive that way, nor through a secret or a config. The one mount is the
+        # application's: the secrets of a new installation, read-only (sentinel/secrets.py).
         for name, service in {**self.compose["services"], **self.tunnel["services"]}.items():
             with self.subTest(service=name):
                 environment = service.get("environment", {})
@@ -477,6 +508,9 @@ class ComposeTests(unittest.TestCase):
                 self.assertNotIn("POSTGRES_PASSWORD", environment)
                 for key in ("volumes", "secrets", "configs", "env_file"):
                     if key == "env_file" and name in ("web", "migrate", *WORKERS, "cloudflared"):
+                        continue
+                    if key == "volumes" and name in ("web", "migrate", *WORKERS):
+                        self.assertEqual(service["volumes"], ["./secrets:/run/sentinel/secrets:ro"])
                         continue
                     self.assertNotIn(key, service)
         services = self.compose["services"]
@@ -764,7 +798,9 @@ class InitializationGuardTests(unittest.TestCase):
         self.calls = base / "calls"
         stub = base / "bin" / "docker-entrypoint.sh"
         stub.parent.mkdir()
-        stub.write_text('#!/bin/sh\necho "$*" > "$STUB_CALLS"\n')
+        stub.write_text('#!/bin/sh\necho "$*" > "$STUB_CALLS"\nprintf %s "$POSTGRES_PASSWORD" > "$STUB_CALLS.password"\n')
+        self.secrets = base / "secrets"
+        self.secrets.mkdir()
         stub.chmod(stub.stat().st_mode | stat.S_IXUSR)
 
     def start(self, **environment) -> subprocess.CompletedProcess:
@@ -773,6 +809,8 @@ class InitializationGuardTests(unittest.TestCase):
             "PATH": f"{Path(self.directory.name) / 'bin'}{os.pathsep}{os.environ['PATH']}",
             "PGDATA": str(self.pgdata),
             "STUB_CALLS": str(self.calls),
+            "SENTINEL_SECRETS_DIR": str(self.secrets),
+            "POSTGRES_PASSWORD": "from-dotenv",
             **environment,
         }
         return subprocess.run(
@@ -802,6 +840,30 @@ class InitializationGuardTests(unittest.TestCase):
         result = self.start()
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(self.calls.read_text().strip(), "postgres")
+
+    def test_the_secrets_of_a_new_installation_authorize_its_database(self):
+        # The init service has just created them (sentinel/secrets.py), with the marker.
+        (self.secrets / "postgres_password").write_text("from-the-secrets\n")
+        (self.secrets / "initialize-database").write_text("new installation\n")
+        result = self.start(POSTGRES_PASSWORD="")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(self.calls.read_text().strip(), "postgres")
+        self.assertEqual(Path(f"{self.calls}.password").read_text(), "from-the-secrets")
+
+    def test_the_password_of_dotenv_wins_and_the_secrets_alone_do_not_authorize(self):
+        (self.secrets / "postgres_password").write_text("from-the-secrets\n")
+        self.assertEqual(self.start().returncode, 1)  # no marker: not a new installation
+        (self.pgdata / "PG_VERSION").write_text("18\n")
+        result = self.start()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(Path(f"{self.calls}.password").read_text(), "from-dotenv")
+
+    def test_no_password_at_all_is_refused(self):
+        (self.pgdata / "PG_VERSION").write_text("18\n")
+        result = self.start(POSTGRES_PASSWORD="")
+        self.assertEqual(result.returncode, 1)
+        self.assertFalse(self.started())
+        self.assertIn("POSTGRES_PASSWORD is not set in .env", result.stderr)
 
     def test_a_data_directory_with_other_content_but_no_cluster_is_still_refused(self):
         (self.pgdata / "backup.dump").write_text("not a cluster")

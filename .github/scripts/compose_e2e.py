@@ -93,9 +93,14 @@ SERVICES = {
     },
     # The console's front door: no secret of any kind, and no variable that could hold one.
     "proxy": {"kinds": set(), "variables": {}},
+    # The secrets of a new installation (PostgreSQL 18 only): whether .env sets the database password, never it.
+    "init": {"kinds": set(), "variables": {"SENTINEL_ENV_SETS_DATABASE_PASSWORD": OWN}},
 }
-# Services of a Compose profile: in the configuration only once the profile is enabled.
-OPTIONAL = {"notifier", "domain-verifier"}
+# Services of a Compose profile, or of one PostgreSQL version: in the configuration only then.
+OPTIONAL = {"notifier", "domain-verifier", "init"}
+# The services that read the secrets of a new installation, read-only (sentinel/secrets.py).
+SECRETS_MOUNT = "/run/sentinel/secrets"
+READS_SECRETS = {"web", "migrate", "alert-engine", "notifier", "domain-verifier", "db"}
 
 # What the files of an evidence directory are. Processes: one block for each process the container
 # has, "## <pid> <command line>" and then its environment, as the separate-roles-e2e.sh collects them.
@@ -245,6 +250,10 @@ def isolation(directory: str, secrets_path: str) -> list[str]:
             kind = mount.get("Type")
             source = str(mount.get("Source", ""))
             if kind == "tmpfs":  # scratch space in memory, which compose.yml gives every Sentinel service on purpose
+                continue
+            if kind == "bind" and mount.get("Destination") == SECRETS_MOUNT and service in READS_SECRETS:
+                if mount.get("RW") is not False:
+                    problems.append(f"{service}: the secrets of the installation are mounted writable")
                 continue
             if service != "db" or kind != "volume" or re.search(r"\.env|\.bootstrap|\.migrate", source):
                 problems.append(f"{service}: mounts a {kind} that is not the database volume")

@@ -65,6 +65,9 @@ networks:
 services:
   migrate:
     build: .
+    # The secrets .env leaves out, read-only (sentinel/secrets.py).
+    volumes:
+      - ./secrets:/run/sentinel/secrets:ro
     command: ["apply-migrations"]
     restart: "no"
     init: true
@@ -75,6 +78,9 @@ services:
     environment:
       POSTGRES_HOST: db
       POSTGRES_PORT: 5432
+      # The database service's defaults: a new installation's .env need not name them.
+      POSTGRES_DB: ${POSTGRES_DB:-sentinel}
+      POSTGRES_USER: ${POSTGRES_USER:-sentinel}
       SENTINEL_DB_ACCESS: migrate
       # The runtime login's password belongs to web and the workers only.
       SENTINEL_DB_PASSWORD: ""
@@ -96,6 +102,9 @@ services:
 
   web:
     build: .
+    # The secrets .env leaves out, read-only (sentinel/secrets.py).
+    volumes:
+      - ./secrets:/run/sentinel/secrets:ro
     restart: unless-stopped
     # Minimal init as PID 1: forwards SIGTERM to Gunicorn and reaps children.
     init: true
@@ -104,6 +113,9 @@ services:
     environment:
       POSTGRES_HOST: db
       POSTGRES_PORT: 5432
+      # The database service's defaults: a new installation's .env need not name them.
+      POSTGRES_DB: ${POSTGRES_DB:-sentinel}
+      POSTGRES_USER: ${POSTGRES_USER:-sentinel}
       SENTINEL_DB_ACCESS: runtime
       # The migration login's password belongs to the migrate service only,
       # even when it was put in .env by mistake; the SMTP password to the
@@ -174,6 +186,9 @@ services:
 
   alert-engine:
     build: .
+    # The secrets .env leaves out, read-only (sentinel/secrets.py).
+    volumes:
+      - ./secrets:/run/sentinel/secrets:ro
     command: ["python", "manage.py", "run_alert_engine", "--liveness-file", "/tmp/sentinel-worker.alive"]
     restart: unless-stopped
     init: true
@@ -182,6 +197,9 @@ services:
     environment:
       POSTGRES_HOST: db
       POSTGRES_PORT: 5432
+      # The database service's defaults: a new installation's .env need not name them.
+      POSTGRES_DB: ${POSTGRES_DB:-sentinel}
+      POSTGRES_USER: ${POSTGRES_USER:-sentinel}
       SENTINEL_DB_ACCESS: runtime
       SENTINEL_PROCESS: worker
       SENTINEL_DB_MIGRATE_PASSWORD: ""
@@ -215,6 +233,9 @@ services:
 
   notifier:
     build: .
+    # The secrets .env leaves out, read-only (sentinel/secrets.py).
+    volumes:
+      - ./secrets:/run/sentinel/secrets:ro
     command: ["python", "manage.py", "run_notifier", "--liveness-file", "/tmp/sentinel-worker.alive"]
     # Optional: COMPOSE_PROFILES=notifications in .env, with the SMTP settings.
     profiles: ["notifications"]
@@ -225,6 +246,9 @@ services:
     environment:
       POSTGRES_HOST: db
       POSTGRES_PORT: 5432
+      # The database service's defaults: a new installation's .env need not name them.
+      POSTGRES_DB: ${POSTGRES_DB:-sentinel}
+      POSTGRES_USER: ${POSTGRES_USER:-sentinel}
       SENTINEL_DB_ACCESS: runtime
       SENTINEL_PROCESS: worker
       SENTINEL_DB_MIGRATE_PASSWORD: ""
@@ -258,6 +282,9 @@ services:
 
   domain-verifier:
     build: .
+    # The secrets .env leaves out, read-only (sentinel/secrets.py).
+    volumes:
+      - ./secrets:/run/sentinel/secrets:ro
     command: ["python", "manage.py", "run_domain_verifier", "--liveness-file", "/tmp/sentinel-worker.alive"]
     # Optional: COMPOSE_PROFILES=web-monitoring in .env. It sends DNS questions
     # (UDP and TCP port 53) to the domains' name servers on the internet.
@@ -269,6 +296,9 @@ services:
     environment:
       POSTGRES_HOST: db
       POSTGRES_PORT: 5432
+      # The database service's defaults: a new installation's .env need not name them.
+      POSTGRES_DB: ${POSTGRES_DB:-sentinel}
+      POSTGRES_USER: ${POSTGRES_USER:-sentinel}
       SENTINEL_DB_ACCESS: runtime
       SENTINEL_PROCESS: worker
       SENTINEL_DB_MIGRATE_PASSWORD: ""

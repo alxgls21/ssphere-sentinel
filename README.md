@@ -163,6 +163,7 @@ are:
 
 | Area | Settings or reference |
 | --- | --- |
+| The installation's address (hosts, sign-in origin, cookies, email links) | `SENTINEL_URL`; see [server deployment](docs/server-deployment.md#settings) |
 | Django, cookies, hosts, logging | `DJANGO_*` in [`.env.example`](.env.example) |
 | PostgreSQL connection and Compose version selection | `POSTGRES_*`, `SENTINEL_POSTGRES*`; see [server deployment](docs/server-deployment.md#postgresql-versions) |
 | Liveness and history retention | `SENTINEL_OFFLINE_THRESHOLD`, `SENTINEL_*_RETENTION_*`, and `SENTINEL_*_MAX_AGE_*` |

@@ -2,6 +2,8 @@
 .env
 .env.*
 !.env.example
+# The secrets the init service creates for a new Compose installation (sentinel/secrets.py)
+/secrets/
 # Copies of .env the deployment guide has you keep (env.legacy.backup, env.pg16.backup):
 # they hold every secret .env does
 *.backup
