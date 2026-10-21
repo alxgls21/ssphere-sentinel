@@ -5,8 +5,9 @@
         server and the agent declare; prints version=, minor= and stable= for $GITHUB_OUTPUT.
 
     release_bundle.py bundle --version <version> --server <image@digest> --proxy <image@digest> --out <directory>
-        sentinel-<version>.tar.gz and SHA256SUMS in <directory>: what a server needs to run the release without
-        a checkout or a build. compose.yml names the images by digest, so it runs exactly what was tested.
+        sentinel-<version>.tar.gz, install.sh and SHA256SUMS in <directory>: what a server needs to run the
+        release without a checkout or a build, and the script that installs it (scripts/install.sh).
+        compose.yml names the images by digest, so it runs exactly what was tested.
 
 Standard library only: it runs on a bare runner.
 """
@@ -119,8 +120,11 @@ def bundle(version: str, server: str, proxy: str, out: Path) -> Path:
             info.mtime = 0
             info.uname = info.gname = "root"
             tar.addfile(info, io.BytesIO(data))
-    digest = hashlib.sha256(archive.read_bytes()).hexdigest()
-    (out / "SHA256SUMS").write_text(f"{digest}  {archive.name}\n")
+    installer = out / "install.sh"
+    installer.write_bytes((ROOT / "scripts" / "install.sh").read_bytes())
+    installer.chmod(0o755)
+    sums = "".join(f"{hashlib.sha256(path.read_bytes()).hexdigest()}  {path.name}\n" for path in (installer, archive))
+    (out / "SHA256SUMS").write_text(sums)
     return archive
 
 

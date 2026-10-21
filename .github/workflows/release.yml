@@ -112,26 +112,27 @@ jobs:
           python3 .github/scripts/release_bundle.py bundle --version "$VERSION" \
             --server "${{ needs.images.outputs.server }}" --proxy "${{ needs.images.outputs.proxy }}" \
             --out "$RUNNER_TEMP/release"
-      - name: Unpacked where nothing of the repository is
-        run: |
-          cd "$RUNNER_TEMP/release"
-          sha256sum --check SHA256SUMS
-          mkdir "$RUNNER_TEMP/install"
-          tar -xzf "sentinel-$VERSION.tar.gz" -C "$RUNNER_TEMP/install" --strip-components 1
-          cd "$RUNNER_TEMP/install"
-          if grep -q '^ *build:' compose.yml; then echo "the bundle builds an image" >&2; exit 1; fi
-          ls -la
       - name: Sign in to the GitHub Container Registry (the images are private until made public)
         env:
           TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: printf '%s' "$TOKEN" | docker login ghcr.io --username "$GITHUB_ACTOR" --password-stdin
-      - name: A new installation, as the guide sets one up
-        working-directory: ${{ runner.temp }}/install
+      - name: Installed by the release's install.sh, where nothing of the repository is, with no secret given
         run: |
-          "$GITHUB_WORKSPACE/.github/scripts/ci-env.sh"
-          scripts/postgres-preflight.sh
-          docker compose pull
-          docker compose up --detach --no-build --wait --wait-timeout 300
+          cd "$RUNNER_TEMP/release"
+          sha256sum --check SHA256SUMS
+          bash ./install.sh --bundle "sentinel-$VERSION.tar.gz" --checksums SHA256SUMS \
+            --dir "$RUNNER_TEMP/install" --url https://sentinel.example.test --proxy --yes
+          cd "$RUNNER_TEMP/install"
+          if grep -q '^ *build:' compose.yml; then echo "the bundle builds an image" >&2; exit 1; fi
+          [ "$(cat .sentinel-release)" = "$VERSION" ]
+          ls -la
+      - name: The same command again changes nothing
+        run: |
+          cd "$RUNNER_TEMP/release"
+          before=$(sha256sum "$RUNNER_TEMP/install/.env")
+          bash ./install.sh --bundle "sentinel-$VERSION.tar.gz" --checksums SHA256SUMS \
+            --dir "$RUNNER_TEMP/install" --yes
+          [ "$(sha256sum "$RUNNER_TEMP/install/.env")" = "$before" ]
       - name: Check the running server
         working-directory: ${{ runner.temp }}/install
         run: '"$GITHUB_WORKSPACE/.github/scripts/check-server.sh"'
@@ -149,6 +150,7 @@ jobs:
           name: release-bundle
           path: |
             ${{ runner.temp }}/release/sentinel-${{ needs.verify.outputs.version }}.tar.gz
+            ${{ runner.temp }}/release/install.sh
             ${{ runner.temp }}/release/SHA256SUMS
           if-no-files-found: error
           retention-days: 7
@@ -179,8 +181,12 @@ jobs:
         run: |
           (cd dist && sha256sum --check SHA256SUMS)
           cat > notes.md <<EOF
-          Install: download \`sentinel-$VERSION.tar.gz\` and \`SHA256SUMS\`, check it with \`sha256sum --check SHA256SUMS\`,
-          unpack it and follow the server deployment guide (docs/server-deployment.md, "Install from a release").
+          Install or update, on a Linux server with Docker:
+
+              curl -fsSL https://github.com/$GITHUB_REPOSITORY/releases/download/$GITHUB_REF_NAME/install.sh | sudo bash -s -- --version $VERSION
+
+          Or download \`install.sh\`, \`sentinel-$VERSION.tar.gz\` and \`SHA256SUMS\`, check them with
+          \`sha256sum --check SHA256SUMS\` and read the script first (docs/server-deployment.md, "Install from a release").
 
           Images (named by digest in the bundle's \`compose.yml\`):
 

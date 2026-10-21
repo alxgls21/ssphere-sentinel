@@ -1,10 +1,11 @@
 #!/usr/bin/env bash
 # Checks against the running Compose stack (docker compose up --wait), through
 # the published port: the proxy service, which serves the console and passes
-# the rest on to web. With the .env made by ci-env.sh, a browser signs in as
-# it does behind TLS: the public name sentinel.example.test, an https Origin
-# (DJANGO_CSRF_TRUSTED_ORIGINS); with any other .env (the update rehearsal's),
-# at http://127.0.0.1:8000.
+# the rest on to web. With the .env made by ci-env.sh, or by install.sh for
+# https://sentinel.example.test, a browser signs in as it does behind TLS: the
+# public name sentinel.example.test, an https Origin (DJANGO_CSRF_TRUSTED_ORIGINS
+# or SENTINEL_URL); with any other .env (the update rehearsal's), at
+# http://127.0.0.1:8000.
 set -euo pipefail
 
 base=http://127.0.0.1:8000
@@ -53,7 +54,7 @@ docker compose exec -T -e DJANGO_SUPERUSER_PASSWORD="$password" web \
     python manage.py createsuperuser --noinput --username ci-proxy --email ci-proxy@example.invalid > /dev/null
 
 public=127.0.0.1:8000 scheme=http
-if grep -qx 'DJANGO_CSRF_TRUSTED_ORIGINS=https://sentinel.example.test' .env; then
+if grep -qx -e 'DJANGO_CSRF_TRUSTED_ORIGINS=https://sentinel.example.test' -e 'SENTINEL_URL=https://sentinel.example.test' .env; then
     public=sentinel.example.test scheme=https
 fi
 echo "signing in at $scheme://$public"

@@ -105,9 +105,12 @@ class BundleTests(unittest.TestCase):
         self.assertEqual({key: value for key, value in document["services"]["init"].items() if key != "image"}, expected)
         self.assertEqual(document["services"]["db"], repository["services"]["db"])
 
-    def test_the_checksum_is_the_archive_s(self):
-        digest = hashlib.sha256(self.archive.read_bytes()).hexdigest()
-        self.assertEqual((self.out / "SHA256SUMS").read_text(), f"{digest}  {self.archive.name}\n")
+    def test_the_checksums_are_the_installer_s_and_the_archive_s(self):
+        installer = self.out / "install.sh"
+        self.assertEqual(installer.read_bytes(), (ROOT / "scripts" / "install.sh").read_bytes())
+        self.assertTrue(installer.stat().st_mode & 0o111)
+        lines = [f"{hashlib.sha256(path.read_bytes()).hexdigest()}  {path.name}" for path in (installer, self.archive)]
+        self.assertEqual((self.out / "SHA256SUMS").read_text().splitlines(), lines)
 
     def test_the_same_inputs_make_the_same_archive(self):
         again = release.bundle(VERSION, SERVER, PROXY, self.out / "again")
@@ -188,15 +191,23 @@ class ReleaseWorkflowTests(unittest.TestCase):
         self.assertIn('git merge-base --is-ancestor "$GITHUB_SHA" refs/remotes/origin/main', runs)
         self.assertNotIn("| tee", runs)  # a pipe would hide the check's failure
 
-    def test_the_bundle_is_installed_without_the_repository_and_without_a_build(self):
+    def test_the_bundle_is_installed_by_the_release_s_own_installer_without_the_repository(self):
         steps = self.jobs["bundle"]["steps"]
         runs = "\n".join(step.get("run", "") for step in steps)
         self.assertIn("sha256sum --check SHA256SUMS", runs)
-        self.assertIn("docker compose up --detach --no-build --wait", runs)
-        self.assertIn("check-server.sh", runs)
+        # The copy of install.sh the release publishes, given no secret, where nothing of the repository is.
+        self.assertIn('bash ./install.sh --bundle "sentinel-$VERSION.tar.gz" --checksums SHA256SUMS', runs)
+        self.assertIn('--dir "$RUNNER_TEMP/install" --url https://sentinel.example.test --proxy --yes', runs)
+        self.assertNotIn("ci-env.sh", runs)
+        self.assertIn("if grep -q '^ *build:' compose.yml", runs)
+        self.assertIn('[ "$(cat .sentinel-release)" = "$VERSION" ]', runs)
+        # The same command again: the settings stay as they are.
+        self.assertEqual(runs.count("bash ./install.sh"), 2)
         for step in steps:
-            if "docker compose" in step.get("run", "") or "check-server" in step.get("run", ""):
+            if "check-server" in step.get("run", "") or step.get("name") == "Stop the stack":
                 self.assertEqual(step.get("working-directory"), "${{ runner.temp }}/install", step["name"])
+        uploaded = next(step for step in steps if step.get("uses", "").startswith("actions/upload-artifact@"))
+        self.assertIn("/release/install.sh", uploaded["with"]["path"])
 
     def test_the_moving_tags_follow_a_stable_release_only(self):
         steps = {step["name"]: step for step in self.jobs["publish"]["steps"]}
