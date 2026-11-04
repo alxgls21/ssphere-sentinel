@@ -850,9 +850,13 @@ class SeparateRolesJobTests(unittest.TestCase):
         self.steps = self.job["steps"]
         self.runs = [step.get("run", "").strip() for step in self.steps]
 
-    def test_every_compose_release_runs_every_postgres_version_and_no_cell_may_fail(self):
-        compose = self.workflow["jobs"]["compose-compatibility"]["strategy"]["matrix"]["compose"]
-        self.assertEqual(self.job["strategy"]["matrix"], {"compose": compose, "postgres": ["16", "18"]})
+    def test_each_compose_release_and_each_postgres_version_runs_once_and_no_cell_may_fail(self):
+        # The support policy (README): the oldest Compose with an existing installation's PostgreSQL 16,
+        # the current one with a new installation's PostgreSQL 18.
+        oldest, current = self.workflow["jobs"]["compose-compatibility"]["strategy"]["matrix"]["compose"]
+        self.assertEqual(self.job["strategy"]["matrix"], {"include": [
+            {"compose": oldest, "postgres": "16"}, {"compose": current, "postgres": "18"},
+        ]})
         self.assertIs(self.job["strategy"]["fail-fast"], False)
         self.assertNotIn("continue-on-error", self.job)
         for step in self.steps:

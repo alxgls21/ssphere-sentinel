@@ -1,17 +1,28 @@
-# Weekly update PRs for pinned dependencies: the server image's hash-pinned
+# Update pull requests for pinned dependencies: the server image's hash-pinned
 # requirements and the SHA-pinned GitHub Actions.
 #
 # Container images are not listed on purpose: the Dockerfile's base image is a
 # build argument (python:3.13-slim-trixie, rebuilt to pick up patch releases),
 # and PostgreSQL major versions must never be bumped automatically (a new
 # major version cannot read an existing data volume).
+#
+# Once a month, one pull request for each: every update of the month together.
+# Security updates are not held back: they come as soon as they are published.
 version: 2
 updates:
   - package-ecosystem: pip
     directory: /requirements
     schedule:
-      interval: weekly
+      interval: monthly
+    groups:
+      python:
+        applies-to: version-updates
+        patterns: ["*"]
   - package-ecosystem: github-actions
     directory: /
     schedule:
-      interval: weekly
+      interval: monthly
+    groups:
+      github-actions:
+        applies-to: version-updates
+        patterns: ["*"]

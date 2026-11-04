@@ -24,25 +24,20 @@ env:
   PYTHONUNBUFFERED: "1"
 
 jobs:
-  # Supported runtime combinations. The six cells cover every pair of Python,
-  # Django and PostgreSQL versions; the experimental cell is allowed to fail.
+  # The server as its image runs it (the support policy in the README): Python
+  # 3.14 and Django 6.1, on each PostgreSQL major version an installation can
+  # run (18 for new installations, 16 for those not moved yet).
   server:
     name: Server (Python ${{ matrix.python }}, Django ${{ matrix.django }}, PostgreSQL ${{ matrix.postgres }})
     if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.repository
     runs-on: ubuntu-24.04
     timeout-minutes: 15
-    continue-on-error: ${{ matrix.experimental == true }}
     strategy:
       fail-fast: false
       matrix:
         include:
-          - {python: "3.12", django: "5.2", postgres: "16"}
-          - {python: "3.12", django: "6.1", postgres: "18"}
-          - {python: "3.13", django: "5.2", postgres: "18"}
-          - {python: "3.13", django: "6.1", postgres: "16"}
-          - {python: "3.14", django: "5.2", postgres: "16"}
+          - {python: "3.14", django: "6.1", postgres: "16"}
           - {python: "3.14", django: "6.1", postgres: "18", primary: true}
-          - {python: "3.15", django: "6.1", postgres: "18", experimental: true}
     services:
       postgres:
         image: postgres:${{ matrix.postgres }}-alpine
@@ -117,10 +112,10 @@ jobs:
   # Server job, on a disposable cluster of their own (the logins refuse a
   # cluster that holds anything else), started from that version's programs,
   # which the tests check. Strict: a skipped test, a module that runs nothing or
-  # a test database of Django's (none of them uses one) fails the cell. In both
-  # ways the tests can be given the bootstrap password, each in a cell of its own
-  # (one run of the suite takes about 20 minutes): in PGPASSWORD (password-free)
-  # and in the connection string (password-in-dsn).
+  # a test database of Django's (none of them uses one) fails the cell. Each of
+  # the two ways the tests can be given the bootstrap password runs on one of
+  # the two versions (one run of the suite takes about 20 minutes): in
+  # PGPASSWORD (password-free) and in the connection string (password-in-dsn).
   postgres:
     name: Separate database logins (PostgreSQL ${{ matrix.postgres }}, Django ${{ matrix.django }}, ${{ matrix.password }})
     if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.repository
@@ -129,9 +124,9 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        postgres: ["16", "18"]
-        django: ["5.2", "6.1"]
-        password: ["password-free", "password-in-dsn"]
+        include:
+          - {postgres: "16", django: "6.1", password: "password-free"}
+          - {postgres: "18", django: "6.1", password: "password-in-dsn"}
     env:
       POSTGRES_BINDIR: /usr/lib/postgresql/${{ matrix.postgres }}/bin
       SENTINEL_TEST_POSTGRES_MAJOR: ${{ matrix.postgres }}
@@ -228,7 +223,6 @@ jobs:
       matrix:
         include:
           - {os: ubuntu-24.04, python: "3.11"}
-          - {os: ubuntu-24.04, python: "3.13"}
           - {os: ubuntu-24.04, python: "3.14"}
           - {os: macos-latest, python: "3.14"}
     steps:
@@ -259,15 +253,12 @@ jobs:
     if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.repository
     runs-on: ubuntu-24.04
     timeout-minutes: 15
-    continue-on-error: ${{ matrix.experimental == true }}
     strategy:
       fail-fast: false
       matrix:
         include:
           - {python: "3.11", deps: lowest}
-          - {python: "3.13", deps: latest}
           - {python: "3.14", deps: latest}
-          - {python: "3.15", deps: latest, experimental: true}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -465,9 +456,10 @@ jobs:
           cp .github/scripts/compose-upgrade-e2e.sh "$RUNNER_TEMP/"
           "$RUNNER_TEMP/compose-upgrade-e2e.sh"
 
-  # The separate database logins on real containers, with each Docker Compose
-  # release above and each PostgreSQL major version a Compose installation can
-  # run (16, which an existing installation stays on, and 18). Two ways in: an
+  # The separate database logins on real containers: the oldest supported Docker
+  # Compose with PostgreSQL 16 (an existing installation), the current one with
+  # PostgreSQL 18 (a new installation), so each release and each version runs
+  # once. Two ways in: an
   # existing installation moved to the separate logins, and a new installation
   # that starts with them, then what an operator meets: a provisioning killed
   # inside its transaction, a lost acknowledgement, a migration killed halfway,
@@ -485,8 +477,9 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        compose: ["2.24.6", "5.6.0"]
-        postgres: ["16", "18"]
+        include:
+          - {compose: "2.24.6", postgres: "16"}
+          - {compose: "5.6.0", postgres: "18"}
     env:
       COMPOSE_PROJECT_NAME: sentinel-roles-e2e
       SENTINEL_E2E_POSTGRES: ${{ matrix.postgres }}

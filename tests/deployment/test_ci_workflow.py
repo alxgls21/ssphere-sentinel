@@ -158,10 +158,12 @@ class PostgresJobTests(unittest.TestCase):
         self.steps = self.job["steps"]
         self.runs = [step.get("run", "").strip() for step in self.steps]
 
-    def test_every_supported_major_runs_with_both_django_lines_and_no_cell_may_fail(self):
-        self.assertEqual(self.job["strategy"]["matrix"], {
-            "postgres": ["16", "18"], "django": ["5.2", "6.1"], "password": ["password-free", "password-in-dsn"],
-        })
+    def test_each_supported_major_and_each_way_of_giving_the_password_runs_and_no_cell_may_fail(self):
+        # The support policy (README): Django 6.1; each major version once, each password mode once.
+        self.assertEqual(self.job["strategy"]["matrix"], {"include": [
+            {"postgres": "16", "django": "6.1", "password": "password-free"},
+            {"postgres": "18", "django": "6.1", "password": "password-in-dsn"},
+        ]})
         self.assertIs(self.job["strategy"]["fail-fast"], False)
         self.assertNotIn("continue-on-error", self.job)
         for step in self.steps:
@@ -391,4 +393,49 @@ class FirstRunJobTests(unittest.TestCase):
         self.assertNotRegex(env_line, r"SECRET|PEPPER|PASSWORD|INITIALIZE")
         for check in ("setup:     ", "/api/v1/console/setup/", "--force-recreate web", "sudo mv secrets secrets.lost"):
             self.assertIn(check, script)
+
+
+class SupportPolicyTests(unittest.TestCase):
+    """What the README's support policy promises is what CI runs on every push, and no more."""
+
+    def setUp(self):
+        self.jobs = load_workflow(self)["jobs"]
+
+    def cells(self, name):
+        return self.jobs[name]["strategy"]["matrix"]["include"]
+
+    def test_the_server_runs_as_its_image_does_on_each_postgresql_version(self):
+        cells = self.cells("server")
+        self.assertEqual({(cell["python"], cell["django"]) for cell in cells}, {("3.14", "6.1")})
+        self.assertEqual(sorted(cell["postgres"] for cell in cells), ["16", "18"])
+        self.assertEqual(sum(bool(cell.get("primary")) for cell in cells), 1)
+        image = re.search(r"python:(3\.\d+)-", (ROOT / "Dockerfile").read_text())[1]
+        self.assertEqual(image, "3.14")
+        pyproject = (ROOT / "pyproject.toml").read_text()
+        self.assertIn('requires-python = ">=3.14"', pyproject)
+        self.assertIn('"Django>=6.1,<6.2"', pyproject)
+
+    def test_each_compose_release_and_each_postgresql_version_meets_the_separate_logins_once(self):
+        cells = self.cells("separate-roles")
+        self.assertEqual({(cell["compose"], cell["postgres"]) for cell in cells}, {("2.24.6", "16"), ("5.6.0", "18")})
+        self.assertEqual(self.jobs["compose-compatibility"]["strategy"]["matrix"]["compose"], ["2.24.6", "5.6.0"])
+
+    def test_the_agent_runs_on_the_oldest_python_it_declares_and_the_newest(self):
+        declared = re.search(r'requires-python = ">=(3\.\d+)"', (ROOT / "agent" / "pyproject.toml").read_text())[1]
+        agent = {(cell["os"], cell["python"]) for cell in self.cells("agent")}
+        self.assertEqual(agent, {("ubuntu-24.04", declared), ("ubuntu-24.04", "3.14"), ("macos-latest", "3.14")})
+        extras = {(cell["python"], cell["deps"]) for cell in self.cells("agent-extras")}
+        self.assertEqual(extras, {(declared, "lowest"), ("3.14", "latest")})
+
+    def test_nothing_may_fail_quietly(self):
+        for name, job in self.jobs.items():
+            with self.subTest(job=name):
+                self.assertNotIn("continue-on-error", job)
+                for cell in job.get("strategy", {}).get("matrix", {}).get("include", []):
+                    self.assertNotIn("experimental", cell)
+
+    def test_the_readme_states_the_policy(self):
+        readme = (ROOT / "README.md").read_text()
+        self.assertIn("## Support policy", readme)
+        self.assertIn("Python 3.14 and Django 6.1", readme)
 
