@@ -44,6 +44,7 @@ from apps.alerts.models import (
     Notification,
     NotificationKind,
     NotificationSubscription,
+    NotifierHeartbeat,
     TestEmailRequest,
 )
 from apps.alerts.notifications import MAX_ATTEMPTS, backoff, claim, classify, compose, deliver, enqueue
@@ -63,7 +64,7 @@ SMTP_ON = override_settings(
     SENTINEL_SMTP_USER="sentinel@example.com",
     SENTINEL_SMTP_PASSWORD=SMTP_PASSWORD,
     SENTINEL_EMAIL_FROM="Sentinel <sentinel@example.com>",
-    SENTINEL_CONSOLE_URL="https://sentinel.example.com",
+    SENTINEL_URL="https://sentinel.example.com",
     SENTINEL_NOTIFICATION_MAX_AGE_HOURS=24,
 )
 SMTP_OFF = override_settings(SENTINEL_SMTP_HOST="", SENTINEL_SMTP_USER="", SENTINEL_SMTP_PASSWORD="")
@@ -845,9 +846,23 @@ class NotifierCommandTests(TestCase):
         enqueue(self.estate.incident(self.estate.hq, label=label), OPENED, at=timezone.now())
 
     @SMTP_OFF
-    def test_it_will_not_start_while_email_is_off(self):
+    def test_it_will_not_run_once_while_email_is_off(self):
         with self.assertRaisesRegex(CommandError, "Email notifications are off"):
             call_command("run_notifier", "--once")
+
+    @SMTP_OFF
+    def test_while_email_is_off_it_idles_alive_and_sends_nothing(self):
+        self.queue()
+        with tempfile.TemporaryDirectory() as folder:
+            liveness = os.path.join(folder, "alive")
+            notifier = Notifier(interval=5, liveness=liveness)
+            notifier.stop.wait = lambda timeout=None: notifier.stop.set() or True
+            with self.assertLogs("apps.alerts.notifier", "INFO") as logs:
+                notifier.idle()
+            self.assertTrue(alive(liveness))
+        self.assertIn("Email notifications are off", "\n".join(logs.output))
+        self.assertEqual(mail.outbox, [])
+        self.assertFalse(NotifierHeartbeat.objects.exists())
 
     def test_it_never_migrates_and_will_not_start_with_migrations_pending(self):
         with patch(f"{NOTIFIER}.unapplied_migrations", return_value=[("alerts", "9999_future")]):
@@ -1316,7 +1331,6 @@ class SmtpSettingsTests(SimpleTestCase):
             ({"SENTINEL_EMAIL_FROM": "=?utf-8?q?a=3Bb?= <a@example.com>"}, "SENTINEL_EMAIL_FROM must be one email address"),
             ({"SENTINEL_EMAIL_FROM": '"ops"@example.com'}, "SENTINEL_EMAIL_FROM must be one email address"),
             ({"SENTINEL_SMTP_PASSWORD": "p\u00e4ssw\u00f6rd-" + SMTP_PASSWORD}, "must be ASCII"),
-            ({"SENTINEL_CONSOLE_URL": "ftp://sentinel.example.com"}, "SENTINEL_CONSOLE_URL must start with"),
         )
         for changes, message in cases:
             with self.subTest(message=message):

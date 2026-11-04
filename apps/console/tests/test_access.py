@@ -286,27 +286,6 @@ class ScopeParsingTests(TestCase):
             self.visibility.resolve_scope(str(self.org.acme.pk), str(self.org.globex_plant.pk))
 
 
-class RequestScopeTests(TestCase):
-    def test_request_scope_reads_the_query_string(self):
-        from types import SimpleNamespace
-
-        from django.http import QueryDict
-
-        from apps.console.http import request_scope
-
-        org = Org()
-        request = SimpleNamespace(
-            visibility=Visibility.for_user(make_user(customers=[org.acme])),
-            GET=QueryDict(f"customer={org.acme.pk}&site={org.acme_hq.pk}"),
-        )
-        self.assertEqual(request_scope(request), Scope(org.acme.pk, org.acme_hq.pk))
-        request.GET = QueryDict("")
-        self.assertEqual(request_scope(request), Scope())
-        request.GET = QueryDict("customer=")
-        with self.assertRaises(NotVisible):
-            request_scope(request)
-
-
 class GetTests(TestCase):
     def setUp(self):
         self.org = Org()

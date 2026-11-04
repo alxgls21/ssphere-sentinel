@@ -1,8 +1,11 @@
 # SSphere Sentinel server: the console (React, served by nginx) and Django
 # (Gunicorn) + PostgreSQL.
 #
-#   cp .env.example .env        # then set every secret (docs/server-deployment.md)
+#   printf 'SENTINEL_URL=https://sentinel.example.com\nSENTINEL_POSTGRES=18\n' > .env
 #   docker compose up -d --build
+#
+# (or scripts/install.sh, from a release). The secrets are created in ./secrets
+# on the first start (sentinel/secrets.py); docs/server-deployment.md.
 #
 # The proxy service is the only one published, on SENTINEL_HTTP_BIND:SENTINEL_HTTP_PORT
 # (default: all interfaces, port 8000): it serves the console and passes /api/,
@@ -36,9 +39,10 @@
 # refuses to start with a password not its own (docs/server-deployment.md).
 #
 # alert-engine evaluates the alert rules and opens and recovers incidents; the
-# optional notifier (profile "notifications") emails them; the optional
-# domain-verifier (profile "web-monitoring") answers the domain verifications
-# asked for in the console, from each domain's own name servers. They run the
+# notifier emails them (it idles until SENTINEL_SMTP_HOST is set); the
+# domain-verifier answers the domain verifications asked for in the console,
+# from each domain's own name servers; maintenance runs the retention cleanups
+# once a day. They run the
 # application image with the runtime login, like web, and never apply
 # migrations (SENTINEL_PROCESS=worker): they start with web and wait until the
 # migrations are applied, by web or, with the separate logins, by migrate.
@@ -237,8 +241,7 @@ services:
     volumes:
       - ./secrets:/run/sentinel/secrets:ro
     command: ["python", "manage.py", "run_notifier", "--liveness-file", "/tmp/sentinel-worker.alive"]
-    # Optional: COMPOSE_PROFILES=notifications in .env, with the SMTP settings.
-    profiles: ["notifications"]
+    # Idle until the SMTP settings are in .env; then `docker compose up -d` recreates it.
     restart: unless-stopped
     init: true
     env_file:
@@ -286,9 +289,8 @@ services:
     volumes:
       - ./secrets:/run/sentinel/secrets:ro
     command: ["python", "manage.py", "run_domain_verifier", "--liveness-file", "/tmp/sentinel-worker.alive"]
-    # Optional: COMPOSE_PROFILES=web-monitoring in .env. It sends DNS questions
-    # (UDP and TCP port 53) to the domains' name servers on the internet.
-    profiles: ["web-monitoring"]
+    # It sends DNS questions (UDP and TCP port 53) to the domains' name servers on
+    # the internet, and only for the verifications asked for in the console.
     restart: unless-stopped
     init: true
     env_file:
@@ -326,5 +328,52 @@ services:
       - no-new-privileges:true
     # SIGTERM ends the verifier after the cycle in progress, which the DNS
     # deadline (30 s) bounds; a request cut short is taken again after its lease.
+    stop_grace_period: 60s
+    logging: *default-logging
+
+  maintenance:
+    build: .
+    # The secrets .env leaves out, read-only (sentinel/secrets.py).
+    volumes:
+      - ./secrets:/run/sentinel/secrets:ro
+    # The retention cleanups (purge_* and clearsessions) at start and every day.
+    command: ["python", "manage.py", "run_maintenance", "--liveness-file", "/tmp/sentinel-worker.alive"]
+    restart: unless-stopped
+    init: true
+    env_file:
+      - .env
+    environment:
+      POSTGRES_HOST: db
+      POSTGRES_PORT: 5432
+      # The database service's defaults: a new installation's .env need not name them.
+      POSTGRES_DB: ${POSTGRES_DB:-sentinel}
+      POSTGRES_USER: ${POSTGRES_USER:-sentinel}
+      SENTINEL_DB_ACCESS: runtime
+      SENTINEL_PROCESS: worker
+      SENTINEL_DB_MIGRATE_PASSWORD: ""
+      SENTINEL_SMTP_PASSWORD: ""
+    depends_on:
+      db:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+      web:
+        condition: service_started
+    # Instead of the image's Gunicorn probe: each cleanup must begin in time.
+    healthcheck:
+      test: ["CMD", "python", "-m", "apps.alerts.runtime", "/tmp/sentinel-worker.alive"]
+      interval: 30s
+      timeout: 5s
+      start_period: 60s
+      retries: 3
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    # SIGTERM ends it after the cleanup in progress; one cut short keeps the
+    # batches it finished, and the next run takes up the rest.
     stop_grace_period: 60s
     logging: *default-logging

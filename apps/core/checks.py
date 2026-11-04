@@ -36,4 +36,14 @@ def check_deployment_configuration(app_configs, **kwargs):
                 id="sentinel.W003",
             )
         )
+    if settings.SENTINEL_CONSOLE_URL_IGNORED:
+        warnings.append(
+            Warning(
+                "SENTINEL_CONSOLE_URL is set, but it is no longer read"
+                + ("." if settings.SENTINEL_URL else ": the incident emails have no links to the console."),
+                hint="Set SENTINEL_URL to the console's address (it also gives the emails their links), and "
+                "remove SENTINEL_CONSOLE_URL from .env.",
+                id="sentinel.W004",
+            )
+        )
     return warnings

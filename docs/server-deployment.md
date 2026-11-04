@@ -150,8 +150,9 @@ cp .env.example .env
 chmod 600 .env
 ```
 
-Generate three different secrets and put them in `.env` as
-`DJANGO_SECRET_KEY`, `AGENT_TOKEN_PEPPER` and `POSTGRES_PASSWORD`:
+Generate three different secrets and set them in `.env` (the lines are there,
+commented out) as `DJANGO_SECRET_KEY`, `AGENT_TOKEN_PEPPER` and
+`POSTGRES_PASSWORD`:
 
 ```bash
 python3 -c 'import secrets; print(secrets.token_urlsafe(50))'
@@ -181,7 +182,7 @@ changing it later invalidates every agent token.
 ```bash
 scripts/postgres-preflight.sh         # read-only check of the database volumes
 docker compose up -d --build
-docker compose ps                     # db, web, alert-engine and proxy "healthy"
+docker compose ps                     # db, web, proxy and the workers "healthy"
 curl -fsS http://127.0.0.1:8000/health/ready/
 docker compose logs web | grep 'setup:'   # the setup code
 ```
@@ -205,9 +206,12 @@ recreated once, its data is not touched). From then on a missing database
 volume stops the database instead of silently creating an empty one.
 
 On every start the `web` container waits for PostgreSQL and applies database
-migrations before Gunicorn starts. The `alert-engine` service starts with it
-and waits until the migrations are applied (see
-[Alerts and email notifications](#alerts-and-email-notifications)).
+migrations before Gunicorn starts. The workers start with it and wait until
+the migrations are applied: `alert-engine` (see
+[Alerts and email notifications](#alerts-and-email-notifications)), `notifier`
+(idle until email is set up), `domain-verifier` (see
+[Website domains](#website-domains)) and `maintenance` (see
+[Retention](#retention)).
 These services restart automatically (`restart: unless-stopped`), also after a
 reboot of the Docker host.
 
@@ -391,17 +395,16 @@ and nothing is queued for email meanwhile. To email incidents:
    # not one that holds a ' or ends with a \ (choose another password).
    SENTINEL_SMTP_PASSWORD='<password>'
    SENTINEL_EMAIL_FROM='Sentinel <sentinel@example.com>'
-   # Links to the incident in each email.
-   SENTINEL_CONSOLE_URL=https://sentinel.example.com
-   # Starts the notifier service with every `docker compose up`.
-   COMPOSE_PROFILES=notifications
    ```
+
+   The links in the emails use `SENTINEL_URL`.
 
    Only the `notifier` service receives the SMTP password: every other service
    blanks it, and the alert engine only needs to know that email is on.
 
-2. Start the notifier and send a test email, which reports a failure by its
-   kind only (never the server's answer or a credential):
+2. Recreate the notifier with them (it runs in every installation, idle while
+   email is off) and send a test email, which reports a failure by its kind
+   only (never the server's answer or a credential):
 
    ```bash
    docker compose up -d
@@ -448,9 +451,8 @@ alert rule permissions and access to every customer, and the system status by
 users with *Can see the system status in the console* and access to every
 customer. Grant these permissions in the admin, to users or groups of your own.
 
-To stop emailing, remove `COMPOSE_PROFILES=notifications` and the
-`SENTINEL_SMTP_*` settings from `.env`, then `docker compose stop notifier`
-and `docker compose up -d`.
+To stop emailing, remove the `SENTINEL_SMTP_*` settings from `.env`, then
+`docker compose up -d`: the notifier goes back to idle.
 
 ### Website domains
 
@@ -499,12 +501,8 @@ stays in the DNS. Then the user asks for a verification, which the
    not verified. Each verification has a deadline of 30 seconds and a bounded
    number of questions.
 
-To run it, add the profile to `.env` (beside `notifications` if email is on), and
-allow the server to reach the internet on port 53 (UDP and TCP):
-
-```dotenv
-COMPOSE_PROFILES=notifications,web-monitoring
-```
+It runs in every installation and sends nothing until a verification is asked
+for; allow the server to reach the internet on port 53 (UDP and TCP).
 
 A verification no verifier takes within ten minutes expires, and the console
 says whether a verifier runs. One domain may be verified every 10 seconds, a
@@ -552,12 +550,12 @@ units that start the stack with `docker compose start` must use
 To roll back, check out the previous tag and restore the backup taken before
 the upgrade: migrations are not guaranteed to be reversible. Before checking
 out a release without the `migrate` service, the alert engine, the domain
-verifier or the `proxy` service, remove their containers (a service the older
-`compose.yml` does not know would keep running, and `proxy` would keep the
-published port):
+verifier, the `maintenance` service or the `proxy` service, remove their
+containers (a service the older `compose.yml` does not know would keep running,
+and `proxy` would keep the published port):
 
 ```bash
-docker compose rm --stop --force migrate alert-engine notifier domain-verifier proxy
+docker compose rm --stop --force migrate alert-engine notifier domain-verifier maintenance proxy
 git checkout <previous-tag>
 docker compose up -d --build
 ```
@@ -572,6 +570,15 @@ installation: the `db` service follows the `SENTINEL_POSTGRES` setting of your
 so `db` stays on PostgreSQL 16 with its current volume. Do not copy that
 setting from `.env.example` into an existing installation; follow
 [Moving an existing installation to PostgreSQL 18](#moving-an-existing-installation-to-postgresql-18).
+
+**After upgrading to the release that adds the `maintenance` service**: the
+retention cleanups run by themselves (remove any cron entries that ran the
+`purge_*` commands and `clearsessions`; running them twice does no harm), the
+notifier and the domain verifier always run (`COMPOSE_PROFILES` in `.env` is
+no longer needed), and the links in the incident emails come from
+`SENTINEL_URL`: an `.env` that set `SENTINEL_CONSOLE_URL` sets `SENTINEL_URL`
+to the same address instead (`docker compose exec web python manage.py check
+--deploy` reports one that was left, sentinel.W004).
 
 **After upgrading to the release that adds the `proxy` service**, the console
 is served at the address and port `web` had, and `web` is no longer published
@@ -591,7 +598,7 @@ console users see a server as soon as it has a site they are granted.
 
 Applied automatically when the `web` container starts (the `migrate` service
 has nothing to do in the default configuration); the `alert-engine`,
-`notifier` and `domain-verifier` services never apply them. To inspect or run them by hand:
+`notifier`, `domain-verifier` and `maintenance` services never apply them. To inspect or run them by hand:
 
 ```bash
 docker compose exec web python manage.py showmigrations
@@ -805,7 +812,7 @@ while that file exists. The steps below then move it on to `.env.bootstrap`.
 
    ```bash
    cp .env env.legacy.backup
-   docker compose stop web alert-engine notifier domain-verifier
+   docker compose stop web alert-engine notifier domain-verifier maintenance
    ```
 
 2. Move the bootstrap password, unchanged, out of `.env` into
@@ -985,7 +992,7 @@ Agents keep queueing network measurements while the application is stopped
 so that nothing writes to the old database, and read it into a private bundle:
 
 ```bash
-docker compose --project-directory "$OLD" stop web alert-engine notifier domain-verifier
+docker compose --project-directory "$OLD" stop web alert-engine notifier domain-verifier maintenance
 umask 077
 python3 -m sentinel.recovery export --compose-dir "$OLD" --bundle /var/backups/sentinel-recovery/bundle
 ```
@@ -1092,7 +1099,7 @@ backup of the new database has been restored elsewhere and checked.
   service.
 * `manage.py dbshell` is disabled. Use psql in the `db` container.
 * New passwords for the two logins: change them in `.env` and `.env.migrate`,
-  stop the application (`docker compose stop web alert-engine notifier domain-verifier`), run
+  stop the application (`docker compose stop web alert-engine notifier domain-verifier maintenance`), run
   `scripts/postgres-roles.sh apply`, then `docker compose up -d`.
 * Keep `.env.bootstrap` and `.env.migrate` private (`chmod 600`) and back them
   up with `.env`. Compose reads `.env.bootstrap` on every command, so it stays
@@ -1111,7 +1118,7 @@ docker compose exec -T db sh -c 'pg_dump -U "$POSTGRES_USER" -d "$POSTGRES_DB" -
 Restore into the existing database (stops the application meanwhile):
 
 ```bash
-docker compose stop web alert-engine notifier domain-verifier
+docker compose stop web alert-engine notifier domain-verifier maintenance
 docker compose exec -T db sh -c \
     'pg_restore -U "$POSTGRES_USER" -d "$POSTGRES_DB" --clean --if-exists --single-transaction --exit-on-error' \
     < sentinel-<timestamp>.dump
@@ -1128,8 +1135,7 @@ Use `docker compose up -d` to start the application again, not
 and fails (older Compose releases wait indefinitely) when it no longer exists,
 for example after `docker container prune`.
 
-Schedule the dump (for example daily from cron, alongside the retention
-commands in the README), copy it off the host and test a restore regularly.
+Schedule the dump (for example daily from cron), copy it off the host and test a restore regularly.
 Dumps contain hashes of admin passwords and agent tokens and all monitoring
 data: store them encrypted with restricted access. Also back up `.env` (and
 `.env.tunnel`, and the `./secrets` directory of an installation whose secrets
@@ -1266,7 +1272,7 @@ cd /opt/ssphere-sentinel
 git checkout <tag>                 # a release that includes PostgreSQL 18 support
 docker compose build
 scripts/postgres-preflight.sh      # expected: existing PostgreSQL 16 installation
-docker compose stop web alert-engine notifier domain-verifier
+docker compose stop web alert-engine notifier domain-verifier maintenance
 
 docker compose exec -T db sh -c 'pg_dump -U "$POSTGRES_USER" -d "$POSTGRES_DB" --format=custom' \
     > sentinel-pg16.dump
@@ -1381,18 +1387,22 @@ nothing but the preflight would stop `docker compose up` from starting it.
 
 ### Retention
 
-Run the purge commands daily (see "Data retention and history" in the
-README):
+The `maintenance` service runs the cleanups by itself, when it starts and then
+once a day, each with the retention its setting gives (see "Data retention and
+history" in the README); nothing needs to be scheduled. `docker compose logs
+maintenance` shows what each run removed. To run them at once:
 
 ```bash
-docker compose exec -T web python manage.py purge_network_measurements
-docker compose exec -T web python manage.py purge_absent_docker_containers
-docker compose exec -T web python manage.py purge_snmp_data
-docker compose exec -T web python manage.py purge_telemetry_samples
-docker compose exec -T web python manage.py purge_incidents
-docker compose exec -T web python manage.py purge_notifications
-docker compose exec -T web python manage.py clearsessions
+docker compose exec -T maintenance python manage.py run_maintenance --once
 ```
+
+One at a time, with `--dry-run` or `--days` to see or change what a single run
+removes: `purge_network_measurements`, `purge_absent_docker_containers`,
+`purge_snmp_data`, `purge_telemetry_samples`, `purge_incidents`,
+`purge_notifications` and Django's `clearsessions`
+(`docker compose exec -T web python manage.py <command>`). A native
+installation runs `python manage.py run_maintenance` as a service of its own,
+or `run_maintenance --once` daily from cron.
 
 `purge_incidents` removes incidents that ended more than
 `SENTINEL_INCIDENT_RETENTION_DAYS` ago (default 365, at least 7), with their

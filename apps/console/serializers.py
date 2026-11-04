@@ -22,6 +22,11 @@ def iso(value: datetime) -> str:
     return value.astimezone(dt_timezone.utc).isoformat(timespec="milliseconds").replace("+00:00", "Z")
 
 
+def iso_or_none(value: datetime | None) -> str | None:
+    """:func:`iso`, or None for no time."""
+    return iso(value) if value is not None else None
+
+
 def agent_server_names(visibility: Visibility, rows: list[dict]) -> dict[UUID, str]:
     """Visible names for a page's assigned-agent servers, in one query."""
     server_ids = {row["assigned_agent__server_id"] for row in rows if row["assigned_agent__server_id"] is not None}

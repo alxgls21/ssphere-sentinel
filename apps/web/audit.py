@@ -6,7 +6,7 @@ own fields only, by the names the console API gives them.
 
 from __future__ import annotations
 
-from apps.alerts.audit import changes, record
+from apps.alerts.audit import _json, changes, record
 from apps.alerts.models import ConfigurationAction, ConfigurationSource, ConfigurationTarget
 from apps.web import dns_verification as dns
 
@@ -18,10 +18,6 @@ DOMAIN_FIELDS = {
     "status": "status",
     "last_outcome": "lastOutcome",
 }
-
-
-def _json(value):
-    return value if value is None or isinstance(value, (bool, int, str)) else str(value)
 
 
 def domain_values(domain) -> dict:

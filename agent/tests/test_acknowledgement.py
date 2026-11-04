@@ -112,66 +112,17 @@ class AmbiguousResponseTests(unittest.TestCase):
         self.assertFalse(ack.is_batch_failure)
 
 
-class LegacyProtocolTests(unittest.TestCase):
-    def test_phase1_partial_with_consistent_counts(self):
-        ack = parse_acknowledgement(
-            body(
-                network="partial",
-                network_created=1,
-                network_duplicates=1,
-                network_accepted=2,
-                network_rejected=1,
-                network_rejections=[{"measurement_id": C, "reason": "target is disabled"}],
-            ),
-            [A, B, C],
-        )
-        self.assertEqual(ack.stored, {A, B})
-        self.assertEqual(ack.permanent, {C: "target is disabled"})
-
-    def test_phase1_storage_failure_is_retryable(self):
-        ack = parse_acknowledgement(
-            body(
-                network="rejected",
-                network_accepted=0,
-                network_rejections=[{"measurement_id": A, "reason": "measurement could not be stored"}],
-            ),
-            [A],
-        )
-        self.assertEqual(ack.retryable, {A: "measurement could not be stored"})
-
-    def test_phase1_inconsistent_counts_are_batch_failure(self):
-        ack = parse_acknowledgement(
-            body(
-                network="partial",
-                network_accepted=1,
-                network_rejections=[{"measurement_id": C, "reason": "x"}],
-            ),
-            [A, B, C],
-        )
-        self.assertTrue(ack.is_batch_failure)
-
-    def test_phase1_unidentifiable_rejection_is_batch_failure(self):
-        ack = parse_acknowledgement(
-            body(
-                network="partial",
-                network_accepted=1,
-                network_rejections=[{"measurement_id": None, "reason": "x"}],
-            ),
-            [A, B],
-        )
-        self.assertTrue(ack.is_batch_failure)
-
-    def test_pre_phase1_accepted_with_matching_counts(self):
-        ack = parse_acknowledgement(
-            body(network="accepted", network_created=1, network_duplicates=1), [A, B]
-        )
-        self.assertEqual(ack.stored, {A, B})
-
-    def test_pre_phase1_accepted_with_mismatched_counts(self):
-        ack = parse_acknowledgement(
-            body(network="accepted", network_created=1, network_duplicates=0), [A, B]
-        )
-        self.assertTrue(ack.is_batch_failure)
+class CountsWithoutResultsTests(unittest.TestCase):
+    def test_counts_alone_never_acknowledge_anything(self):
+        # Every server sends network_results; counts without them are not trusted.
+        for extra in (
+            dict(network="accepted", network_created=1, network_duplicates=1),
+            dict(network="partial", network_accepted=2, network_rejections=[{"measurement_id": C, "reason": "x"}]),
+        ):
+            with self.subTest(extra=extra):
+                ack = parse_acknowledgement(body(**extra), [A, B, C])
+                self.assertTrue(ack.is_batch_failure)
+                self.assertEqual(ack.stored, set())
 
 
 if __name__ == "__main__":

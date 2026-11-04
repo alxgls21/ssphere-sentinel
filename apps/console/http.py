@@ -186,15 +186,6 @@ def json_object(request: HttpRequest, *, max_bytes: int = 8192, empty: bool = Fa
     return data
 
 
-def request_scope(request: HttpRequest):
-    """The ``customer`` / ``site`` query parameters, validated against the user's grants.
-
-    A hidden, unknown or malformed id is a 404 (:class:`NotVisible`, mapped by
-    ``console_api``). Use it in every data view that accepts a scope.
-    """
-    return request.visibility.resolve_scope(request.GET.get("customer"), request.GET.get("site"))
-
-
 def not_found(request: HttpRequest, *args, **kwargs) -> JsonResponse:
     """Unknown console URL, as JSON."""
     return harden(error_response(404, "not_found", "Not found."))

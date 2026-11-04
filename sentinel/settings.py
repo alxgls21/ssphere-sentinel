@@ -115,6 +115,9 @@ def site_address(value: str) -> tuple[str, str]:
 # its host to ALLOWED_HOSTS and its origin to CSRF_TRUSTED_ORIGINS, sets the address in the emails, and makes the
 # cookies Secure when it is https. The detailed settings below, when set, still apply.
 SENTINEL_URL, SENTINEL_URL_HOST = site_address(env("SENTINEL_URL", default=""))
+# Earlier releases took the address in the emails from SENTINEL_CONSOLE_URL; it is no longer read, and
+# `manage.py check --deploy` says so (sentinel.W004) instead of the emails losing their links silently.
+SENTINEL_CONSOLE_URL_IGNORED = bool(env("SENTINEL_CONSOLE_URL", default="").strip())
 
 # Prefix of the example secrets in .env.example.
 PLACEHOLDER_SECRET_PREFIX = "change-me"
@@ -281,10 +284,6 @@ if SENTINEL_SMTP_HOST and not one_mailbox(SENTINEL_EMAIL_FROM):
         "SENTINEL_EMAIL_FROM must be one email address, sentinel@example.com or Sentinel <sentinel@example.com>, "
         "when SENTINEL_SMTP_HOST is set"
     )
-# The console's address (https://sentinel.example.com), for links in the emails; none without it.
-SENTINEL_CONSOLE_URL = env("SENTINEL_CONSOLE_URL", default="").strip().rstrip("/") or SENTINEL_URL
-if SENTINEL_CONSOLE_URL and not SENTINEL_CONSOLE_URL.startswith(("https://", "http://")):
-    raise RuntimeError("SENTINEL_CONSOLE_URL must start with https:// or http://")
 # An email not sent within this many hours (the notifier was stopped, the SMTP
 # server unreachable) is given up rather than sent late.
 SENTINEL_NOTIFICATION_MAX_AGE_HOURS = env_int("SENTINEL_NOTIFICATION_MAX_AGE_HOURS", default=24)

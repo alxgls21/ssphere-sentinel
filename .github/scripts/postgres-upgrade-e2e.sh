@@ -152,7 +152,7 @@ step "Back up (documented procedure)"
 run_preflight - 0 "existing PostgreSQL 16 installation"
 docker compose up --detach --wait --wait-timeout 180
 table_counts | diff - "$work/counts-before" || fail "counts changed after the refused start"
-docker compose stop web alert-engine notifier
+docker compose stop web alert-engine notifier domain-verifier maintenance
 docker compose exec -T db sh -c 'pg_dump -U "$POSTGRES_USER" -d "$POSTGRES_DB" --format=custom' \
     > "$work/sentinel.dump"
 docker compose exec -T db sh -c 'pg_restore --list' < "$work/sentinel.dump" > /dev/null \
@@ -190,7 +190,7 @@ docker compose up --detach --wait --wait-timeout 180
 docker compose exec -T web python manage.py migrate --check
 assert_rehearsal_data "after the restore"
 .github/scripts/check-server.sh
-docker compose stop web alert-engine notifier
+docker compose stop web alert-engine notifier domain-verifier maintenance
 table_counts | diff -u "$work/counts-before" - || fail "row counts changed while the application ran"
 
 step "Roll back to the untouched PostgreSQL 16 volume (documented procedure)"

@@ -86,7 +86,7 @@ pip install -e . -e ./agent
 cp .env.example .env
 ```
 
-In `.env`, replace `DJANGO_SECRET_KEY`, `AGENT_TOKEN_PEPPER`, and
+In `.env`, uncomment and set `DJANGO_SECRET_KEY`, `AGENT_TOKEN_PEPPER`, and
 `POSTGRES_PASSWORD`, set `DJANGO_DEBUG=true`, and keep
 `POSTGRES_HOST=localhost` for a native PostgreSQL server. Never commit `.env`.
 
@@ -170,7 +170,7 @@ are:
 | Console sessions and thresholds | `SENTINEL_CONSOLE_*` and `SENTINEL_THRESHOLD_*` |
 | Agent URL, token, intervals, and local files | [`deploy/systemd/agent.env.example`](deploy/systemd/agent.env.example) |
 | SNMP devices, credentials, and queue limits | [SNMP configuration](docs/snmp.md#configuration) |
-| Incident emails (optional SMTP) | `SENTINEL_SMTP_*`, `SENTINEL_EMAIL_FROM`, `SENTINEL_CONSOLE_URL`; see [alerts and email](docs/server-deployment.md#alerts-and-email-notifications) |
+| Incident emails (optional SMTP) | `SENTINEL_SMTP_*`, `SENTINEL_EMAIL_FROM` (links use `SENTINEL_URL`); see [alerts and email](docs/server-deployment.md#alerts-and-email-notifications) |
 
 Production deployments must use HTTPS. Agent tokens are bearer credentials;
 they must not appear in URLs, logs, or committed files. See the
@@ -298,8 +298,11 @@ with the next Docker report; its row stays in the database for
 
 ## Data retention and history
 
-History is bounded by settings in [`.env.example`](.env.example). Cleanup is
-explicit and must be scheduled; it does not run during heartbeats.
+History is bounded by settings in [`.env.example`](.env.example). The cleanup
+does not run during heartbeats: with Compose the `maintenance` service runs it
+at start and once a day (`run_maintenance`); a native installation runs
+`python manage.py run_maintenance` (or `--once` from cron). Each cleanup is also
+a command of its own:
 
 ```bash
 python manage.py purge_network_measurements
@@ -319,9 +322,8 @@ The record of each email is kept for `SENTINEL_NOTIFICATION_RETENTION_DAYS`
 
 Every purge command supports bounded batches; the Sentinel commands also support
 `--dry-run`. With Compose, run them through
-`docker compose exec -T web python manage.py ...`. The
-[server deployment guide](docs/server-deployment.md#retention) contains the
-production command set and scheduling context.
+`docker compose exec -T web python manage.py ...`; see
+[Retention](docs/server-deployment.md#retention) in the server deployment guide.
 
 Do not interpret missing history as downtime. A stored failed probe means the
 target was unreachable; missing samples may instead mean the agent was offline,
@@ -336,7 +338,7 @@ the source of truth for:
 - Safe upgrades and database migrations.
 - PostgreSQL backup, restore, major-version migration, rollback, and volume
   preflight checks.
-- Retention jobs and resource sizing.
+- Retention (automatic, by the `maintenance` service) and resource sizing.
 
 Before every upgrade, take and test a database backup. Never use
 `docker compose down --volumes` for a normal upgrade: it deletes the database

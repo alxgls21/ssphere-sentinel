@@ -55,7 +55,7 @@ PROXY_BUILD = re.compile(
 )
 # (proxy builds, server builds) of each file that builds an image.
 BUILDS = {
-    "compose.yml": (1, 5),  # proxy; migrate, web, alert-engine, notifier, domain-verifier
+    "compose.yml": (1, 6),  # proxy; migrate, web, alert-engine, notifier, domain-verifier, maintenance
     "deploy/postgres/postgres-18.yml": (0, 1),  # init
 }
 

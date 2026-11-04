@@ -180,13 +180,6 @@ export function scopeText(scope: AlertRuleScope): string {
   }
 }
 
-/** What the scope is, in a word for a column. */
-export const SCOPE_WORD: Record<AlertRuleScope['type'], string> = {
-  all: 'ALL',
-  customer: 'CUSTOMER',
-  site: 'SITE',
-}
-
 /** "Critical · offline: no heartbeat": what the rule fires on, and for which reason. */
 export const conditionOf = (rule: AlertRule): string => {
   const why = reasonText(rule.kind, rule.reason)

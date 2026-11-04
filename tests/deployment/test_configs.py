@@ -3,6 +3,7 @@ regress silently (non-root, no Docker socket by default, no secrets)."""
 
 from __future__ import annotations
 
+import ast
 import json
 import os
 import re
@@ -205,7 +206,12 @@ LAYOUTS = {
     "18": ("postgres18_data", "/var/lib/postgresql"),
 }
 # The long-running processes beside web: the image again, the runtime login, no migrations.
-WORKERS = {"alert-engine": "run_alert_engine", "notifier": "run_notifier", "domain-verifier": "run_domain_verifier"}
+WORKERS = {
+    "alert-engine": "run_alert_engine",
+    "notifier": "run_notifier",
+    "domain-verifier": "run_domain_verifier",
+    "maintenance": "run_maintenance",
+}
 
 
 class ComposeTests(unittest.TestCase):
@@ -415,11 +421,10 @@ class ComposeTests(unittest.TestCase):
                 # SIGTERM ends the cycle in progress first.
                 self.assertRegex(worker["stop_grace_period"], r"^\d+s$")
                 self.assertGreaterEqual(int(worker["stop_grace_period"][:-1]), 60)
-        # The alert engine always runs; the notifier only once email is set up, the domain
-        # verifier once website monitoring is.
-        self.assertNotIn("profiles", services["alert-engine"])
-        self.assertEqual(services["notifier"]["profiles"], ["notifications"])
-        self.assertEqual(services["domain-verifier"]["profiles"], ["web-monitoring"])
+        # Every worker runs with every `docker compose up`: nothing to enable in .env
+        # (the notifier idles while email is off).
+        for name in WORKERS:
+            self.assertNotIn("profiles", services[name])
 
     def test_the_smtp_password_reaches_only_the_notifier(self):
         services = self.compose["services"]
@@ -910,9 +915,13 @@ class OperatorGuideTests(unittest.TestCase):
                 self.assertIn("--single-transaction", line)
                 self.assertIn("--exit-on-error", line)
 
-    def test_every_cleanup_command_is_in_the_daily_set_of_both_guides(self):
+    def test_every_cleanup_command_runs_daily_and_is_in_both_guides(self):
         commands = sorted(path.stem for path in ROOT.glob("apps/*/management/commands/purge_*.py"))
         self.assertIn("purge_telemetry_samples", commands)
+        # The maintenance service runs each of them (Django is not imported here: its source is read).
+        source = (ROOT / "apps/core/management/commands/run_maintenance.py").read_text()
+        tasks = ast.literal_eval(re.search(r"(?ms)^TASKS = (\(.*?\n\))", source)[1])
+        self.assertEqual(sorted(tasks), sorted([*commands, "clearsessions"]))
 
         def section(path, heading, level):
             text = path.read_text()
@@ -922,10 +931,12 @@ class OperatorGuideTests(unittest.TestCase):
 
         readme = section(ROOT / "README.md", "## Data retention and history", 2)
         retention = section(ROOT / "docs" / "server-deployment.md", "### Retention", 3)
+        self.assertIn("docker compose exec -T maintenance python manage.py run_maintenance --once\n", retention)
+        self.assertIn("run_maintenance", readme)
         for command in commands:
             with self.subTest(command):
                 self.assertIn(f"python manage.py {command}\n", readme)
-                self.assertIn(f"docker compose exec -T web python manage.py {command}\n", retention)
+                self.assertIn(f"`{command}`", retention)
 
     def test_copies_of_the_environment_the_guides_make_are_never_committed(self):
         copies = {copy for _, line in self.lines() for copy in re.findall(r"\bcp \.env (\S+)", line)}

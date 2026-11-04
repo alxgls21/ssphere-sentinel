@@ -15,7 +15,11 @@ class DeploymentCheckTests(SimpleTestCase):
     def test_wildcard_allowed_hosts_is_reported(self):
         self.assertIn("sentinel.W002", deploy_check_ids())
 
-    @override_settings(AGENT_TOKEN_PEPPER="a-real-random-pepper", ALLOWED_HOSTS=["sentinel.example.com"])
+    @override_settings(
+        AGENT_TOKEN_PEPPER="a-real-random-pepper",
+        ALLOWED_HOSTS=["sentinel.example.com"],
+        SENTINEL_URL="https://sentinel.example.com",
+    )
     def test_sane_configuration_has_no_sentinel_warnings(self):
         self.assertFalse({i for i in deploy_check_ids() if i.startswith("sentinel.")})
 
@@ -27,6 +31,14 @@ class DeploymentCheckTests(SimpleTestCase):
                        ALLOWED_HOSTS=["sentinel.example.com"])
     def test_an_https_address_is_not(self):
         self.assertNotIn("sentinel.W003", deploy_check_ids())
+
+    @override_settings(SENTINEL_CONSOLE_URL_IGNORED=True, SENTINEL_URL="")
+    def test_the_setting_earlier_releases_read_for_the_email_links_is_reported(self):
+        self.assertIn("sentinel.W004", deploy_check_ids())
+
+    @override_settings(SENTINEL_CONSOLE_URL_IGNORED=False)
+    def test_without_it_there_is_nothing_to_report(self):
+        self.assertNotIn("sentinel.W004", deploy_check_ids())
 
     def test_checks_only_run_in_deploy_mode(self):
         with override_settings(ALLOWED_HOSTS=["*"]):

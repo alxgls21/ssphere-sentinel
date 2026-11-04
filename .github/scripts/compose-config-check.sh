@@ -7,9 +7,9 @@
 #   - with separate roles each service gets its own password only: web and
 #     the alert engine the runtime login's, migrate the migration login's, db
 #     the bootstrap superuser's, from the file only Compose reads;
-#   - the alert engine runs as a worker, which never migrates, and the SMTP
-#     password reaches the notifier only (profile "notifications"), not the
-#     domain verifier (profile "web-monitoring");
+#   - every worker (alert engine, notifier, domain verifier, maintenance) runs
+#     as a worker, which never migrates, with web's login, and the SMTP
+#     password reaches the notifier only;
 #   - sentinel/db_roles.py reads the passwords from the resolved configuration,
 #     and refuses one that gives web or migrate a password not its own;
 #   - the proxy service alone is published, holds no secret and shares the edge
@@ -27,9 +27,9 @@ trap 'rm -rf "$work"; rm -f .env .env.migrate .env.bootstrap .env.tunnel' EXIT
 
 secret() { python3 -c 'import secrets; print(secrets.token_urlsafe(48))'; }
 env_from() {  # env_from <example>: the example with random secrets, as .env
-    sed -e "s|^DJANGO_SECRET_KEY=.*|DJANGO_SECRET_KEY=$(secret)|" \
-        -e "s|^AGENT_TOKEN_PEPPER=.*|AGENT_TOKEN_PEPPER=$(secret)|" \
-        -e "s|^POSTGRES_PASSWORD=.*|POSTGRES_PASSWORD=$(secret)|" \
+    sed -e "s|^\(# \)\?DJANGO_SECRET_KEY=.*|DJANGO_SECRET_KEY=$(secret)|" \
+        -e "s|^\(# \)\?AGENT_TOKEN_PEPPER=.*|AGENT_TOKEN_PEPPER=$(secret)|" \
+        -e "s|^\(# \)\?POSTGRES_PASSWORD=.*|POSTGRES_PASSWORD=$(secret)|" \
         "$1" > .env
 }
 
@@ -48,7 +48,9 @@ from sentinel.database import foreign_passwords  # noqa: E402
 
 services = json.load(open(sys.argv[1]))["services"]
 layout = sys.argv[2]
-assert set(services) - {"init"} == {"db", "migrate", "web", "alert-engine", "proxy"}, sorted(services)
+# Every worker runs with every `docker compose up`; none holds an SMTP password before .env sets one.
+WORKERS = ("alert-engine", "notifier", "domain-verifier", "maintenance")
+assert set(services) - {"init"} == {"db", "migrate", "web", "proxy", *WORKERS}, sorted(services)
 # The init service (the secrets of a new installation) comes with PostgreSQL 18 only.
 assert ("init" in services) == services["db"]["image"].startswith("postgres:18"), sorted(services)
 # The front door: the proxy alone is published; it holds no secret and reaches web, not the database.
@@ -59,6 +61,14 @@ assert set(services["proxy"]["networks"]) == {"edge"} and set(services["web"]["n
 assert "edge" not in services["db"].get("networks", {"default": None}), "the database is on the edge network"
 assert services["proxy"]["depends_on"]["web"]["condition"] == "service_healthy"
 web, migrate, db, engine = (services[name]["environment"] for name in ("web", "migrate", "db", "alert-engine"))
+for name in WORKERS:
+    worker = services[name]["environment"]
+    assert (worker["SENTINEL_DB_ACCESS"], worker["SENTINEL_PROCESS"]) == ("runtime", "worker"), f"{name} could migrate"
+    assert {key: condition["condition"] for key, condition in services[name]["depends_on"].items()} == {
+        "db": "service_healthy", "migrate": "service_completed_successfully", "web": "service_started"}, name
+    assert not worker.get("SENTINEL_DB_MIGRATE_PASSWORD"), f"{name} receives the migration password"
+    assert worker.get("SENTINEL_DB_PASSWORD", "") == web.get("SENTINEL_DB_PASSWORD", ""), f"{name} logs in otherwise"
+    assert worker.get("POSTGRES_PASSWORD", "") == web.get("POSTGRES_PASSWORD", ""), f"{name} logs in otherwise"
 assert web.get("DJANGO_SECRET_KEY") and migrate.get("DJANGO_SECRET_KEY"), "the env files were not resolved"
 assert (web["SENTINEL_DB_ACCESS"], migrate["SENTINEL_DB_ACCESS"]) == ("runtime", "migrate")
 assert services["web"]["depends_on"]["migrate"]["condition"] == "service_completed_successfully"
@@ -70,7 +80,7 @@ assert {name: condition["condition"] for name, condition in services["alert-engi
 assert not engine.get("SENTINEL_DB_MIGRATE_PASSWORD"), "the alert engine receives the migration password"
 assert engine.get("SENTINEL_DB_PASSWORD", "") == web.get("SENTINEL_DB_PASSWORD", ""), "the alert engine logs in otherwise"
 assert engine.get("POSTGRES_PASSWORD", "") == web.get("POSTGRES_PASSWORD", ""), "the alert engine logs in otherwise"
-for name in ("web", "migrate", "alert-engine"):
+for name in ("web", "migrate", *WORKERS):
     assert not services[name]["environment"].get("SENTINEL_SMTP_PASSWORD"), f"{name} receives the SMTP password"
 assert (migrate.get("SENTINEL_DB_MIGRATE_PASSWORD") or "") == os.environ.get("MIGRATION", ""), "migrate lacks its password"
 assert db["POSTGRES_PASSWORD"] == os.environ["BOOTSTRAP"], "db lacks the bootstrap password"
@@ -79,7 +89,8 @@ if layout == "separate":
     assert not migrate.get("POSTGRES_PASSWORD"), "migrate receives the bootstrap password"
     assert web.get("SENTINEL_DB_PASSWORD") == os.environ["RUNTIME"], "web lacks its password"
     assert foreign_passwords(web) == [] and foreign_passwords(migrate) == [], "a process would refuse to start"
-    assert foreign_passwords(engine) == [], "the alert engine would refuse to start"
+    for name in WORKERS:
+        assert foreign_passwords(services[name]["environment"]) == [], f"{name} would refuse to start"
 else:
     assert web.get("POSTGRES_PASSWORD") == os.environ["BOOTSTRAP"], "web lacks the one login's password"
 print("resolved:", ", ".join(sorted(services)))
@@ -132,8 +143,7 @@ step "Email notifications: the SMTP password reaches the notifier only"
 SMTP=$(secret)
 printf 'SENTINEL_SMTP_HOST=smtp.example.com\nSENTINEL_EMAIL_FROM=sentinel@example.com\nSENTINEL_SMTP_USER=sentinel\nSENTINEL_SMTP_PASSWORD=%s\n' \
     "$SMTP" >> .env
-check separate  # without the profile, no notifier, and nobody gets it
-COMPOSE_PROFILES=notifications docker compose config --format json > "$work/config.json"
+docker compose config --format json > "$work/config.json"
 SMTP=$SMTP python3 - "$work/config.json" <<'PY'
 import json
 import os
@@ -143,7 +153,7 @@ sys.path.insert(0, ".")
 from sentinel.database import foreign_passwords  # noqa: E402
 
 services = json.load(open(sys.argv[1]))["services"]
-assert set(services) - {"init"} == {"db", "migrate", "web", "alert-engine", "proxy", "notifier"}, sorted(services)
+assert set(services) - {"init"} == {"db", "migrate", "web", "alert-engine", "proxy", "notifier", "domain-verifier", "maintenance"}, sorted(services)
 # The init service (the secrets of a new installation) comes with PostgreSQL 18 only.
 assert ("init" in services) == services["db"]["image"].startswith("postgres:18"), sorted(services)
 holders = sorted(name for name, service in services.items()
@@ -161,7 +171,7 @@ python3 -m sentinel.db_roles apply --compose-config "$work/config.json" > "$work
 if grep -qF "$SMTP" "$work/program"; then fail "the program holds the SMTP password"; fi
 
 step "Website monitoring: the domain verifier logs in as web does, without the SMTP password"
-COMPOSE_PROFILES=notifications,web-monitoring docker compose config --format json > "$work/config.json"
+docker compose config --format json > "$work/config.json"
 python3 - "$work/config.json" <<'PY'
 import json
 import os
@@ -171,7 +181,7 @@ sys.path.insert(0, ".")
 from sentinel.database import foreign_passwords  # noqa: E402
 
 services = json.load(open(sys.argv[1]))["services"]
-assert set(services) - {"init"} == {"db", "migrate", "web", "alert-engine", "proxy", "notifier", "domain-verifier"}, sorted(services)
+assert set(services) - {"init"} == {"db", "migrate", "web", "alert-engine", "proxy", "notifier", "domain-verifier", "maintenance"}, sorted(services)
 # The init service (the secrets of a new installation) comes with PostgreSQL 18 only.
 assert ("init" in services) == services["db"]["image"].startswith("postgres:18"), sorted(services)
 verifier = services["domain-verifier"]["environment"]
