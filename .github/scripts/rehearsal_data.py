@@ -41,7 +41,9 @@ from apps.infrastructure.models import (
 from apps.inventory.models import Customer, Site
 from apps.network.models import NetworkMeasurement, NetworkTarget
 
-BASE = datetime(2026, 1, 15, 8, 30, tzinfo=dt_timezone.utc)
+# Recent, as a live installation's data is: older rows are the retention cleanups' to remove (the maintenance
+# service runs them as the stack starts), and the rehearsal checks what survives the migration, not retention.
+BASE = datetime.now(dt_timezone.utc).replace(minute=30, second=0, microsecond=0) - timedelta(hours=2)
 CUSTOMER = "Πελάτης Δοκιμής ü"  # non-ASCII on purpose
 
 # Rows each table holds after seeding (the database starts empty).

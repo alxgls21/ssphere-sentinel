@@ -64,7 +64,7 @@ for the release being installed.
 
 ## Requirements
 
-- Server: Python 3.12+ and PostgreSQL 16+ (PostgreSQL 18 for new Compose
+- Server: Python 3.14+ and PostgreSQL 16 or 18 (PostgreSQL 18 for new Compose
   installations).
 - Agent: Python 3.11+ and `psutil`; Docker and SNMP support are optional extras.
 - `pip` and a Python virtual environment.
@@ -346,6 +346,20 @@ volume. Run `scripts/postgres-preflight.sh` before starting a Compose database
 after any version or volume change. See [Operations](docs/operations.md) for
 secret rotation and symptom-based recovery, and [Security](docs/security.md)
 for deployment warnings that must not be relaxed for convenience.
+
+## Support policy
+
+What is supported is what CI tests on every push:
+
+| Part | Supported | Why |
+| --- | --- | --- |
+| Server | The release's Docker image: Python 3.14 and Django 6.1 | `scripts/install.sh` installs it; nobody chooses the versions |
+| PostgreSQL | 18 for new installations, 16 for installations not moved yet | [PostgreSQL versions](docs/server-deployment.md#postgresql-versions) |
+| Docker | Engine 24+, Compose 2.24+ (the oldest, 2.24.6, and the current release are tested) | Ubuntu 24.04 packages Compose 2.24 |
+| Agent | Python 3.11+ on Linux and macOS (3.11 and 3.14 are tested, with the extras at their lowest and latest versions) | It runs on the monitored hosts, with the Python they have |
+| Console | The browsers Vite's build targets | [Frontend guide](frontend/README.md) |
+
+Anything else may work, and is not tested.
 
 ## Releases
 
