@@ -123,7 +123,9 @@ def run_agent() -> int:
     snmp = _build_snmp_runtime(runtime)
     _log_startup(config, runtime, snmp)
     deliveries = _deliveries(runtime, snmp)
-    send_fn = partial(send_heartbeat, **deliveries) if deliveries else send_heartbeat
+    send_fn = (
+        partial(send_heartbeat, **deliveries) if deliveries else send_heartbeat
+    )
     if runtime is not None:
         runtime.start()
     if snmp is not None:

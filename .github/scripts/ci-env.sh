@@ -29,9 +29,9 @@ mask "$bootstrap"
 
 cp "$example" .env
 sed -i \
-    -e "s|^DJANGO_SECRET_KEY=.*|DJANGO_SECRET_KEY=$django_key|" \
-    -e "s|^AGENT_TOKEN_PEPPER=.*|AGENT_TOKEN_PEPPER=$pepper|" \
-    -e "s|^POSTGRES_PASSWORD=.*|POSTGRES_PASSWORD=$bootstrap|" \
+    -e "s|^\(# \)\?DJANGO_SECRET_KEY=.*|DJANGO_SECRET_KEY=$django_key|" \
+    -e "s|^\(# \)\?AGENT_TOKEN_PEPPER=.*|AGENT_TOKEN_PEPPER=$pepper|" \
+    -e "s|^\(# \)\?POSTGRES_PASSWORD=.*|POSTGRES_PASSWORD=$bootstrap|" \
     .env
 if [ "$major" = 18 ]; then
     # The first start of a new PostgreSQL 18 installation must be authorized.

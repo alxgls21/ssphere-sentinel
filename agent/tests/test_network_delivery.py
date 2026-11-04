@@ -189,14 +189,6 @@ class DeliveryTests(unittest.TestCase):
         self._heartbeat(HttpResponse(200, '{"status":"ok"}'))
         self.assertEqual(len(self._sent_ids()), 100)
 
-    def test_legacy_server_without_results_is_supported(self):
-        self._enqueue(2)
-        legacy = json.dumps(
-            {"status": "ok", "network": "accepted", "network_created": 2, "network_duplicates": 0}
-        )
-        self._heartbeat(HttpResponse(200, legacy))
-        self.assertEqual(self.queue.count(), 0)
-
     def test_token_never_logged(self):
         self._enqueue(1)
         with self.assertLogs("sentinel_agent", level="DEBUG") as logs:

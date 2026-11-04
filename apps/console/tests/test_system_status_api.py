@@ -21,7 +21,7 @@ SMTP_ON = override_settings(
     SENTINEL_EMAIL_FROM="Sentinel <sentinel@example.com>",
     SENTINEL_SMTP_USER="smtp-login-name",
     SENTINEL_SMTP_PASSWORD=SMTP_PASSWORD,
-    SENTINEL_CONSOLE_URL="https://sentinel.example.com",
+    SENTINEL_URL="https://sentinel.example.com",
 )
 SMTP_OFF = override_settings(SENTINEL_SMTP_HOST="", SENTINEL_SMTP_USER="", SENTINEL_SMTP_PASSWORD="")
 

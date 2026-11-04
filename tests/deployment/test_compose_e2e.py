@@ -257,7 +257,12 @@ class IsolationTests(unittest.TestCase):
 
 class ConfigTests(unittest.TestCase):
     def services(self, **changes):
-        return {"services": {name: {"environment": variables} for name, variables in environments(**changes).items()}}
+        services = {name: {"environment": variables} for name, variables in environments(**changes).items()}
+        # The other workers log in as the alert engine does; the notifier holds its own SMTP password.
+        for name in ("notifier", "domain-verifier", "maintenance"):
+            services[name] = {"environment": dict(services["alert-engine"]["environment"])}
+        services["notifier"]["environment"]["SENTINEL_SMTP_PASSWORD"] = "s" * 40
+        return {"services": services}
 
     def judge(self, configuration):
         with tempfile.TemporaryDirectory() as directory:
@@ -275,10 +280,9 @@ class ConfigTests(unittest.TestCase):
         configuration["services"]["web"]["environment"].update({"POSTGRES_PORT": 5432, "UNSET": None})
         self.assertEqual(self.judge(configuration), [])
 
-    def test_the_notifier_is_judged_when_its_profile_is_enabled(self):
+    def test_the_notifier_is_judged_with_its_own_smtp_password(self):
         configuration = self.services()
-        notifier = {**configuration["services"]["alert-engine"]["environment"], "SENTINEL_SMTP_PASSWORD": "s" * 40}
-        configuration["services"]["notifier"] = {"environment": notifier}
+        notifier = configuration["services"]["notifier"]["environment"]
         self.assertEqual(self.judge(configuration), [])  # its own SMTP password: no secret of the stack
         notifier["SENTINEL_DB_MIGRATE_PASSWORD"] = MIGRATION
         self.assertIn("notifier: SENTINEL_DB_MIGRATE_PASSWORD must be blank", self.judge(configuration))
@@ -302,6 +306,10 @@ class ConfigTests(unittest.TestCase):
         del without_engine["services"]["alert-engine"]
         with self.assertRaisesRegex(e2e.Evidence, "the services are"):
             self.judge(without_engine)
+        without_maintenance = self.services()
+        del without_maintenance["services"]["maintenance"]
+        with self.assertRaisesRegex(e2e.Evidence, "the services are"):
+            self.judge(without_maintenance)
         unknown = self.services()
         unknown["services"]["cron"] = {"environment": {}}
         with self.assertRaisesRegex(e2e.Evidence, "the services are"):

@@ -5,20 +5,12 @@ explicitly. Anything ambiguous leaves the item queued.
 
 Both sections use the same envelope, ``<section>``, ``<section>_results``,
 differing in the section name and in the key that identifies an item
-(``measurement_id`` for network, ``poll_id`` for SNMP). SNMP exists only in
-servers that send per-item results, so it has no legacy shapes.
+(``measurement_id`` for network, ``poll_id`` for SNMP): each entry of
+``<section>_results`` has the item's id and ``result`` = ``created`` |
+``duplicate`` | ``rejected`` (+ ``retryable``).
 
-Supported network response shapes, newest first:
-
-1. ``network_results`` (per-measurement): each entry has ``measurement_id`` and
-   ``result`` = ``created`` | ``duplicate`` | ``rejected`` (+ ``retryable``).
-2. Phase-1 servers: ``network_rejections`` with IDs plus counts. Remaining
-   measurements are acknowledged only if the counts match exactly.
-3. Older servers: ``network: accepted`` with ``network_created +
-   network_duplicates`` equal to the number sent.
-
-Any other shape (malformed JSON, missing/unknown ``network`` status, a
-section-level rejection, inconsistent counts) is a batch failure: nothing is
+Any other shape (malformed JSON, missing/unknown status, a section-level
+rejection, counts without per-item results) is a batch failure: nothing is
 removed and delivery backs off.
 """
 
@@ -30,8 +22,6 @@ from dataclasses import dataclass, field
 
 STORED_RESULTS = frozenset({"created", "duplicate"})
 KNOWN_STATUSES = frozenset({"accepted", "partial", "rejected"})
-# Phase-1 servers did not send ``retryable``; this was their only storage failure.
-LEGACY_RETRYABLE_REASONS = frozenset({"measurement could not be stored"})
 
 
 @dataclass(frozen=True)
@@ -40,11 +30,10 @@ class AckSection:
 
     name: str  # key of the section status in the response, e.g. "network"
     id_key: str  # key that identifies an item inside ``<name>_results``
-    legacy: bool  # older servers acknowledged it with counts only
 
 
-NETWORK = AckSection("network", "measurement_id", legacy=True)
-SNMP = AckSection("snmp", "poll_id", legacy=False)
+NETWORK = AckSection("network", "measurement_id")
+SNMP = AckSection("snmp", "poll_id")
 
 
 @dataclass(frozen=True)
@@ -84,14 +73,12 @@ def parse_acknowledgement(
     results = data.get(f"{section.name}_results")
     if results is not None:
         return _from_results(results, sent, section)
-    if not section.legacy:
-        # An envelope problem: the whole section was rejected, nothing is stored.
-        detail = data.get(f"{section.name}_detail")
-        return Acknowledgement(
-            batch_failure=f"{section.name} section rejected"
-            + (f": {detail[:200]}" if isinstance(detail, str) else "")
-        )
-    return _from_legacy(data, status, sent)
+    # An envelope problem: the whole section was rejected, nothing is stored.
+    detail = data.get(f"{section.name}_detail")
+    return Acknowledgement(
+        batch_failure=f"{section.name} section rejected"
+        + (f": {detail[:200]}" if isinstance(detail, str) else "")
+    )
 
 
 def _from_results(results: object, sent: list[str], section: AckSection) -> Acknowledgement:
@@ -137,62 +124,3 @@ def _from_results(results: object, sent: list[str], section: AckSection) -> Ackn
         retryable=retryable,
         unresolved=frozenset(sent_set - resolved),
     )
-
-
-def _from_legacy(data: dict, status: str, sent: list[str]) -> Acknowledgement:
-    sent_set = set(sent)
-    rejections = data.get("network_rejections")
-
-    if rejections is None:
-        if status != "accepted":
-            detail = data.get("network_detail")
-            return Acknowledgement(
-                batch_failure="network section rejected"
-                + (f": {detail[:200]}" if isinstance(detail, str) else "")
-            )
-        if _legacy_stored_count(data) != len(sent):
-            return Acknowledgement(batch_failure="network counts do not match the batch")
-        return Acknowledgement(stored=frozenset(sent_set))
-
-    if not isinstance(rejections, list):
-        return Acknowledgement(batch_failure="network_rejections is not a list")
-    permanent: dict[str, str] = {}
-    retryable: dict[str, str] = {}
-    for entry in rejections:
-        if not isinstance(entry, dict):
-            return Acknowledgement(batch_failure="network_rejections entry is malformed")
-        measurement_id = entry.get("measurement_id")
-        if not isinstance(measurement_id, str) or measurement_id not in sent_set:
-            return Acknowledgement(batch_failure="rejection does not match the batch")
-        reason = entry.get("reason") if isinstance(entry.get("reason"), str) else ""
-        if reason in LEGACY_RETRYABLE_REASONS:
-            retryable[measurement_id] = reason
-        else:
-            permanent[measurement_id] = reason
-
-    rejected_ids = set(permanent) | set(retryable)
-    remaining = sent_set - rejected_ids
-    accepted_count = _as_int(data.get("network_accepted"))
-    if accepted_count is None:
-        accepted_count = _legacy_stored_count(data)
-    if accepted_count != len(remaining) or len(rejected_ids) != len(rejections):
-        return Acknowledgement(batch_failure="network counts do not match the batch")
-    return Acknowledgement(
-        stored=frozenset(remaining),
-        permanent=permanent,
-        retryable=retryable,
-    )
-
-
-def _legacy_stored_count(data: dict) -> int | None:
-    created = _as_int(data.get("network_created"))
-    duplicates = _as_int(data.get("network_duplicates"))
-    if created is None or duplicates is None:
-        return None
-    return created + duplicates
-
-
-def _as_int(value: object) -> int | None:
-    if isinstance(value, bool) or not isinstance(value, int):
-        return None
-    return value

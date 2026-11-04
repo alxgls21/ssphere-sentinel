@@ -191,9 +191,9 @@ wait_healthy() {  # wait_healthy <container>
 
 step "Install the previous release with an .env made from its .env.example"
 checkout "$PREVIOUS"
-sed -e "s|^DJANGO_SECRET_KEY=.*|DJANGO_SECRET_KEY=$(secret)|" \
-    -e "s|^AGENT_TOKEN_PEPPER=.*|AGENT_TOKEN_PEPPER=$(secret)|" \
-    -e "s|^POSTGRES_PASSWORD=.*|POSTGRES_PASSWORD=$(secret)|" \
+sed -e "s|^\(# \)\?DJANGO_SECRET_KEY=.*|DJANGO_SECRET_KEY=$(secret)|" \
+    -e "s|^\(# \)\?AGENT_TOKEN_PEPPER=.*|AGENT_TOKEN_PEPPER=$(secret)|" \
+    -e "s|^\(# \)\?POSTGRES_PASSWORD=.*|POSTGRES_PASSWORD=$(secret)|" \
     .env.example > .env
 cp .env "$work/env"
 up
@@ -242,7 +242,7 @@ step "Documented restore, after the exited migrate container was removed"
 docker compose exec -T db sh -c 'pg_dump -U "$POSTGRES_USER" -d "$POSTGRES_DB" --format=custom' > "$work/backup.dump"
 remove_exited_migrate
 assert_no_migrate_container "the migrate container was not removed"
-docker compose stop web alert-engine
+docker compose stop web alert-engine notifier domain-verifier maintenance
 docker compose exec -T db sh -c 'pg_restore -U "$POSTGRES_USER" -d "$POSTGRES_DB" --clean --if-exists' \
     < "$work/backup.dump"
 docker compose up --detach --wait --wait-timeout 180
@@ -250,7 +250,7 @@ assert_database_untouched "by the restore"
 assert_migrate_did_nothing "after the restore"
 
 step "Roll back to the previous release (documented procedure)"
-docker compose rm --stop --force migrate alert-engine notifier proxy
+docker compose rm --stop --force migrate alert-engine notifier domain-verifier maintenance proxy
 [ -z "$(container alert-engine)" ] || fail "the alert-engine container was not removed"
 [ -z "$(container proxy)" ] || fail "the proxy container was not removed"
 assert_no_migrate_container "the migrate container was not removed"

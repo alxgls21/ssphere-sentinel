@@ -25,6 +25,7 @@ from agent.network_runtime import bounded_int, load_runtime_config
 from agent.snmp_collector import DevicePoller
 from agent.snmp_config import (
     VERSION_2C,
+    WEAK_AUTH_PROTOCOLS,
     SnmpConfig,
     SnmpCredential,
     load_snmp_config,
@@ -185,7 +186,7 @@ def _warn_about_credentials(credentials: list[SnmpCredential]) -> None:
                 "polls are authenticated but not encrypted",
                 credential.name,
             )
-        elif credential.auth_protocol == "SHA":
+        elif credential.auth_protocol in WEAK_AUTH_PROTOCOLS:
             logger.warning(
                 "SNMP profile %s authenticates with SHA-1; use SHA-256 or stronger if the device supports it",
                 credential.name,

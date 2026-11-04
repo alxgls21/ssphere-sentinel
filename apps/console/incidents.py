@@ -115,7 +115,7 @@ from apps.console.access import Scope, Visibility
 from apps.console.http import ApiError, console_api
 from apps.console.listing import apply_search, name_order, page_envelope
 from apps.console.params import PAGE_PARAMS, SCOPE_PARAMS, PageRequest, QueryParams
-from apps.console.serializers import iso
+from apps.console.serializers import iso, iso_or_none
 from apps.infrastructure.liveness import offline_threshold_seconds
 from apps.infrastructure.models import DockerContainer, Server
 from apps.inventory.models import Device
@@ -203,10 +203,6 @@ def ordering(sort: str, direction: str) -> tuple[dict, list]:
     return {"_rank": rank}, [F("_rank").desc() if ascending else F("_rank").asc(), *tie]
 
 
-def _iso(value: datetime | None) -> str | None:
-    return iso(value) if value is not None else None
-
-
 def serialize(row: dict, *, may_acknowledge: bool) -> dict:
     """One ``IncidentListItem`` from a row of ``FIELDS``."""
     item = {
@@ -219,10 +215,10 @@ def serialize(row: dict, *, may_acknowledge: bool) -> dict:
         "siteId": str(row["site_id"]) if row["site_id"] is not None else None,
         "startedAt": iso(row["started_at"]),
         "openedAt": iso(row["opened_at"]),
-        "acknowledgedAt": _iso(row["acknowledged_at"]),
+        "acknowledgedAt": iso_or_none(row["acknowledged_at"]),
         "acknowledgedBy": (row["acknowledged_by_name"] or None) if row["acknowledged_at"] is not None else None,
-        "recoveredAt": _iso(row["recovered_at"]),
-        "closedAt": _iso(row["closed_at"]),
+        "recoveredAt": iso_or_none(row["recovered_at"]),
+        "closedAt": iso_or_none(row["closed_at"]),
         "closeReason": row["close_reason"] or None,
         "canAcknowledge": may_acknowledge and row["status"] == Status.ACTIVE,
     }
@@ -390,12 +386,12 @@ def engine_status_payload(now: datetime) -> dict:
         "stale": stale,
         "staleAfterSeconds": stale_after,
         "intervalSeconds": beat["interval_seconds"],
-        "startedAt": _iso(beat["started_at"]),
-        "lastSuccessAt": _iso(success),
-        "lastAttemptAt": _iso(attempt),
+        "startedAt": iso_or_none(beat["started_at"]),
+        "lastSuccessAt": iso_or_none(success),
+        "lastAttemptAt": iso_or_none(attempt),
         "lastCycleMs": beat["last_cycle_ms"],
         "lastError": last_error,
-        "monitoringSince": _iso(beat["monitoring_since"]),
+        "monitoringSince": iso_or_none(beat["monitoring_since"]),
     }
 
 

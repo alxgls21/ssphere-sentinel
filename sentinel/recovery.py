@@ -309,9 +309,6 @@ SELECT jsonb_build_object(
 ROLLBACK;
 """
 
-DATA_KEYS = ("rows", "fingerprint")
-
-
 def quote_ident(name: str) -> str:
     return '"' + name.replace('"', '""') + '"'
 

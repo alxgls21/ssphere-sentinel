@@ -1527,7 +1527,7 @@ def status_program(database: str, *, nonce: str | None = None) -> Program:
 
 
 # The services that log in like web, with the runtime login, when the configuration has them.
-COMPOSE_WORKERS = ("alert-engine", "notifier", "domain-verifier")
+COMPOSE_WORKERS = ("alert-engine", "notifier", "domain-verifier", "maintenance")
 
 
 def compose_settings(config: Mapping) -> dict[str, str | None]:

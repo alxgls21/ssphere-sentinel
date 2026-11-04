@@ -85,7 +85,7 @@ from apps.console.http import ApiError, console_api, json_object, validation_err
 from apps.console.listing import apply_search, name_order, page_envelope
 from apps.console.params import PAGE_PARAMS, PageRequest, QueryParams
 from apps.console.permissions import may_add_domains, may_verify_domains, may_view_domains, require
-from apps.console.serializers import iso
+from apps.console.serializers import iso, iso_or_none
 from apps.inventory.models import Customer
 from apps.web import audit
 from apps.web.domains import InvalidDomain, new_token, normalize, record_name, record_value
@@ -127,10 +127,6 @@ CREATE_FIELDS = ("customerId", "name")
 DOMAIN_UNIQUE = "uniq_web_domain_per_customer"
 
 
-def _iso(value) -> str | None:
-    return iso(value) if value is not None else None
-
-
 def _choice(value: str, choices) -> dict | None:
     return {"value": value, "label": choices(value).label} if value else None
 
@@ -142,9 +138,9 @@ def serialize(row: dict) -> dict:
         "displayName": row["display_name"],
         "customer": {"id": str(row["customer_id"]), "name": row["customer__name"]},
         "status": row["status"],
-        "verifiedAt": _iso(row["verified_at"]),
-        "lastVerifiedAt": _iso(row["last_verified_at"]),
-        "lastCheckedAt": _iso(row["last_checked_at"]),
+        "verifiedAt": iso_or_none(row["verified_at"]),
+        "lastVerifiedAt": iso_or_none(row["last_verified_at"]),
+        "lastCheckedAt": iso_or_none(row["last_checked_at"]),
         "lastOutcome": _choice(row["last_outcome"], VerificationOutcome),
         "createdAt": iso(row["created_at"]),
         "createdBy": row["created_by_name"],
@@ -162,8 +158,8 @@ def serialize_verification(row: DomainVerification) -> dict:
         "requestedBy": row.requested_by_name,
         "createdAt": iso(row.created_at),
         "expiresAt": iso(row.expires_at),
-        "startedAt": _iso(row.started_at),
-        "finishedAt": _iso(row.finished_at),
+        "startedAt": iso_or_none(row.started_at),
+        "finishedAt": iso_or_none(row.finished_at),
         "evidence": row.evidence or None,
     }
 

@@ -73,7 +73,7 @@ from apps.alerts.notifications import (
 )
 from apps.console.http import ApiError, console_api, json_object, validation_error
 from apps.console.params import QueryParams
-from apps.console.serializers import iso
+from apps.console.serializers import iso, iso_or_none
 from apps.console.system import notifier_status_payload
 
 logger = logging.getLogger("apps.console")
@@ -81,10 +81,6 @@ logger = logging.getLogger("apps.console")
 SEVERITIES = tuple(NotificationSubscription.MinSeverity.values)
 PREFERENCES = ("enabled", "minSeverity", "sendRecovery")
 DEFAULTS = {"enabled": False, "minSeverity": NotificationSubscription.MinSeverity.CRITICAL.value, "sendRecovery": False}
-
-
-def _iso(value) -> str | None:
-    return iso(value) if value is not None else None
 
 
 def serialize_test_email(row: TestEmailRequest) -> dict:
@@ -97,7 +93,7 @@ def serialize_test_email(row: TestEmailRequest) -> dict:
         "failure": failure,
         "createdAt": iso(row.created_at),
         "expiresAt": iso(row.expires_at),
-        "finishedAt": _iso(row.finished_at),
+        "finishedAt": iso_or_none(row.finished_at),
     }
 
 

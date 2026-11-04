@@ -1,7 +1,6 @@
 import type {
   IncidentCounts,
   IncidentItem,
-  IncidentEntityKind,
   IncidentKindFilter,
   IncidentListOptions,
   IncidentSeverityFilter,
@@ -214,9 +213,6 @@ export const requestOf = (query: AlertsQuery, q: string): IncidentListOptions =>
   page: query.page,
   pageSize: ALERTS_PAGE_SIZE,
 })
-
-export const isKind = (value: string): value is IncidentEntityKind =>
-  (KIND_FILTERS as readonly string[]).includes(value) && value !== 'all'
 
 /** What happened last to an incident, in a few words and with its time: who saw it, how it ended. */
 export function lastChange(item: IncidentItem, nowMs: number, tz: Timezone) {

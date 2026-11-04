@@ -1,8 +1,9 @@
 """Send the incident emails the alert engine records, every ``--interval`` seconds or ``--once``.
 
 A process of its own, beside the alert engine, with the runtime database login and
-the SMTP settings (the only process that needs the SMTP password). It refuses to
-start while email is off (``SENTINEL_SMTP_HOST`` unset). It never applies
+the SMTP settings (the only process that needs the SMTP password). While email is
+off (``SENTINEL_SMTP_HOST`` unset) it idles, so that Compose can always run it, and
+``--once`` refuses; set the SMTP settings and recreate it to send. It never applies
 migrations: started before they are applied, it waits for them (``--once``
 refuses instead). Several notifiers can run at once: each claims its rows
 with ``FOR UPDATE SKIP LOCKED`` (``apps.alerts.notifications``). A run that took a
@@ -171,6 +172,14 @@ class Notifier:
                 self.wait()
         logger.info("notifier stopped")
 
+    def idle(self) -> None:
+        """Email is off: nothing to send, ever, until restarted with SMTP settings; alive meanwhile."""
+        logger.info("Email notifications are off (SENTINEL_SMTP_HOST is not set): idle until restarted with them")
+        while not self.stop.is_set():
+            mark_alive(self.liveness, within=self.alive_within)
+            self.stop.wait(self.interval)
+        logger.info("notifier stopped")
+
     def wait(self) -> None:
         """Until the next run: the interval, or less when a test email is asked for meanwhile."""
         deadline = self.clock() + self.interval
@@ -204,11 +213,18 @@ class Command(BaseCommand):
             raise CommandError(f"--interval must be between {MIN_INTERVAL} and {MAX_INTERVAL} seconds.")
         if not 1 <= batch <= MAX_BATCH:
             raise CommandError(f"--batch must be between 1 and {MAX_BATCH}.")
-        if not email_enabled():
+        if not email_enabled() and once:
             raise CommandError("Email notifications are off: set SENTINEL_SMTP_HOST and SENTINEL_EMAIL_FROM to send them.")
         if password_missing():
             raise CommandError("SENTINEL_SMTP_USER is set without SENTINEL_SMTP_PASSWORD: the notifier would not log in.")
         notifier = Notifier(interval=interval, batch=batch, liveness=liveness_file)
+        if not email_enabled():
+            try:
+                with stopped_by_signals(notifier.stop):
+                    notifier.idle()
+            finally:
+                connection.close()
+            return
         if once:
             pending = unapplied_migrations()
             if pending:

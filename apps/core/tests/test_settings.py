@@ -39,7 +39,7 @@ print(json.dumps({
     "SNMP_MAX_AGE_DAYS": s.SENTINEL_SNMP_MAX_AGE_DAYS,
     "DATABASES": s.DATABASES,
     "SENTINEL_URL": s.SENTINEL_URL,
-    "SENTINEL_CONSOLE_URL": s.SENTINEL_CONSOLE_URL,
+    "SENTINEL_CONSOLE_URL_IGNORED": s.SENTINEL_CONSOLE_URL_IGNORED,
     "SECRET_KEY": s.SECRET_KEY,
     "AGENT_TOKEN_PEPPER": s.AGENT_TOKEN_PEPPER,
 }))
@@ -222,7 +222,6 @@ class SiteAddressTests(SimpleTestCase):
         self.assertEqual(conf["SENTINEL_URL"], "https://sentinel.example.com")
         self.assertEqual(conf["ALLOWED_HOSTS"], ["localhost", "127.0.0.1", "sentinel.example.com"])
         self.assertEqual(conf["CSRF_TRUSTED_ORIGINS"], ["https://sentinel.example.com"])
-        self.assertEqual(conf["SENTINEL_CONSOLE_URL"], "https://sentinel.example.com")
         self.assertTrue(conf["SESSION_COOKIE_SECURE"] and conf["CSRF_COOKIE_SECURE"])
 
     def test_a_port_is_part_of_the_origin_not_of_the_host(self):
@@ -241,13 +240,18 @@ class SiteAddressTests(SimpleTestCase):
             DJANGO_ALLOWED_HOSTS="sentinel.example.com,admin.example.com",
             DJANGO_CSRF_TRUSTED_ORIGINS="https://admin.example.com",
             DJANGO_SESSION_COOKIE_SECURE="false",
-            SENTINEL_CONSOLE_URL="https://console.example.com",
         )
         self.assertEqual(conf["ALLOWED_HOSTS"], ["sentinel.example.com", "admin.example.com"])
         self.assertEqual(conf["CSRF_TRUSTED_ORIGINS"], ["https://admin.example.com", "https://sentinel.example.com"])
         self.assertFalse(conf["SESSION_COOKIE_SECURE"])
         self.assertTrue(conf["CSRF_COOKIE_SECURE"])
-        self.assertEqual(conf["SENTINEL_CONSOLE_URL"], "https://console.example.com")
+
+    def test_the_old_address_setting_is_not_read_but_noticed(self):
+        conf = self.settings_for(SENTINEL_CONSOLE_URL="https://console.example.com")
+        self.assertTrue(conf["SENTINEL_CONSOLE_URL_IGNORED"])
+        self.assertEqual(conf["SENTINEL_URL"], "")
+        self.assertEqual(conf["CSRF_TRUSTED_ORIGINS"], [])
+        self.assertFalse(self.settings_for()["SENTINEL_CONSOLE_URL_IGNORED"])
 
     def test_without_an_address_nothing_changes(self):
         conf = self.settings_for()

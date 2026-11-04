@@ -392,8 +392,8 @@ def compose(rows: list[Notification], user) -> mail.EmailMessage:
         ]
         if row.kind == NotificationKind.RECOVERED:
             lines.append(f"  Recovered: {_when(incident.recovered_at)}")
-        if settings.SENTINEL_CONSOLE_URL:
-            lines.append(f"  Details:   {settings.SENTINEL_CONSOLE_URL}/alerts/{incident.pk}")
+        if settings.SENTINEL_URL:
+            lines.append(f"  Details:   {settings.SENTINEL_URL}/alerts/{incident.pk}")
         blocks.append("\n".join(_clean(line) for line in lines))
     body = "\n\n".join(blocks) + (
         "\n\n-- \nSent by SSphere Sentinel because you subscribed to incident emails. "

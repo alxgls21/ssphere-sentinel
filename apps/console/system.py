@@ -66,7 +66,7 @@ from apps.console.http import console_api
 from apps.console.incidents import engine_status_payload
 from apps.console.params import QueryParams
 from apps.console.permissions import may_view_system_status, require
-from apps.console.serializers import iso
+from apps.console.serializers import iso, iso_or_none
 from apps.console.thresholds import thresholds
 from apps.infrastructure.liveness import offline_threshold_seconds
 
@@ -84,10 +84,6 @@ HEARTBEAT_FIELDS = (
     "server_configured",
     "authentication_configured",
 )
-
-
-def _iso(value: datetime | None) -> str | None:
-    return iso(value) if value is not None else None
 
 
 def notifier_status_payload(now: datetime) -> dict:
@@ -140,11 +136,11 @@ def notifier_status_payload(now: datetime) -> dict:
         "stale": stale,
         "staleAfterSeconds": stale_after,
         "intervalSeconds": beat["interval_seconds"],
-        "startedAt": _iso(beat["started_at"]),
-        "lastSuccessAt": _iso(success),
-        "lastAttemptAt": _iso(attempt),
-        "lastActiveAt": _iso(active),
-        "lastSmtpSuccessAt": _iso(beat["server_reached_at"]),
+        "startedAt": iso_or_none(beat["started_at"]),
+        "lastSuccessAt": iso_or_none(success),
+        "lastAttemptAt": iso_or_none(attempt),
+        "lastActiveAt": iso_or_none(active),
+        "lastSmtpSuccessAt": iso_or_none(beat["server_reached_at"]),
         "lastCycleMs": beat["last_cycle_ms"],
         "lastError": last_error,
         "lastSmtpError": last_smtp_error,
@@ -187,7 +183,7 @@ def outbox_payload(now: datetime) -> dict:
     return {
         "pending": pending.count(),
         "sending": sending.count(),
-        "oldestPendingAt": _iso(pending.aggregate(oldest=Min("created_at"))["oldest"]),
+        "oldestPendingAt": iso_or_none(pending.aggregate(oldest=Min("created_at"))["oldest"]),
         "overdue": overdue,
         "last24Hours": last_day,
         "testEmails": {
@@ -208,7 +204,7 @@ def environment_payload() -> dict:
             "fromAddress": settings.SENTINEL_EMAIL_FROM or None,
             "timeoutSeconds": settings.SENTINEL_SMTP_TIMEOUT,
             "maxAgeHours": settings.SENTINEL_NOTIFICATION_MAX_AGE_HOURS,
-            "consoleUrl": settings.SENTINEL_CONSOLE_URL or None,
+            "consoleUrl": settings.SENTINEL_URL or None,
         },
         "retention": {
             "incidentDays": settings.SENTINEL_INCIDENT_RETENTION_DAYS,

@@ -91,16 +91,26 @@ SERVICES = {
             "SENTINEL_SMTP_PASSWORD": "",
         },
     },
+    "maintenance": {
+        "kinds": {"runtime", "django", "pepper"},
+        "variables": {
+            "SENTINEL_DB_PASSWORD": "runtime",
+            "DJANGO_SECRET_KEY": "django",
+            "AGENT_TOKEN_PEPPER": "pepper",
+            "SENTINEL_DB_MIGRATE_PASSWORD": "",
+            "SENTINEL_SMTP_PASSWORD": "",
+        },
+    },
     # The console's front door: no secret of any kind, and no variable that could hold one.
     "proxy": {"kinds": set(), "variables": {}},
     # The secrets of a new installation (PostgreSQL 18 only): whether .env sets the database password, never it.
     "init": {"kinds": set(), "variables": {"SENTINEL_ENV_SETS_DATABASE_PASSWORD": OWN}},
 }
-# Services of a Compose profile, or of one PostgreSQL version: in the configuration only then.
-OPTIONAL = {"notifier", "domain-verifier", "init"}
+# Services of one PostgreSQL version: in the configuration only then.
+OPTIONAL = {"init"}
 # The services that read the secrets of a new installation, read-only (sentinel/secrets.py).
 SECRETS_MOUNT = "/run/sentinel/secrets"
-READS_SECRETS = {"web", "migrate", "alert-engine", "notifier", "domain-verifier", "db"}
+READS_SECRETS = {"web", "migrate", "alert-engine", "notifier", "domain-verifier", "maintenance", "db"}
 
 # What the files of an evidence directory are. Processes: one block for each process the container
 # has, "## <pid> <command line>" and then its environment, as the separate-roles-e2e.sh collects them.
