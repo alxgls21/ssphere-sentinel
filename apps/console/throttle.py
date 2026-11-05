@@ -1,4 +1,7 @@
-"""Throttling of console login attempts (password guessing).
+"""Throttling of console and admin login attempts (password guessing).
+
+The admin login form (apps.console.admin_login) uses the same keys, so one
+lockout covers both.
 
 Limits are per account, not per client address: Django never trusts
 ``X-Forwarded-For`` here (see docs/security.md), so behind a proxy every

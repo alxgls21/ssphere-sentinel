@@ -1,6 +1,10 @@
 from django.contrib import admin
 
+from apps.console.admin_login import ThrottledAdminAuthenticationForm
 from apps.console.models import CustomerAccess, LoginThrottle, SiteAccess
+
+# The admin login shares the console's sign-in throttle (apps/console/admin_login.py).
+admin.site.login_form = ThrottledAdminAuthenticationForm
 
 
 @admin.register(CustomerAccess)
@@ -25,7 +29,7 @@ class SiteAccessAdmin(admin.ModelAdmin):
 
 @admin.register(LoginThrottle)
 class LoginThrottleAdmin(admin.ModelAdmin):
-    """Failed console sign-ins. Delete a row to unlock that account right away."""
+    """Failed console and admin sign-ins. Delete a row to unlock that account right away."""
 
     list_display = ("account", "attempts", "locked_until", "updated_at")
     list_select_related = ("user",)
