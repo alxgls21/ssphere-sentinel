@@ -19,6 +19,7 @@ from apps.console.http import (
     begin_console_session,
     console_api,
     has_console_session,
+    storable_text,
 )
 from apps.console.serializers import scope_payload, session_payload
 
@@ -114,21 +115,10 @@ def _credentials(request) -> tuple[str, str]:
     if not isinstance(data, dict):
         raise ApiError(400, "invalid_request", "The body must be a JSON object.")
     username, password = data.get("username"), data.get("password")
-    if not _acceptable_text(username) or not _acceptable_text(password):
+    if not storable_text(username) or not storable_text(password):
         raise ApiError(400, "invalid_request", "username and password are required.")
     # The same normalization the admin login form applies to a user name.
     username = unicodedata.normalize("NFKC", username.strip())
     if not 1 <= len(username) <= MAX_USERNAME_LENGTH or not 1 <= len(password) <= MAX_PASSWORD_LENGTH:
         raise ApiError(400, "invalid_request", "username and password are required.")
     return username, password
-
-
-def _acceptable_text(value) -> bool:
-    """A string PostgreSQL and the password hashers can handle (no NUL, no lone surrogates)."""
-    if not isinstance(value, str) or "\x00" in value:
-        return False
-    try:
-        value.encode("utf-8")
-    except UnicodeEncodeError:
-        return False
-    return True

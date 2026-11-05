@@ -115,7 +115,7 @@ from apps.console.access import Scope, Visibility
 from apps.console.http import ApiError, console_api
 from apps.console.listing import apply_search, name_order, page_envelope
 from apps.console.params import PAGE_PARAMS, SCOPE_PARAMS, PageRequest, QueryParams
-from apps.console.serializers import iso, iso_or_none
+from apps.console.serializers import iso, iso_or_none, latest
 from apps.infrastructure.liveness import offline_threshold_seconds
 from apps.infrastructure.models import DockerContainer, Server
 from apps.inventory.models import Device
@@ -365,8 +365,7 @@ def engine_status_payload(now: datetime) -> dict:
     )
     stale_after = max(offline_threshold_seconds(), 3 * (beat["interval_seconds"] or DEFAULT_INTERVAL))
     success, failure = beat["beat_at"], beat["last_error_at"]
-    attempts = [moment for moment in (success, failure) if moment is not None]
-    attempt = max(attempts) if attempts else None
+    attempt = latest(success, failure)
     stale = attempt is None or (now - attempt).total_seconds() > stale_after
     if attempt is None:
         state = "never_started"

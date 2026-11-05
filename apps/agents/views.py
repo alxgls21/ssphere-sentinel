@@ -6,6 +6,7 @@ from django.views.decorators.http import require_POST
 
 from apps.agents.authentication import authenticate_agent
 from apps.agents.services import record_heartbeat
+from apps.core.ingest import acknowledgement
 from apps.infrastructure.docker_reports import (
     DockerValidationError,
     apply_docker_report,
@@ -83,20 +84,7 @@ def agent_heartbeat(request):
         try:
             network_report = validate_network_payload(payload["network"], agent=agent)
             ingest = apply_network_report(agent, network_report)
-            response["network"] = ingest.status
-            response["network_created"] = ingest.created
-            response["network_duplicates"] = ingest.duplicates
-            response["network_accepted"] = ingest.accepted
-            response["network_rejected"] = ingest.rejected
-            response["network_results"] = ingest.results()
-            if ingest.rejections:
-                response["network_rejections"] = [
-                    rejection.as_dict() for rejection in ingest.rejections
-                ]
-                response["network_detail"] = (
-                    f"{ingest.rejected} measurement(s) rejected; "
-                    f"first: {ingest.rejections[0].reason}"
-                )
+            response.update(acknowledgement("network", "measurement", ingest))
         except NetworkValidationError as exc:
             response["network"] = "rejected"
             response["network_detail"] = str(exc)
@@ -118,21 +106,7 @@ def _snmp_response(agent, raw_section) -> dict:
         result = apply_snmp_report(agent, report)
     except SnmpValidationError as exc:
         return {"snmp": "rejected", "snmp_detail": str(exc)}
-
-    response = {
-        "snmp": result.status,
-        "snmp_created": result.created,
-        "snmp_duplicates": result.duplicates,
-        "snmp_accepted": result.accepted,
-        "snmp_rejected": result.rejected,
-        "snmp_results": result.results(),
-    }
-    if result.rejections:
-        response["snmp_rejections"] = [rejection.as_dict() for rejection in result.rejections]
-        response["snmp_detail"] = (
-            f"{result.rejected} poll(s) rejected; first: {result.rejections[0].reason}"
-        )
-    return response
+    return acknowledgement("snmp", "poll", result)
 
 
 def _parse_body(request) -> tuple[dict, str | None]:

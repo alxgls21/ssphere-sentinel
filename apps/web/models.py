@@ -78,8 +78,6 @@ class MonitoredDomain(models.Model):
     each change. Who added it is kept as a name too, which outlives the account.
     """
 
-    Status = DomainStatus
-
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     customer = models.ForeignKey("inventory.Customer", on_delete=models.PROTECT, related_name="monitored_domains")
     name = models.CharField(max_length=MAX_LENGTH, editable=False)
@@ -158,8 +156,6 @@ class DomainVerification(models.Model):
         MANUAL = "manual", "Asked for"
         SCHEDULED = "scheduled", "Scheduled"
 
-    Outcome = VerificationOutcome
-    Detail = VerificationDetail
     OPEN = (Status.PENDING, Status.RUNNING)
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)

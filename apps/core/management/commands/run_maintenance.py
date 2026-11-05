@@ -25,7 +25,9 @@ from django.core.management import call_command
 from django.core.management.base import BaseCommand, CommandError
 from django.db import close_old_connections, connection
 
-from apps.alerts.runtime import mark_alive, stopped_by_signals, unapplied_migrations, wait_for_migrations
+from apps.alerts.runtime import (
+    add_liveness_argument, check_interval, mark_alive, refuse_pending, stopped_by_signals, unapplied_migrations, wait_for_migrations,
+)
 
 logger = logging.getLogger("apps.core.maintenance")
 
@@ -79,15 +81,12 @@ class Command(BaseCommand):
             default=DEFAULT_INTERVAL,
             help=f"Seconds between runs ({MIN_INTERVAL}-{MAX_INTERVAL}, default {DEFAULT_INTERVAL}).",
         )
-        parser.add_argument("--liveness-file", help="A file to keep current for a container health check.")
+        add_liveness_argument(parser)
 
     def handle(self, *args, once: bool, interval: int, liveness_file: str | None = None, **options):
-        if not MIN_INTERVAL <= interval <= MAX_INTERVAL:
-            raise CommandError(f"--interval must be between {MIN_INTERVAL} and {MAX_INTERVAL} seconds.")
+        check_interval(interval, MIN_INTERVAL, MAX_INTERVAL)
         if once:
-            pending = unapplied_migrations()
-            if pending:
-                raise CommandError(f"{len(pending)} migration(s) not applied. Apply them first: maintenance never migrates.")
+            refuse_pending(unapplied_migrations(), "maintenance")
             failed = run_tasks()
             if failed:
                 raise CommandError(f"Failed: {', '.join(failed)}; see the log.")

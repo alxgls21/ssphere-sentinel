@@ -43,6 +43,7 @@ from django.db.models import Q
 from django.utils import timezone
 
 from apps.agents.models import Agent
+from apps.core.ingest import IngestResult, Rejection, acceptance_window
 from apps.core.validation import parse_timestamp, parse_uuid, peek_uuid, require_integer, require_number
 from apps.inventory.models import Device
 from apps.snmp.models import (
@@ -135,15 +136,11 @@ REASON_NO_SNMP_CONFIG = "device has no SNMP configuration"
 
 
 def poll_acceptance_window() -> timedelta:
-    """How old a delayed poll may be and still be stored.
-
-    Capped at the retention period: older rows would be purged right away.
-    """
-    days = min(
+    """How old a delayed poll may be and still be stored (``acceptance_window``)."""
+    return acceptance_window(
         settings.SENTINEL_SNMP_MAX_AGE_DAYS,
         settings.SENTINEL_SNMP_RETENTION_DAYS,
     )
-    return timedelta(days=days)
 
 
 # --- validated data ---------------------------------------------------------
@@ -193,21 +190,16 @@ class ValidatedPoll:
 
 
 @dataclass(frozen=True)
-class PollRejection:
+class PollRejection(Rejection):
     """A poll that was not stored, with a safe reason."""
+
+    ID_KEY = "poll_id"
 
     poll_id: str | None
     reason: str
     # True only for server-side storage failures that may succeed on resend.
     # Validation failures are permanent: resending the same data cannot pass.
     retryable: bool = False
-
-    def as_dict(self) -> dict[str, Any]:
-        return {
-            "poll_id": self.poll_id,
-            "reason": self.reason,
-            "retryable": self.retryable,
-        }
 
 
 @dataclass(frozen=True)
@@ -217,50 +209,16 @@ class ValidatedSnmpReport:
 
 
 @dataclass(frozen=True)
-class SnmpIngestResult:
+class SnmpIngestResult(IngestResult):
+    """Per-poll acknowledgement: ``results()``, ``accepted``, ``rejected``, ``status``."""
+
+    ID_KEY = "poll_id"
+
     created: int
     duplicates: int
     rejections: tuple[PollRejection, ...]
     created_ids: tuple[str, ...] = ()
     duplicate_ids: tuple[str, ...] = ()
-
-    def results(self) -> list[dict[str, Any]]:
-        """Per-poll acknowledgement, one entry per identifiable poll ID.
-
-        Lets agents remove exactly the polls that are stored (``created`` or
-        ``duplicate``) and decide per rejection whether to resend. Rejections
-        without a parseable ID, and repeats of an ID already listed, are
-        omitted so every ID appears at most once.
-        """
-        entries: list[dict[str, Any]] = []
-        seen: set[str] = set()
-        for result, ids in (("created", self.created_ids), ("duplicate", self.duplicate_ids)):
-            for poll_id in ids:
-                seen.add(poll_id)
-                entries.append({"poll_id": poll_id, "result": result})
-        for rejection in self.rejections:
-            if rejection.poll_id is None or rejection.poll_id in seen:
-                continue
-            seen.add(rejection.poll_id)
-            entries.append({"result": "rejected", **rejection.as_dict()})
-        return entries
-
-    @property
-    def accepted(self) -> int:
-        """Polls now stored server-side (new rows plus idempotent retries)."""
-        return self.created + self.duplicates
-
-    @property
-    def rejected(self) -> int:
-        return len(self.rejections)
-
-    @property
-    def status(self) -> str:
-        if not self.rejections:
-            return "accepted"
-        if self.accepted == 0:
-            return "rejected"
-        return "partial"
 
 
 # --- validation -------------------------------------------------------------

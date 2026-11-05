@@ -27,6 +27,12 @@ def iso_or_none(value: datetime | None) -> str | None:
     return iso(value) if value is not None else None
 
 
+def latest(*moments: datetime | None) -> datetime | None:
+    """The latest of the moments that are set, or None if none is."""
+    known = [moment for moment in moments if moment is not None]
+    return max(known) if known else None
+
+
 def agent_server_names(visibility: Visibility, rows: list[dict]) -> dict[UUID, str]:
     """Visible names for a page's assigned-agent servers, in one query."""
     server_ids = {row["assigned_agent__server_id"] for row in rows if row["assigned_agent__server_id"] is not None}

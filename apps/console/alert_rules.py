@@ -90,9 +90,9 @@ from django.utils import timezone
 from apps.alerts import audit
 from apps.alerts.conditions import MATCHES, EntityKind, HealthCondition, Severity, reasons_for
 from apps.alerts.models import MAX_DURATION_SECONDS, AlertRule, CloseReason, ConfigurationSource, Incident
-from apps.console.http import ApiError, console_api, json_object, validation_error
+from apps.console.http import ApiError, console_api, json_object, storable_text, validation_error
 from apps.console.listing import apply_search, name_order, page_envelope
-from apps.console.params import PAGE_PARAMS, PageRequest, QueryParams
+from apps.console.params import PAGE_PARAMS, PageRequest, QueryParams, canonical_uuid
 from apps.console.permissions import may_add_rules, may_change_rules, may_view_rules, require
 from apps.console.serializers import iso
 from apps.inventory.models import Customer, Site
@@ -310,7 +310,7 @@ def _text(value, *, limit: int, errors: dict, name: str) -> str | None:
     if not isinstance(value, str):
         errors[name] = ["Expected text."]
         return None
-    if "\x00" in value or any(0xD800 <= ord(char) <= 0xDFFF for char in value):
+    if not storable_text(value):
         errors[name] = ["This text cannot be stored."]
         return None
     if len(value) > limit:
@@ -322,11 +322,8 @@ def _text(value, *, limit: int, errors: dict, name: str) -> str | None:
 def _reference(model, value, *, errors: dict, name: str, label: str):
     if value is None:
         return None
-    try:
-        parsed = UUID(value) if isinstance(value, str) and len(value) <= 36 else None
-    except ValueError:
-        parsed = None
-    if parsed is None or str(parsed) != value.lower():
+    parsed = canonical_uuid(value)
+    if parsed is None:
         errors[name] = [f"Expected the id of a {label}."]
         return None
     if not model.objects.filter(pk=parsed).exists():

@@ -474,9 +474,6 @@ class IncidentEvent(models.Model):
 
     Kind = EventKind
 
-    # Each happens at most once to an incident; the recovery steps may repeat.
-    ONCE = (Kind.OPENED, Kind.ACKNOWLEDGED, Kind.RECOVERED, Kind.CLOSED)
-
     id = models.BigAutoField(primary_key=True)
     incident = models.ForeignKey(
         Incident,
@@ -506,6 +503,7 @@ class IncidentEvent(models.Model):
         verbose_name_plural = "incident events"
         default_permissions = ("view",)
         constraints = [
+            # Each happens at most once to an incident; the recovery steps may repeat.
             models.UniqueConstraint(
                 fields=["incident", "kind"],
                 condition=Q(kind__in=["opened", "acknowledged", "recovered", "closed"]),
@@ -1016,10 +1014,6 @@ class ConfigurationEvent(models.Model):
     record exist together or not at all. A domain verifier's answer is recorded with
     the account that asked for it.
     """
-
-    Action = ConfigurationAction
-    Target = ConfigurationTarget
-    Source = ConfigurationSource
 
     id = models.BigAutoField(primary_key=True)
     at = models.DateTimeField()
