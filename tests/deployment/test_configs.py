@@ -177,6 +177,16 @@ class DockerImageTests(unittest.TestCase):
         self.assertFalse([line for line in lines if ".env" in line and line.startswith("!")])
 
 
+class GitIgnoreTests(unittest.TestCase):
+    """What holds secrets in an installation's directory is never offered to Git."""
+
+    def test_the_backups_install_sh_takes_are_ignored(self):
+        # scripts/install.sh writes the database dump and a tarball of .env, .env.tunnel and secrets/ there.
+        self.assertIn('folder="$dir/backups"', (ROOT / "scripts" / "install.sh").read_text())
+        ignored = [line.strip() for line in (ROOT / ".gitignore").read_text().splitlines()]
+        self.assertIn("/backups/", ignored)
+
+
 def interpolate(text: str, environment: dict[str, str]) -> str:
     """Resolve ``${NAME:-default}`` the way Compose does."""
 
@@ -610,6 +620,8 @@ class ComposeTests(unittest.TestCase):
 
 FRONTEND = ROOT / "frontend"
 PROXY_DIR = ROOT / "deploy" / "frontend"
+# Browser features neither the console nor the admin uses.
+PERMISSIONS_POLICY = "camera=(), microphone=(), geolocation=(), payment=(), usb=()"
 
 
 class ProxyTests(unittest.TestCase):
@@ -777,7 +789,24 @@ class ProxyTests(unittest.TestCase):
         self.assertEqual(policy["connect-src"], "'self'")
         self.assertEqual(policy["frame-ancestors"], "'none'")
         self.assertEqual(policy["object-src"], "'none'")
+        self.assertEqual(found["Cross-Origin-Opener-Policy"], "same-origin")
+        self.assertEqual(found["Cross-Origin-Resource-Policy"], "same-origin")
+        self.assertEqual(found["Permissions-Policy"], PERMISSIONS_POLICY)
         self.assertNotIn("add_header", self.nginx.split("location", 1)[0])
+
+    def test_what_django_serves_carries_the_headers_django_does_not_send(self):
+        django = self.block("location ~ ^/(api|admin|static|health)/")
+        found = dict(re.findall(r'add_header (\S+) "?([^";]*)"? always;', django))
+        # Django sends nosniff, Referrer-Policy, COOP and X-Frame-Options itself: nginx adds only what it lacks.
+        self.assertEqual(set(found), {"Permissions-Policy", "Cross-Origin-Resource-Policy", "Content-Security-Policy"})
+        self.assertEqual(found["Permissions-Policy"], PERMISSIONS_POLICY)
+        self.assertEqual(found["Cross-Origin-Resource-Policy"], "same-origin")
+        # The JSON APIs get a policy that allows nothing; the admin (its own scripts and styles) none from here.
+        variable = found["Content-Security-Policy"]
+        mapping = re.search(r"(?m)^map \$uri " + re.escape(variable) + r" \{(.*?)\n\}", self.nginx, re.S)
+        self.assertIsNotNone(mapping, self.nginx)
+        entries = dict(re.findall(r'(\S+)\s+"([^"]*)";', mapping[1]))
+        self.assertEqual(entries, {"default": "", "~^/api/": "default-src 'none'; frame-ancestors 'none'"})
 
 
 def yaml_load(path: Path) -> dict:

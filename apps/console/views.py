@@ -4,12 +4,10 @@ from __future__ import annotations
 
 import json
 import logging
-import time
 import unicodedata
 
-from django.contrib.auth import authenticate, get_user_model, login, logout
+from django.contrib.auth import authenticate, get_user_model, logout
 from django.contrib.auth.hashers import make_password
-from django.conf import settings
 from django.http import JsonResponse
 from django.utils import timezone
 from django.views.decorators.csrf import ensure_csrf_cookie
@@ -17,11 +15,10 @@ from django.views.decorators.csrf import ensure_csrf_cookie
 from apps.console import throttle
 from apps.console.access import USE_CONSOLE
 from apps.console.http import (
-    CONSOLE_SESSION_KEY,
     ApiError,
+    begin_console_session,
     console_api,
     has_console_session,
-    require_console_user,
 )
 from apps.console.serializers import scope_payload, session_payload
 
@@ -80,10 +77,7 @@ def sign_in(request):
             "Invalid user name or password, or the account is temporarily locked after repeated failures.",
         )
 
-    request.session.flush()  # start from an empty session: nothing set before sign-in survives it
-    login(request, user)  # new session key, new CSRF token
-    request.session[CONSOLE_SESSION_KEY] = int(time.time())
-    request.session.set_expiry(settings.SENTINEL_CONSOLE_SESSION_SECONDS)
+    begin_console_session(request, user)  # the backend authenticate() chose
     throttle.clear(key)
     logger.info("Console sign-in (user_id=%s)", user.pk)
     return JsonResponse(session_payload(request, user))

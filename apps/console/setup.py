@@ -21,11 +21,9 @@ import hashlib
 import hmac
 import logging
 import secrets
-import time
 import unicodedata
 
-from django.conf import settings
-from django.contrib.auth import get_user_model, login
+from django.contrib.auth import get_user_model
 from django.contrib.auth.password_validation import validate_password
 from django.core.exceptions import ValidationError
 from django.core.validators import validate_email
@@ -35,7 +33,7 @@ from django.utils import timezone
 from django.views.decorators.csrf import ensure_csrf_cookie
 
 from apps.console import throttle
-from apps.console.http import CONSOLE_SESSION_KEY, ApiError, console_api, json_object, validation_error
+from apps.console.http import ApiError, begin_console_session, console_api, json_object, validation_error
 from apps.console.models import SetupCode
 from apps.console.serializers import session_payload
 
@@ -110,10 +108,7 @@ def setup(request):
     if fields:
         raise validation_error(fields)
 
-    request.session.flush()
-    login(request, user, backend="django.contrib.auth.backends.ModelBackend")
-    request.session[CONSOLE_SESSION_KEY] = int(time.time())
-    request.session.set_expiry(settings.SENTINEL_CONSOLE_SESSION_SECONDS)
+    begin_console_session(request, user, backend="django.contrib.auth.backends.ModelBackend")
     logger.info("Console setup: first administrator created (user_id=%s)", user.pk)
     return JsonResponse(session_payload(request, user))
 

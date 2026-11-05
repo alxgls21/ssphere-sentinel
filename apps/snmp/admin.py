@@ -5,6 +5,7 @@ from django.urls import reverse
 from django.utils.functional import cached_property
 from django.utils.html import format_html
 
+from apps.core import admin as core_admin
 from apps.inventory.admin import DeviceAdmin
 from apps.inventory.models import Device
 from apps.snmp.models import (
@@ -61,7 +62,7 @@ class EstimatedCountPaginator(Paginator):
         return super().count
 
 
-class ReadOnlyAdmin(admin.ModelAdmin):
+class ReadOnlyAdmin(core_admin.ReadOnlyAdmin):
     """Data written by agents: visible, never edited or deleted by hand.
 
     History is removed by ``manage.py purge_snmp_data`` only.
@@ -69,15 +70,6 @@ class ReadOnlyAdmin(admin.ModelAdmin):
 
     show_full_result_count = False
     paginator = EstimatedCountPaginator
-
-    def has_add_permission(self, request) -> bool:
-        return False
-
-    def has_change_permission(self, request, obj=None) -> bool:
-        return False
-
-    def has_delete_permission(self, request, obj=None) -> bool:
-        return False
 
 
 # --- devices: SNMP configuration inline -------------------------------------

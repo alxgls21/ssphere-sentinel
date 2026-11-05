@@ -69,7 +69,7 @@ from __future__ import annotations
 import ipaddress
 import time
 from collections import Counter
-from collections.abc import Callable, Collection, Iterable
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
 
 import dns.exception
@@ -87,7 +87,6 @@ VERIFIED = "verified"
 ABSENT = "absent"
 PROPAGATION_PENDING = "propagation_pending"
 INDETERMINATE = "indeterminate"
-OUTCOMES: Collection[str] = (VERIFIED, ABSENT, PROPAGATION_PENDING, INDETERMINATE)
 
 # Why: one per outcome for the first three, the cause for an indeterminate one.
 FOUND = "found"
@@ -552,8 +551,6 @@ class _Verification:
             response = self.network.ask(
                 server.address, question, self.budget.take(self.limits.query_timeout), self.budget.left
             )
-        except Stop:
-            raise
         except (dns.exception.DNSException, OSError, EOFError, ValueError):
             return None
         if (
@@ -614,8 +611,6 @@ class _Verification:
                 response = self.network.ask(
                     address, question, self.budget.take(self.limits.query_timeout), self.budget.left
                 )
-            except Stop:
-                raise
             except (dns.exception.DNSException, OSError, EOFError, ValueError) as error:
                 server.result = _cause(error)
                 if server.result in (TIMEOUT, NETWORK_ERROR):
@@ -654,8 +649,6 @@ class _Verification:
                 break
             try:
                 candidates = self.network.addresses(server.name, rdtype, self.budget.take(self.limits.lookup_timeout))
-            except Stop:
-                raise
             except dns.exception.DNSException:
                 continue
             public = [address for address in sorted(set(candidates)) if self.allowed(address)]

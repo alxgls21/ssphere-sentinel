@@ -1,5 +1,7 @@
 """Deployment checks reported by ``manage.py check --deploy``."""
 
+import ipaddress
+
 from django.conf import settings
 from django.core.checks import Tags, Warning, register
 
@@ -46,4 +48,24 @@ def check_deployment_configuration(app_configs, **kwargs):
                 id="sentinel.W004",
             )
         )
+    if settings.SENTINEL_URL.startswith("https://") and not _loopback(settings.SENTINEL_HTTP_BIND):
+        warnings.append(
+            Warning(
+                f"SENTINEL_URL is https://, but the proxy service is published on "
+                f"{settings.SENTINEL_HTTP_BIND or '0.0.0.0 (the default)'}: its plain-HTTP port can be reached "
+                "without the TLS front end, around everything that front end enforces.",
+                hint="With the TLS front end (Cloudflare Tunnel or a reverse proxy) on this host, set "
+                "SENTINEL_HTTP_BIND=127.0.0.1 in .env and run docker compose up -d. With the front end on "
+                "another host, make sure a firewall lets only that host reach the port.",
+                id="sentinel.W005",
+            )
+        )
     return warnings
+
+
+def _loopback(address: str) -> bool:
+    """Whether ``address`` (as Compose takes it: an IP, IPv6 in brackets or not) is a loopback address."""
+    try:
+        return ipaddress.ip_address(address.strip().removeprefix("[").removesuffix("]")).is_loopback
+    except ValueError:
+        return False

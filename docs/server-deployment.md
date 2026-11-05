@@ -125,7 +125,10 @@ answers to, the origin sign-ins come from, the address in the emails, and,
 being `https://`, makes the session and CSRF cookies Secure. (An `http://`
 address, for a trusted local network only, makes them plain, and
 `manage.py check --deploy` warns about it.) `SENTINEL_HTTP_BIND=127.0.0.1`
-keeps the plain-HTTP port of the proxy for the TLS front end on this host.
+keeps the plain-HTTP port of the proxy for the TLS front end on this host;
+with an `https://` address, `manage.py check --deploy` warns
+(`sentinel.W005`) when `.env` leaves it out or sets an address that is not
+loopback.
 
 The secrets are created on the first start: the one-shot `init` service
 writes the Django secret key, the agents' token pepper and the database

@@ -24,6 +24,7 @@ import time
 from functools import wraps
 
 from django.conf import settings
+from django.contrib.auth import login
 from django.core.exceptions import BadRequest, PermissionDenied, SuspiciousOperation
 from django.http import Http404, HttpRequest, JsonResponse
 from django.utils.cache import add_never_cache_headers, patch_vary_headers
@@ -95,6 +96,18 @@ def has_console_session(request: HttpRequest) -> bool:
     # of allowance for clocks that differ slightly or step back.
     age = int(time.time()) - signed_in_at
     return -CLOCK_SKEW_SECONDS <= age <= settings.SENTINEL_CONSOLE_SESSION_SECONDS
+
+
+def begin_console_session(request: HttpRequest, user, *, backend: str | None = None) -> None:
+    """Sign ``user`` in with a console session (the sign-in and the first-run setup).
+
+    The session starts empty, under a new key and a new CSRF token, and lasts
+    SENTINEL_CONSOLE_SESSION_SECONDS from now, without renewal.
+    """
+    request.session.flush()  # start from an empty session: nothing set before sign-in survives it
+    login(request, user, backend=backend)  # new session key, new CSRF token
+    request.session[CONSOLE_SESSION_KEY] = int(time.time())
+    request.session.set_expiry(settings.SENTINEL_CONSOLE_SESSION_SECONDS)
 
 
 def require_console_user(request: HttpRequest):

@@ -3,18 +3,8 @@ and their tokens made, and every change is recorded in the configuration trail."
 
 from django.contrib import admin
 
+from apps.core.admin import ReadOnlyAdmin
 from apps.web.models import DomainVerification, DomainVerifierHeartbeat, MonitoredDomain
-
-
-class ReadOnlyAdmin(admin.ModelAdmin):
-    def has_add_permission(self, request):
-        return False
-
-    def has_change_permission(self, request, obj=None):
-        return False
-
-    def has_delete_permission(self, request, obj=None):
-        return False
 
 
 @admin.register(MonitoredDomain)

@@ -127,6 +127,9 @@ policy = response.headers.get("Content-Security-Policy", "")
 check("default-src 'self'" in policy and "frame-ancestors 'none'" in policy, f"console CSP: {policy!r}")
 check(response.headers.get("X-Frame-Options") == "DENY", "X-Frame-Options is missing")
 check(response.headers.get("X-Content-Type-Options") == "nosniff", "X-Content-Type-Options is missing")
+check("camera=()" in response.headers.get("Permissions-Policy", ""), "Permissions-Policy is missing")
+check(response.headers.get("Cross-Origin-Opener-Policy") == "same-origin", "Cross-Origin-Opener-Policy is missing")
+check(response.headers.get("Cross-Origin-Resource-Policy") == "same-origin", "Cross-Origin-Resource-Policy is missing")
 check(response.headers.get("Cache-Control") == "no-cache", "index.html may be cached")
 check("nginx/" not in response.headers.get("Server", ""), "the proxy names its version")
 for route in ("/login", "/servers/00000000-0000-0000-0000-000000000000", "/settings/notifications"):
@@ -150,6 +153,10 @@ browser = Browser()
 response, body = browser.api("GET", "/api/v1/console/session/")
 check(response.status == 200 and body["authenticated"] is False, f"session: {response.status} {body}")
 check("csrftoken" in browser.cookies, "the session bootstrap set no CSRF cookie")
+# JSON loads nothing: the proxy gives the APIs a policy that allows nothing (one header, not two).
+check(response.headers.get_all("Content-Security-Policy") == ["default-src 'none'; frame-ancestors 'none'"],
+      f"API CSP: {response.headers.get_all('Content-Security-Policy')!r}")
+check(response.headers.get("Cross-Origin-Resource-Policy") == "same-origin", "the API lacks Cross-Origin-Resource-Policy")
 token = body["csrfToken"]
 response, body = browser.api("POST", "/api/v1/console/auth/login/", {"username": "ci-proxy", "password": PASSWORD})
 check(response.status == 403 and body["error"]["code"] == "csrf_failed", "a sign-in without the CSRF token passed")
@@ -181,6 +188,9 @@ check(response.status == 200 and body["authenticated"] is False, f"sign-out: {re
 admin = Browser()
 response, page = admin.send("GET", "/admin/login/")
 check(response.status == 200, f"/admin/login/: {response.status}")
+# The admin's pages get the headers Django does not send, and no CSP from the proxy (its own scripts and styles).
+check("Content-Security-Policy" not in response.headers, "the proxy gave the admin the APIs' CSP")
+check("camera=()" in response.headers.get("Permissions-Policy", ""), "the admin lacks Permissions-Policy")
 middleware_token = re.search(rb'name="csrfmiddlewaretoken" value="([^"]+)"', page)[1].decode()
 form = f"csrfmiddlewaretoken={middleware_token}&username=ci-proxy&password={PASSWORD}&next=/admin/"
 response, _ = admin.send("POST", "/admin/login/?next=/admin/", form,
