@@ -24,7 +24,9 @@ from django.db import close_old_connections, connection
 from django.utils import timezone
 
 from apps.alerts.engine import DEFAULT_INTERVAL, Report, record_failure, run_cycle
-from apps.alerts.runtime import mark_alive, stopped_by_signals, unapplied_migrations, wait_for_migrations
+from apps.alerts.runtime import (
+    add_liveness_argument, check_interval, mark_alive, refuse_pending, stopped_by_signals, unapplied_migrations, wait_for_migrations,
+)
 from apps.infrastructure.liveness import offline_threshold_seconds
 
 logger = logging.getLogger("apps.alerts.engine")
@@ -123,17 +125,12 @@ class Command(BaseCommand):
             default=DEFAULT_INTERVAL,
             help=f"Seconds between evaluations ({MIN_INTERVAL}-{MAX_INTERVAL}, default {DEFAULT_INTERVAL}).",
         )
-        parser.add_argument("--liveness-file", help="A file to keep current for a container health check.")
+        add_liveness_argument(parser)
 
     def handle(self, *args, once: bool, interval: int, liveness_file: str | None = None, **options):
-        if not MIN_INTERVAL <= interval <= MAX_INTERVAL:
-            raise CommandError(f"--interval must be between {MIN_INTERVAL} and {MAX_INTERVAL} seconds.")
+        check_interval(interval, MIN_INTERVAL, MAX_INTERVAL)
         if once:
-            pending = unapplied_migrations()
-            if pending:
-                raise CommandError(
-                    f"{len(pending)} migration(s) not applied. Apply them first: the alert engine never migrates."
-                )
+            refuse_pending(unapplied_migrations(), "the alert engine")
             engine = Engine(interval=interval, liveness=liveness_file)
             outcome = engine.cycle()
             if outcome == "failed":

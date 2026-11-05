@@ -23,7 +23,9 @@ from django.core.management.base import BaseCommand, CommandError
 from django.db import close_old_connections, connection
 from django.utils import timezone
 
-from apps.alerts.runtime import mark_alive, stopped_by_signals, unapplied_migrations, wait_for_migrations
+from apps.alerts.runtime import (
+    add_liveness_argument, check_interval, mark_alive, refuse_pending, stopped_by_signals, unapplied_migrations, wait_for_migrations,
+)
 from apps.web import dns_verification as dns
 from apps.web.verification import (
     VERIFIER_INTERVAL,
@@ -129,18 +131,15 @@ class Command(BaseCommand):
             default=DEFAULT_CONCURRENCY,
             help=f"Verifications at once (1-{MAX_CONCURRENCY}, default {DEFAULT_CONCURRENCY}).",
         )
-        parser.add_argument("--liveness-file", help="A file to keep current for a container health check.")
+        add_liveness_argument(parser)
 
     def handle(self, *args, once: bool, interval: int, concurrency: int, liveness_file: str | None = None, **options):
-        if not MIN_INTERVAL <= interval <= MAX_INTERVAL:
-            raise CommandError(f"--interval must be between {MIN_INTERVAL} and {MAX_INTERVAL} seconds.")
+        check_interval(interval, MIN_INTERVAL, MAX_INTERVAL)
         if not 1 <= concurrency <= MAX_CONCURRENCY:
             raise CommandError(f"--concurrency must be between 1 and {MAX_CONCURRENCY}.")
         verifier = Verifier(interval=interval, concurrency=concurrency, liveness=liveness_file)
         if once:
-            pending = unapplied_migrations()
-            if pending:
-                raise CommandError(f"{len(pending)} migration(s) not applied. Apply them first: the verifier never migrates.")
+            refuse_pending(unapplied_migrations(), "the verifier")
             if verifier.cycle() == "failed":
                 raise CommandError("Verification failed; see the log.")
             self.stdout.write(f"Answered: {verifier.answered} verification(s).")

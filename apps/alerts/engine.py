@@ -89,6 +89,7 @@ from apps.alerts.observations import (
     observe_servers,
     observe_targets,
 )
+from apps.alerts.runtime import failure_fields
 from apps.console.health import HEALTH_RANKS
 from apps.infrastructure.liveness import offline_threshold_seconds
 
@@ -568,8 +569,6 @@ def record_failure(now: datetime, *, started_at: datetime, error: BaseException,
         defaults={
             "started_at": started_at,
             "interval_seconds": interval,
-            "last_error_at": now,
-            "last_error_category": error_category(error),
-            "last_error_type": type(error).__name__[:100],
+            **failure_fields(now, error_category(error), error),
         },
     )

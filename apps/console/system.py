@@ -66,7 +66,7 @@ from apps.console.http import console_api
 from apps.console.incidents import engine_status_payload
 from apps.console.params import QueryParams
 from apps.console.permissions import may_view_system_status, require
-from apps.console.serializers import iso, iso_or_none
+from apps.console.serializers import iso, iso_or_none, latest
 from apps.console.thresholds import thresholds
 from apps.infrastructure.liveness import offline_threshold_seconds
 
@@ -94,10 +94,8 @@ def notifier_status_payload(now: datetime) -> dict:
     # The notifier's own liveness budget (run_notifier): two intervals and a long email.
     stale_after = 2 * interval + 600
     success, failure = beat["beat_at"], beat["last_error_at"]
-    attempts = [moment for moment in (success, failure) if moment is not None]
-    attempt = max(attempts) if attempts else None
-    signs = [moment for moment in (attempt, beat["active_at"]) if moment is not None]
-    active = max(signs) if signs else None
+    attempt = latest(success, failure)
+    active = latest(attempt, beat["active_at"])
     # Alive between emails, yet no cycle ended for longer than one can take: stuck.
     longest_cycle = stale_after + (LEASE + TEST_EMAIL_LEASE).total_seconds()
     stale = (

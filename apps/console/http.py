@@ -199,6 +199,17 @@ def json_object(request: HttpRequest, *, max_bytes: int = 8192, empty: bool = Fa
     return data
 
 
+def storable_text(value) -> bool:
+    """A string PostgreSQL and the password hashers can handle (no NUL, no lone surrogates)."""
+    if not isinstance(value, str) or "\x00" in value:
+        return False
+    try:
+        value.encode("utf-8")
+    except UnicodeEncodeError:
+        return False
+    return True
+
+
 def not_found(request: HttpRequest, *args, **kwargs) -> JsonResponse:
     """Unknown console URL, as JSON."""
     return harden(error_response(404, "not_found", "Not found."))

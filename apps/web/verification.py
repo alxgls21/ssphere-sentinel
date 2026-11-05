@@ -26,6 +26,7 @@ from django.db import DatabaseError, transaction
 from django.db.models import F, Q
 from django.utils import timezone
 
+from apps.alerts.runtime import failure_fields
 from apps.web import audit
 from apps.web import dns_verification as dns
 from apps.web.domains import record_value
@@ -202,9 +203,7 @@ def record_verifier_failure(now: datetime, *, started_at: datetime, interval: in
         defaults={
             "started_at": started_at,
             "interval_seconds": interval,
-            "last_error_at": now,
-            "last_error_category": category,
-            "last_error_type": type(error).__name__[:100],
+            **failure_fields(now, category, error),
         },
     )
 

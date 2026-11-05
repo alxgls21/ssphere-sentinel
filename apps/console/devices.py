@@ -94,7 +94,7 @@ from apps.console.health import (
     interface_health,
     offline_cutoff,
 )
-from apps.console.history import DEFAULT_RANGE, RANGES
+from apps.console.history import DEFAULT_RANGE, RANGES, bounds, bucket_starts_ms, window
 from apps.console.http import console_api
 from apps.console.listing import filter_list, name_order, page_envelope
 from apps.console.params import PAGE_PARAMS, SCOPE_PARAMS, PageRequest, QueryParams
@@ -459,21 +459,6 @@ def device_detail(request, device_id: UUID):
 # -- series --------------------------------------------------------------------
 
 
-def window(range_key: str, interval_seconds: int, now: datetime) -> tuple[int, int, int]:
-    """``(step, count, first)``: the server series' bucket, never shorter than the poll interval, and the window."""
-    step = max(int(RANGES[range_key][1].total_seconds()), interval_seconds)
-    count = int(RANGES[range_key][0].total_seconds()) // step
-    first = int(now.timestamp()) // step * step - count * step
-    return step, count, first
-
-
-def bounds(first: int, step: int, count: int, now: datetime) -> tuple[datetime, datetime]:
-    return (
-        datetime.fromtimestamp(first, tz=now.tzinfo),
-        datetime.fromtimestamp(first + count * step, tz=now.tzinfo),  # the bucket in progress is not served
-    )
-
-
 def visible_device(visibility: Visibility, device_id: UUID):
     return visibility.get(
         Device.objects.filter(snmp_config__isnull=False).values("pk", "snmp_config__poll_interval_seconds"), device_id
@@ -515,7 +500,7 @@ def device_series(request, device_id: UUID):
         {
             "generatedAt": iso(now),
             "bucketMs": step * 1000,
-            "t": [(first + i * step) * 1000 for i in range(count)],
+            "t": bucket_starts_ms(first, step, count),
             "responseMs": [mean(v) for v in responses],
             "reachablePolls": reachable,
             "failedPolls": failed,
@@ -563,7 +548,7 @@ def interface_series(request, device_id: UUID, if_index: int):
         {
             "generatedAt": iso(now),
             "bucketMs": step * 1000,
-            "t": [(first + i * step) * 1000 for i in range(count)],
+            "t": bucket_starts_ms(first, step, count),
             **{key: [mean(v) for v in values[key]] for key in SERIES_KEYS},
             "inBpsMax": [round(max(v), 3) if v else None for v in values["inBps"]],
             "outBpsMax": [round(max(v), 3) if v else None for v in values["outBps"]],

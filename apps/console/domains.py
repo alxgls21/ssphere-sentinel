@@ -83,7 +83,7 @@ from django.utils import timezone
 
 from apps.console.http import ApiError, console_api, json_object, validation_error
 from apps.console.listing import apply_search, name_order, page_envelope
-from apps.console.params import PAGE_PARAMS, PageRequest, QueryParams
+from apps.console.params import PAGE_PARAMS, PageRequest, QueryParams, canonical_uuid
 from apps.console.permissions import may_add_domains, may_verify_domains, may_view_domains, require
 from apps.console.serializers import iso, iso_or_none
 from apps.inventory.models import Customer
@@ -254,11 +254,8 @@ def parse_create(data: dict) -> tuple[UUID, str, str]:
     if raw is None:
         errors["customerId"] = ["Required."]
     else:
-        try:
-            parsed = UUID(raw) if isinstance(raw, str) and len(raw) <= 36 else None
-        except ValueError:
-            parsed = None
-        if parsed is None or str(parsed) != raw.lower() or not Customer.objects.filter(pk=parsed).exists():
+        parsed = canonical_uuid(raw)
+        if parsed is None or not Customer.objects.filter(pk=parsed).exists():
             errors["customerId"] = ["Expected the id of a customer."]
         else:
             customer_id = parsed

@@ -78,6 +78,7 @@ from apps.alerts.models import (
     TestEmailFailure,
     TestEmailRequest,
 )
+from apps.alerts.runtime import failure_fields
 from apps.console.access import USE_CONSOLE, Visibility
 
 logger = logging.getLogger("apps.alerts.notifier")
@@ -743,9 +744,7 @@ def record_notifier_failure(
             "started_at": started_at,
             "interval_seconds": interval,
             "active_at": now,
-            "last_error_at": now,
-            "last_error_category": error_category(error),
-            "last_error_type": type(error).__name__[:100],
+            **failure_fields(now, error_category(error), error),
             **(server or {}),
             **_configured(),
         },

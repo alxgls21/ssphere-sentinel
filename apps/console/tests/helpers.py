@@ -97,10 +97,6 @@ def load_contract(name: str):
     return json.loads((CONTRACT_DIR / name).read_text(encoding="utf-8"))
 
 
-def new_uuid() -> uuid.UUID:
-    return uuid.uuid4()
-
-
 # -- servers and containers ---------------------------------------------------
 
 

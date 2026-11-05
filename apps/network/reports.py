@@ -12,6 +12,7 @@ from django.db import IntegrityError, transaction
 from django.utils import timezone
 
 from apps.agents.models import Agent
+from apps.core.ingest import IngestResult, Rejection, acceptance_window
 from apps.core.validation import parse_timestamp, parse_uuid, peek_uuid, require_integer, require_number
 from apps.network.models import NetworkMeasurement, NetworkTarget
 
@@ -27,15 +28,11 @@ class NetworkValidationError(Exception):
 
 
 def measurement_acceptance_window() -> timedelta:
-    """How old a delayed measurement may be and still be stored.
-
-    Capped at the retention period: older rows would be purged right away.
-    """
-    days = min(
+    """How old a delayed measurement may be and still be stored (``acceptance_window``)."""
+    return acceptance_window(
         settings.SENTINEL_NETWORK_MEASUREMENT_MAX_AGE_DAYS,
         settings.SENTINEL_NETWORK_MEASUREMENT_RETENTION_DAYS,
     )
-    return timedelta(days=days)
 
 
 @dataclass(frozen=True)
@@ -52,21 +49,16 @@ class ValidatedMeasurement:
 
 
 @dataclass(frozen=True)
-class MeasurementRejection:
+class MeasurementRejection(Rejection):
     """A single measurement that was not stored, with a safe reason."""
+
+    ID_KEY = "measurement_id"
 
     measurement_id: str | None
     reason: str
     # True only for server-side storage failures that may succeed on resend.
     # Validation failures are permanent: resending the same data cannot pass.
     retryable: bool = False
-
-    def as_dict(self) -> dict[str, Any]:
-        return {
-            "measurement_id": self.measurement_id,
-            "reason": self.reason,
-            "retryable": self.retryable,
-        }
 
 
 @dataclass(frozen=True)
@@ -76,51 +68,16 @@ class ValidatedNetworkReport:
 
 
 @dataclass(frozen=True)
-class NetworkIngestResult:
+class NetworkIngestResult(IngestResult):
+    """Per-measurement acknowledgement: ``results()``, ``accepted``, ``rejected``, ``status``."""
+
+    ID_KEY = "measurement_id"
+
     created: int
     duplicates: int
     rejections: tuple[MeasurementRejection, ...]
     created_ids: tuple[str, ...] = ()
     duplicate_ids: tuple[str, ...] = ()
-
-    def results(self) -> list[dict[str, Any]]:
-        """Per-measurement acknowledgement, one entry per identifiable ID.
-
-        Lets agents remove exactly the measurements that are stored
-        (``created``/``duplicate``) and decide per rejection whether to resend.
-        Rejections without a parseable ID, and repeats of an ID already listed
-        (for example a duplicate inside one report), are omitted so every ID
-        appears at most once.
-        """
-        entries: list[dict[str, Any]] = []
-        seen: set[str] = set()
-        for result, ids in (("created", self.created_ids), ("duplicate", self.duplicate_ids)):
-            for measurement_id in ids:
-                seen.add(measurement_id)
-                entries.append({"measurement_id": measurement_id, "result": result})
-        for rejection in self.rejections:
-            if rejection.measurement_id is None or rejection.measurement_id in seen:
-                continue
-            seen.add(rejection.measurement_id)
-            entries.append({"result": "rejected", **rejection.as_dict()})
-        return entries
-
-    @property
-    def accepted(self) -> int:
-        """Measurements now stored server-side (new rows plus idempotent retries)."""
-        return self.created + self.duplicates
-
-    @property
-    def rejected(self) -> int:
-        return len(self.rejections)
-
-    @property
-    def status(self) -> str:
-        if not self.rejections:
-            return "accepted"
-        if self.accepted == 0:
-            return "rejected"
-        return "partial"
 
 
 def validate_network_payload(

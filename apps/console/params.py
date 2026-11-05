@@ -32,6 +32,20 @@ MAX_SEARCH_WORDS = 8
 MAX_UUID_LENGTH = 36
 
 
+def canonical_uuid(raw) -> UUID | None:
+    """``raw`` as a UUID if it is a UUID string in the canonical spelling, else ``None``.
+
+    Only the canonical spelling: no braces, ``urn:`` prefix or missing hyphens.
+    """
+    try:
+        parsed = UUID(raw) if isinstance(raw, str) and len(raw) <= MAX_UUID_LENGTH else None
+    except ValueError:
+        return None
+    if parsed is None or str(parsed) != raw.lower():
+        return None
+    return parsed
+
+
 def invalid(name: str, reason: str) -> ApiError:
     return ApiError(400, "invalid_parameter", f"Invalid query parameter '{name}': {reason}.")
 
@@ -77,12 +91,8 @@ class QueryParams:
         raw = self._values.get(name)
         if raw is None:
             return None
-        try:
-            parsed = UUID(raw) if len(raw) <= MAX_UUID_LENGTH else None
-        except ValueError:
-            parsed = None
-        # Only the canonical spelling: no braces, ``urn:`` prefix or missing hyphens.
-        if parsed is None or str(parsed) != raw.lower():
+        parsed = canonical_uuid(raw)
+        if parsed is None:
             raise invalid(name, "expected a UUID")
         return parsed
 

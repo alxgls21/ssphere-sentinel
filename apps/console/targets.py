@@ -75,7 +75,7 @@ from django.utils import timezone
 
 from apps.console.access import Scope, Visibility
 from apps.console.health import HEALTH_NAMES, annotate_targets, offline_cutoff
-from apps.console.history import DEFAULT_RANGE, RANGES
+from apps.console.history import DEFAULT_RANGE, RANGES, bounds, bucket_starts_ms, window
 from apps.console.http import console_api
 from apps.console.listing import filter_list, name_order, page_envelope
 from apps.console.params import PAGE_PARAMS, SCOPE_PARAMS, PageRequest, QueryParams
@@ -288,16 +288,11 @@ def target_detail(request, target_id: UUID):
     )
 
 
-def bucket_seconds(range_key: str, interval_seconds: int) -> int:
-    """The server series' bucket for the range, never shorter than the target's interval (it would be empty every other time)."""
-    return max(int(RANGES[range_key][1].total_seconds()), interval_seconds)
-
-
 def build_series(rows, *, range_key: str, interval_seconds: int, now: datetime) -> dict:
-    """The series of ``rows`` (``(measured_at, success, latency_ms, loss)``) over ``range_key`` ending at ``now``."""
-    step = bucket_seconds(range_key, interval_seconds)
-    count = int(RANGES[range_key][0].total_seconds()) // step
-    first = int(now.timestamp()) // step * step - count * step
+    """The series of ``rows`` (``(measured_at, success, latency_ms, loss)``) over ``range_key`` ending at ``now``.
+
+    The bucket is never shorter than the target's interval (it would be empty every other time)."""
+    step, count, first = window(range_key, interval_seconds, now)
     measured = [0] * count
     failed = [0] * count
     latencies: list[list[float]] = [[] for _ in range(count)]
@@ -314,7 +309,7 @@ def build_series(rows, *, range_key: str, interval_seconds: int, now: datetime) 
             failed[index] += 1
     return {
         "bucketMs": step * 1000,
-        "t": [(first + index * step) * 1000 for index in range(count)],
+        "t": bucket_starts_ms(first, step, count),
         "latencyMs": [round(sum(v) / len(v), 3) if v else None for v in latencies],
         "latencyMaxMs": [round(max(v), 3) if v else None for v in latencies],
         "lossPercent": [round(sum(v) / len(v), 2) if v else None for v in losses],
@@ -333,10 +328,7 @@ def target_series(request, target_id: UUID):
         NetworkTarget.objects.only("pk", "monitoring_interval_seconds", "site_id"), target_id
     )
     interval = target.monitoring_interval_seconds
-    step = bucket_seconds(range_key, interval)
-    count = int(RANGES[range_key][0].total_seconds()) // step
-    first = int(now.timestamp()) // step * step - count * step
-    end = first + count * step  # start of the current bucket
+    step, count, first = window(range_key, interval, now)
     measurements = visible_measurements(visibility).filter(target_id=target.pk)
     if not measurements.exists():
         series = {
@@ -344,11 +336,9 @@ def target_series(request, target_id: UUID):
             "measurements": [], "failed": [],
         }
     else:
+        start, end = bounds(first, step, count, now)
         rows = (
-            measurements.filter(
-                measured_at__gte=datetime.fromtimestamp(first, tz=now.tzinfo),
-                measured_at__lt=datetime.fromtimestamp(end, tz=now.tzinfo),
-            )
+            measurements.filter(measured_at__gte=start, measured_at__lt=end)
             .order_by()
             .values_list("measured_at", "success", "latency_ms", "packet_loss_percentage")
         )

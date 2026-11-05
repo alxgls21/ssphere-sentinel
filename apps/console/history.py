@@ -45,23 +45,35 @@ DEFAULT_RANGE = "1h"
 METRICS = ("cpu", "memory", "disk")
 
 
+def window(range_key: str, minimum_seconds: int, now: datetime) -> tuple[int, int, int]:
+    """``(step, count, first)`` of every series: the UI's bucket for the range, never shorter than
+    ``minimum_seconds`` (a finer bucket would be empty every other time), and the window, the
+    ``count`` completed buckets before the current one, from ``first`` (epoch seconds)."""
+    step = max(int(RANGES[range_key][1].total_seconds()), minimum_seconds)
+    count = int(RANGES[range_key][0].total_seconds()) // step
+    first = int(now.timestamp()) // step * step - count * step
+    return step, count, first
+
+
+def bounds(first: int, step: int, count: int, now: datetime) -> tuple[datetime, datetime]:
+    return (
+        datetime.fromtimestamp(first, tz=now.tzinfo),
+        datetime.fromtimestamp(first + count * step, tz=now.tzinfo),  # the bucket in progress is not served
+    )
+
+
+def bucket_starts_ms(first: int, step: int, count: int) -> list[int]:
+    return [(first + index * step) * 1000 for index in range(count)]
+
+
 def bucket_seconds(range_key: str) -> int:
     """Seconds per bucket: the UI's, but never below the sample grid (a finer bucket would be empty every other time)."""
     return max(int(RANGES[range_key][1].total_seconds()), int(settings.SENTINEL_TELEMETRY_SAMPLE_SECONDS))
 
 
-def window_start(range_key: str, now: datetime) -> int:
-    """Epoch seconds of the first bucket: the window is the ``count`` completed buckets before the current one."""
-    step = bucket_seconds(range_key)
-    count = int(RANGES[range_key][0].total_seconds()) // step
-    return int(now.timestamp()) // step * step - count * step
-
-
 def build_series(rows, *, range_key: str, now: datetime) -> dict:
     """The series of ``rows`` (``(sampled_at, cpu, memory, disk)``) over ``range_key`` ending at ``now``."""
-    step = bucket_seconds(range_key)
-    count = int(RANGES[range_key][0].total_seconds()) // step
-    first = window_start(range_key, now)
+    step, count, first = window(range_key, bucket_seconds(range_key), now)
     sums = [[0.0, 0.0, 0.0] for _ in range(count)]
     seen = [0] * count
     for sampled_at, cpu, memory, disk in rows:
@@ -76,7 +88,7 @@ def build_series(rows, *, range_key: str, now: datetime) -> dict:
             series[name].append(round(sums[index][slot] / seen[index], 2) if seen[index] else None)
     return {
         "bucketMs": step * 1000,
-        "t": [(first + index * step) * 1000 for index in range(count)],
+        "t": bucket_starts_ms(first, step, count),
         **series,
     }
 
@@ -93,18 +105,13 @@ def server_series(request, server_id: UUID):
         ),
         server_id,
     )
-    step = bucket_seconds(range_key)
-    first = window_start(range_key, now)
-    end = first + (int(RANGES[range_key][0].total_seconds()) // step) * step  # start of the current bucket
+    step, count, first = window(range_key, bucket_seconds(range_key), now)
     if not server.has_telemetry:
         series = {"bucketMs": step * 1000, "t": [], "cpu": [], "memory": [], "disk": []}
     else:
+        start, end = bounds(first, step, count, now)
         rows = visibility.filter(
-            ServerTelemetrySample.objects.filter(
-                server_id=server.pk,
-                sampled_at__gte=datetime.fromtimestamp(first, tz=now.tzinfo),
-                sampled_at__lt=datetime.fromtimestamp(end, tz=now.tzinfo),
-            ),
+            ServerTelemetrySample.objects.filter(server_id=server.pk, sampled_at__gte=start, sampled_at__lt=end),
             site_path="server__site",
         ).order_by().values_list("sampled_at", "cpu_percent", "memory_percent", "disk_percent")
         series = build_series(rows, range_key=range_key, now=now)

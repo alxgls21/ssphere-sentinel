@@ -33,7 +33,7 @@ from django.utils import timezone
 from django.views.decorators.csrf import ensure_csrf_cookie
 
 from apps.console import throttle
-from apps.console.http import ApiError, begin_console_session, console_api, json_object, validation_error
+from apps.console.http import ApiError, begin_console_session, console_api, json_object, storable_text, validation_error
 from apps.console.models import SetupCode
 from apps.console.serializers import session_payload
 
@@ -135,10 +135,4 @@ def _problems(user, password: str) -> dict[str, list[str]]:
 
 def _text(value) -> bool:
     """A string PostgreSQL and the password hashers can handle, of a sane length."""
-    if not isinstance(value, str) or "\x00" in value or not value.strip() or len(value) > MAX_TEXT:
-        return False
-    try:
-        value.encode("utf-8")
-    except UnicodeEncodeError:
-        return False
-    return True
+    return storable_text(value) and bool(value.strip()) and len(value) <= MAX_TEXT

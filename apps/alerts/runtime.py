@@ -21,6 +21,33 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 
 
+def add_liveness_argument(parser) -> None:
+    """The workers' ``--liveness-file`` option."""
+    parser.add_argument("--liveness-file", help="A file to keep current for a container health check.")
+
+
+def check_interval(interval: int, minimum: int, maximum: int) -> None:
+    """``--interval`` within ``[minimum, maximum]``, else a ``CommandError``."""
+    from django.core.management.base import CommandError
+
+    if not minimum <= interval <= maximum:
+        raise CommandError(f"--interval must be between {minimum} and {maximum} seconds.")
+
+
+def refuse_pending(pending: list, worker: str) -> None:
+    """``--once`` refuses while migrations are pending (``pending``: ``unapplied_migrations()``)."""
+    from django.core.management.base import CommandError
+
+    if pending:
+        raise CommandError(f"{len(pending)} migration(s) not applied. Apply them first: {worker} never migrates.")
+
+
+def failure_fields(now, category: str, error: BaseException) -> dict:
+    """A worker heartbeat's fields for a failed cycle: when, its kind (``category``, each worker
+    classifies its own) and the exception's type (its message could carry a value)."""
+    return {"last_error_at": now, "last_error_category": category, "last_error_type": type(error).__name__[:100]}
+
+
 def unapplied_migrations() -> list:
     from django.db import connection
     from django.db.migrations.executor import MigrationExecutor
