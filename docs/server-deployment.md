@@ -1423,8 +1423,8 @@ stay.
 If the server is on the internet, rate-limit `POST /api/v1/console/auth/login/`
 in the front end (Cloudflare rate limiting rules or WAF) and do not exempt
 `/api/v1/console/` from the protections you apply to `/admin/`: the in-app
-sign-in throttle limits password guessing per account, not the load a flood of
-attempts puts on the server.
+sign-in throttle (shared by the console and `/admin/login/`) limits password
+guessing per account, not the load a flood of attempts puts on the server.
 
 ### Resources
 

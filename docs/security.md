@@ -123,7 +123,7 @@ the CSRF token.
   cookie (Secure unless `DJANGO_DEBUG`). Only a session created by the
   console's own sign-in is a console session: it carries a marker with the
   sign-in time, and a session from anywhere else (the admin login, with its
-  14-day default lifetime and no throttle) is anonymous to the console. The
+  14-day default lifetime) is anonymous to the console. The
   session starts empty and gets a new id at sign-in; it ends after
   `SENTINEL_CONSOLE_SESSION_SECONDS` (12 hours by default, no sliding renewal;
   the console also checks the marker's age, so a longer-lived cookie cannot
@@ -151,7 +151,14 @@ the CSRF token.
   not the server's CPU: use front-end rate limiting. Logs identify accounts by
   id, never by the name or the password that was typed; text that cannot be a
   name or password (NUL characters, invalid UTF-8) is a `400` that is not
-  counted.
+  counted. The admin login form (`/admin/login/`) is under the same throttle
+  with the same per-account counter: failures at either door add up, one
+  lockout covers both, and a successful sign-in at either clears it. There,
+  only an active staff account that is not locked has its password compared;
+  a wrong password, an unknown user, an account without staff access and a
+  locked account all get the admin's usual "Please enter the correct username
+  and password" error after one password hash. An empty field is the form's
+  own error and is not counted.
 - **Administration is by permission, checked on the server.** Acknowledging
   incidents needs `alerts.acknowledge_incident`. Alert rules need the model
   permissions (`alerts.view_alertrule`, `add_alertrule`, `change_alertrule`)
@@ -240,7 +247,12 @@ everything". Operational notes:
 create console users in the admin (they need no staff access); the throttle is per account because the client address is not
 trustworthy behind a proxy (see above), so it cannot be bypassed by rotating
 addresses but can be used to lock a known account out for the lockout period
-(unlock it under **Console → Login throttles**). Put the console behind the same
+(unlock it under **Console → Login throttles**). Because the admin login shares
+the counter, this includes staff and superuser accounts, at both doors: someone
+who knows an administrator's user name can keep that administrator out of the
+console and the admin for the lockout period. This is the accepted price of a
+throttle that works without a trustworthy client address; another
+administrator can delete the row, otherwise the lock ends by itself. Put the console behind the same
 front-end protections as the admin (Cloudflare Access or WAF rate limiting) if
 it is exposed to the internet.
 
@@ -382,10 +394,12 @@ account to the `docker` group.
   Heartbeats fail until the agent is reconfigured (measurements are queued).
 - On the agent host, root and the service account can read the token
   (environment file, process environment).
-- There is no built-in rate limiting or lockout for the heartbeat API or the
-  admin login, and no built-in second factor for the admin. Use the front
-  end for this (for example Cloudflare WAF rate limiting and Cloudflare
-  Access on `/admin/`).
+- There is no built-in rate limiting or lockout for the heartbeat API, and no
+  built-in second factor for the admin. The admin login has the per-account
+  sign-in throttle (see Sign-in throttling), which limits guessing but not the
+  load a flood of attempts puts on the server. Use the front end for the rest
+  (for example Cloudflare WAF rate limiting and Cloudflare Access on
+  `/admin/`).
 - Traffic between the TLS front end and Gunicorn, and between Gunicorn and
   PostgreSQL, is unencrypted on the host or Compose network.
 - The agent trusts the system's CA certificates; there is no certificate
