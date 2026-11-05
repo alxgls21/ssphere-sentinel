@@ -192,10 +192,17 @@ def probe_icmp(host: str, *, timeout_seconds: float) -> ProbeAttempt:
         return ProbeAttempt(False, None, FAILURE_PERMISSION_DENIED)
     if "unknown host" in lowered or "name or service not known" in lowered:
         return ProbeAttempt(False, None, FAILURE_DNS_FAILURE)
-    if "timed out" in lowered or "100% packet loss" in lowered:
-        return ProbeAttempt(False, None, FAILURE_TIMEOUT)
+    # "unreachable" is checked first: Linux prints it together with a
+    # "100% packet loss" summary.
     if "unreachable" in lowered:
         return ProbeAttempt(False, None, FAILURE_HOST_UNREACHABLE)
+    if (
+        "timed out" in lowered
+        or "request timeout" in lowered  # macOS
+        or "100% packet loss" in lowered
+        or "100.0% packet loss" in lowered  # macOS
+    ):
+        return ProbeAttempt(False, None, FAILURE_TIMEOUT)
     return ProbeAttempt(False, None, FAILURE_UNKNOWN)
 
 

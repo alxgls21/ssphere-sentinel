@@ -427,17 +427,26 @@ class MeasurementQueue:
         """
         now = self._wall_fn()
         rows = self._read(
-            "SELECT payload FROM pending_measurements "
+            "SELECT payload, measurement_id FROM pending_measurements "
             "WHERE next_attempt_at <= ? OR next_attempt_at > ? "
             "ORDER BY rowid LIMIT ?",
             (now, now + RETRY_MAX_SECONDS * 2, limit),
         )
         batch: list[dict[str, Any]] = []
-        for (payload,) in rows:
+        unreadable: list[str] = []
+        for payload, measurement_id in rows:
             try:
                 batch.append(json.loads(payload))
             except ValueError:
-                logger.warning("Skipping unreadable queued measurement payload")
+                unreadable.append(measurement_id)
+        if unreadable:
+            # An unreadable row would keep a slot in every batch (and starve
+            # the rows behind it) until the age purge, so it is dropped.
+            logger.warning(
+                "Removing %d unreadable queued measurement payload(s)", len(unreadable)
+            )
+            self.remove(unreadable)
+            return self.pending_batch(limit)
         return batch
 
     def remove(self, measurement_ids: Iterable[str]) -> int:
@@ -526,15 +535,16 @@ class MeasurementQueue:
         """
         now = self._wall_fn()
         rows = self._read(
-            "SELECT payload, interface_count, payload_bytes FROM pending_snmp "
+            "SELECT payload, interface_count, payload_bytes, poll_id FROM pending_snmp "
             "WHERE next_attempt_at <= ? OR next_attempt_at > ? "
             "ORDER BY rowid LIMIT ?",
             (now, now + RETRY_MAX_SECONDS * 2, max_polls),
         )
         batch: list[dict[str, Any]] = []
+        unreadable: list[str] = []
         interfaces = 0
         size = 0
-        for payload, interface_count, payload_bytes in rows:
+        for payload, interface_count, payload_bytes, poll_id in rows:
             if batch and (
                 interfaces + interface_count > max_interfaces or size + payload_bytes > max_bytes
             ):
@@ -542,10 +552,17 @@ class MeasurementQueue:
             try:
                 batch.append(json.loads(payload))
             except ValueError:
-                logger.warning("Skipping unreadable queued SNMP poll payload")
+                unreadable.append(poll_id)
                 continue
             interfaces += interface_count
             size += payload_bytes
+        if unreadable:
+            # See ``pending_batch``: an unreadable row would starve the rows behind it.
+            logger.warning("Removing %d unreadable queued SNMP poll payload(s)", len(unreadable))
+            self.remove_snmp(unreadable)
+            return self.pending_snmp_batch(
+                max_polls=max_polls, max_interfaces=max_interfaces, max_bytes=max_bytes
+            )
         return batch
 
     def remove_snmp(self, poll_ids: Iterable[str]) -> int:
@@ -663,6 +680,13 @@ def is_corruption_error(exc: sqlite3.Error) -> bool:
 def quarantine_corrupt_file(path: Path) -> Path | None:
     """Move a corrupted queue (and sidecars) aside instead of deleting it."""
     suffix = f".corrupt-{int(time.time())}"
+    # Two corruptions in the same second must not overwrite each other.
+    taken = 0
+    while any(
+        path.with_name(path.name + s + suffix).exists() for s in ("", *SIDECAR_SUFFIXES)
+    ):
+        taken += 1
+        suffix = f".corrupt-{int(time.time())}-{taken}"
     moved: Path | None = None
     for candidate in (path, *(path.with_name(path.name + s) for s in SIDECAR_SUFFIXES)):
         if candidate.exists() and not candidate.is_symlink():

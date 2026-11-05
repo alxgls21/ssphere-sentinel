@@ -66,6 +66,14 @@ def load_network_targets(
         raise ConfigError(
             f"{ENV_NETWORK_TARGETS_FILE} is not valid JSON: {exc}"
         ) from exc
+    except UnicodeDecodeError as exc:
+        raise ConfigError(
+            f"{ENV_NETWORK_TARGETS_FILE} is not valid UTF-8: {exc}"
+        ) from exc
+    except OSError as exc:
+        raise ConfigError(
+            f"{ENV_NETWORK_TARGETS_FILE} could not be read: {exc}"
+        ) from exc
 
     if not isinstance(data, dict):
         raise ConfigError("network targets file must be a JSON object")
