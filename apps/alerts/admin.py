@@ -16,19 +16,8 @@ from apps.alerts.models import (
     NotifierHeartbeat,
     TestEmailRequest,
 )
-
-
-class ReadOnlyAdmin(admin.ModelAdmin):
-    """Written by the alert engine only: shown, never edited, added or deleted here."""
-
-    def has_add_permission(self, request):
-        return False
-
-    def has_change_permission(self, request, obj=None):
-        return False
-
-    def has_delete_permission(self, request, obj=None):
-        return False
+# Written by the alert engine and the notifier only: shown, never edited, added or deleted here.
+from apps.core.admin import ReadOnlyAdmin
 
 
 @admin.register(AlertRule)

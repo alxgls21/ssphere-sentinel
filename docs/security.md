@@ -273,8 +273,16 @@ it is exposed to the internet.
   scripts, styles, images, fonts and connections from the same origin only
   (`style-src` also allows inline styles),
   forbids framing (`frame-ancestors 'none'`, `X-Frame-Options: DENY`), plus
-  `X-Content-Type-Options: nosniff` and `Referrer-Policy: same-origin`. The
-  responses of Django (APIs, admin) carry Django's own headers.
+  `X-Content-Type-Options: nosniff`, `Referrer-Policy: same-origin`,
+  `Cross-Origin-Opener-Policy: same-origin`,
+  `Cross-Origin-Resource-Policy: same-origin` and a `Permissions-Policy` that
+  turns off the camera, microphone, geolocation, payment and USB features. The
+  responses of Django (APIs, admin) carry Django's own headers (nosniff,
+  `Referrer-Policy`, `Cross-Origin-Opener-Policy`, `X-Frame-Options`); the
+  `proxy` service adds the same `Permissions-Policy` and
+  `Cross-Origin-Resource-Policy` to them, and to the JSON APIs under `/api/`
+  `Content-Security-Policy: default-src 'none'; frame-ancestors 'none'`. The
+  admin's pages get no Content Security Policy.
 - SNMP credentials are never stored on the server: devices hold only the name
   of a credential profile kept in the agent's local files, no model or form has
   a field for a community string or key, and unknown payload fields are
@@ -282,7 +290,11 @@ it is exposed to the internet.
 - With `DJANGO_DEBUG=false` (the default), session and CSRF cookies are
   Secure and HttpOnly (session), the example secret key is refused, and
   `manage.py check --deploy` flags a placeholder `AGENT_TOKEN_PEPPER`
-  (`sentinel.W001`) or `DJANGO_ALLOWED_HOSTS=*` (`sentinel.W002`).
+  (`sentinel.W001`) or `DJANGO_ALLOWED_HOSTS=*` (`sentinel.W002`), and an
+  `https://` `SENTINEL_URL` while `SENTINEL_HTTP_BIND` (as the `web`
+  container sees it in `.env`) is unset or not a loopback address
+  (`sentinel.W005`): the plain-HTTP port of the `proxy` service would be
+  reachable around the TLS front end.
 - Logs contain request paths and status codes, never request headers or
   bodies. Rejected `Host` headers are logged as one-line warnings.
 

@@ -118,6 +118,9 @@ SENTINEL_URL, SENTINEL_URL_HOST = site_address(env("SENTINEL_URL", default=""))
 # Earlier releases took the address in the emails from SENTINEL_CONSOLE_URL; it is no longer read, and
 # `manage.py check --deploy` says so (sentinel.W004) instead of the emails losing their links silently.
 SENTINEL_CONSOLE_URL_IGNORED = bool(env("SENTINEL_CONSOLE_URL", default="").strip())
+# The address Compose publishes the proxy service on (compose.yml; unset or empty: every interface). Django does not
+# listen there: only `manage.py check --deploy` reads it (sentinel.W005), from the .env the web container is given.
+SENTINEL_HTTP_BIND = env("SENTINEL_HTTP_BIND", default="").strip()
 
 # Prefix of the example secrets in .env.example.
 PLACEHOLDER_SECRET_PREFIX = "change-me"

@@ -3,6 +3,7 @@
 import io
 import json
 import re
+from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
 from django.core.management import call_command
@@ -60,6 +61,15 @@ class SetupTests(TestCase):
                           token=body["csrfToken"])
         self.assertEqual((again.status_code, again.json()["error"]["code"]), (404, "not_found"))
         self.assertEqual(get_user_model().objects.count(), 1)
+
+    def test_the_administrator_gets_the_session_a_console_sign_in_gives(self):
+        from apps.console import http
+
+        with patch("apps.console.setup.begin_console_session", wraps=http.begin_console_session) as begin:
+            response = self.create()
+        self.assertEqual(response.status_code, 200, response.content)
+        begin.assert_called_once()
+        self.assertEqual(begin.call_args.kwargs, {"backend": "django.contrib.auth.backends.ModelBackend"})
 
     def test_the_code_is_typed_as_people_type_it(self):
         response = self.create(code=f"  {self.code.lower().replace('-', ' ')} ")

@@ -7,6 +7,9 @@
 # Copies of .env the deployment guide has you keep (env.legacy.backup, env.pg16.backup):
 # they hold every secret .env does
 *.backup
+# The backups scripts/install.sh takes before an update: the database dump and a tarball of
+# .env, .env.tunnel and secrets/
+/backups/
 
 # Python
 __pycache__/

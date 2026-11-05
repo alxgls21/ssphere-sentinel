@@ -252,6 +252,17 @@ class SignInTests(ConsoleTestCase):
         self.assertEqual(self.post(client, token, LOGOUT, {}).status_code, 403)
         self.assertEqual(self.post(client, response.json()["csrfToken"], LOGOUT, {}).status_code, 200)
 
+    def test_sign_in_starts_the_console_session_with_the_shared_helper(self):
+        from apps.console import http
+
+        client, token = self.csrf_client()
+        with patch("apps.console.views.begin_console_session", wraps=http.begin_console_session) as begin:
+            response = self.sign_in(client, token)
+        self.assertEqual(response.status_code, 200, response.content)
+        begin.assert_called_once()
+        self.assertEqual(begin.call_args.args[1], self.user)
+        self.assertEqual(begin.call_args.kwargs, {})  # the backend authenticate() chose
+
     def test_sign_in_requires_csrf(self):
         client = Client(enforce_csrf_checks=True, raise_request_exception=False)
         body = json.dumps({"username": "viewer", "password": PASSWORD})
