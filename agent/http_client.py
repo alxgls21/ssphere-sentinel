@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import http.client
 import json
 import urllib.error
 import urllib.request
@@ -84,8 +85,14 @@ def post(
     except urllib.error.HTTPError as exc:
         # The error wraps the open response; close it so the socket is
         # released now rather than by the garbage collector.
+        # An exception raised here skips the sibling ``except`` clauses below,
+        # so a truncated or stalled error body is mapped here.
         try:
             raw = exc.read()
+        except TimeoutError as read_exc:
+            raise HeartbeatError("request timed out") from read_exc
+        except (OSError, http.client.HTTPException) as read_exc:
+            raise HeartbeatError(f"connection failed: {read_exc}") from read_exc
         finally:
             exc.close()
         text = raw.decode("utf-8", errors="replace") if raw else ""
@@ -99,7 +106,9 @@ def post(
         # Never include request headers (may contain Authorization).
         message = str(reason) if reason is not None else str(exc)
         raise HeartbeatError(f"connection failed: {message}") from exc
-    except OSError as exc:
+    except (OSError, http.client.HTTPException) as exc:
+        # HTTPException (BadStatusLine, IncompleteRead, InvalidURL, ...) is
+        # not an OSError.
         raise HeartbeatError(f"connection failed: {exc}") from exc
 
 

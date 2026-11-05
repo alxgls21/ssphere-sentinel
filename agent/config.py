@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import threading
 from dataclasses import dataclass
 from urllib.parse import urlparse
 
@@ -12,6 +13,7 @@ ENV_SENTINEL_URL = "SENTINEL_URL"
 ENV_AGENT_TOKEN = "SENTINEL_AGENT_TOKEN"
 ENV_HEARTBEAT_INTERVAL = "SENTINEL_HEARTBEAT_INTERVAL"
 DEFAULT_HEARTBEAT_INTERVAL = 30
+MAX_HEARTBEAT_INTERVAL = int(threading.TIMEOUT_MAX)
 
 
 @dataclass(frozen=True)
@@ -35,6 +37,11 @@ def _parse_heartbeat_interval(raw: str) -> int:
     if interval <= 0:
         raise ConfigError(
             f"{ENV_HEARTBEAT_INTERVAL} must be a positive integer"
+        )
+    if interval > MAX_HEARTBEAT_INTERVAL:
+        # threading.Event.wait raises OverflowError above this.
+        raise ConfigError(
+            f"{ENV_HEARTBEAT_INTERVAL} must not exceed {MAX_HEARTBEAT_INTERVAL}"
         )
     return interval
 
@@ -61,6 +68,16 @@ def load_config(
         # Credentials belong in SENTINEL_AGENT_TOKEN, never in a URL (it is
         # logged at startup).
         raise ConfigError(f"{ENV_SENTINEL_URL} must not contain credentials")
+    if parsed.query or parsed.fragment or "?" in raw_url or "#" in raw_url:
+        # The heartbeat path is appended to the URL, so a query or fragment
+        # would end up in the middle of it.
+        raise ConfigError(
+            f"{ENV_SENTINEL_URL} must not contain a query string or fragment"
+        )
+    try:
+        parsed.port
+    except ValueError as exc:
+        raise ConfigError(f"{ENV_SENTINEL_URL} has an invalid port") from exc
 
     interval_raw = env.get(ENV_HEARTBEAT_INTERVAL)
     if interval_raw is None or not str(interval_raw).strip():
