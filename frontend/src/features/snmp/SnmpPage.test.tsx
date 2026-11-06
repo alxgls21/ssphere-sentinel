@@ -331,15 +331,18 @@ describe('empty, error and provenance', () => {
     expect(screen.queryByRole('table')).toBeNull()
   })
 
-  it('keeps the last good rows under a banner when only a refresh fails', async () => {
+  it('says why a filter change failed, with Retry, instead of keeping the previous filter’s rows', async () => {
     const user = userEvent.setup()
     const { api, listDevices } = served(list(FLEET), new ApiError('Service unavailable', 503))
     page('/snmp', api)
     await table()
     await user.click(screen.getByRole('button', { name: /CRIT/ }))
     await waitFor(() => expect(listDevices.mock.calls.length).toBeGreaterThan(1))
-    expect(await screen.findByText('Refresh failed')).toBeInTheDocument()
-    expect(screen.getByRole('table', { name: 'SNMP devices' })).toBeInTheDocument()
+    const failure = await screen.findByRole('alert')
+    expect(failure).toHaveTextContent('Could not load devices')
+    expect(failure).toHaveTextContent('Service unavailable')
+    expect(within(failure).getByRole('button', { name: 'Retry' })).toBeInTheDocument()
+    expect(screen.queryByRole('table', { name: 'SNMP devices' })).toBeNull()
   })
 
   it('is live over the console API, mock over the sample API, and not live while SNMP is not connected', async () => {

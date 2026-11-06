@@ -6,7 +6,7 @@ import { Link, useLocation, useNavigate } from 'react-router'
 import type { AlertRule, RuleSortKey } from '@/api/types'
 import { useViewTo } from '@/app/viewSearch'
 import { cn } from '@/lib/cn'
-import { EMPTY, formatAge, formatClock, type Timezone } from '@/lib/format'
+import { EMPTY, formatAge, formatStamp, type Timezone } from '@/lib/format'
 import { KIND_SHORT } from '@/lib/incidents'
 import { Button, Tooltip } from '@/ui/controls'
 import { SeverityTag } from '@/ui/incidents'
@@ -209,7 +209,9 @@ export function RulesTable({
                     'type-data tnum hidden px-3 text-right @min-[90rem]:table-cell',
                   )}
                 >
-                  <Tooltip content={`Updated ${formatClock(Date.parse(rule.updatedAt), tz)}`}>
+                  <Tooltip
+                    content={`Updated ${formatStamp(Date.parse(rule.updatedAt), tz, nowMs)}`}
+                  >
                     <span
                       tabIndex={0}
                       aria-label={`Updated ${formatAge(rule.updatedAt, nowMs)} ago`}

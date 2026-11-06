@@ -26,8 +26,9 @@ export default defineConfig(({ command, mode }) => {
     server: { proxy: backend },
     preview: { proxy: backend },
     build: {
-      // ECharts is the one large asset (~190 kB gzipped). It is split into a lazy chunk so the shell,
-      // verdict and queue paint first, so the default 500 kB warning is raised for it on purpose.
+      // The largest assets are ECharts (~190 kB gzipped) and cytoscape on the Topology page (~150 kB
+      // gzipped). Each is in a lazy chunk so the shell, verdict and queue paint first. Only the ECharts
+      // chunk is over the default 500 kB warning, so the limit is raised for it on purpose.
       chunkSizeWarningLimit: 600,
     },
     test: {

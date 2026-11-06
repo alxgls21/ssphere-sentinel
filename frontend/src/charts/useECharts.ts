@@ -10,7 +10,7 @@ import {
 } from './theme'
 
 /** Under this container width (px) charts drop end labels and reclaim the space they reserved. */
-export const COMPACT_WIDTH_PX = 320
+const COMPACT_WIDTH_PX = 320
 
 /** What an option builder may depend on beyond its data. Read at (re)initialisation, never cached. */
 export interface ChartEnv {

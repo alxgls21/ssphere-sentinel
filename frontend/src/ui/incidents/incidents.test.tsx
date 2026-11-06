@@ -129,7 +129,19 @@ describe('EngineStatusBanner', () => {
     expect(banner).toHaveTextContent('last attempt 12s ago')
     expect(banner).toHaveTextContent('cycle 140 ms')
     expect(banner).toHaveTextContent('every 60 s')
-    expect(banner).toHaveTextContent(/monitoring since/)
+    // The day before the engine's answer: its weekday leads the time.
+    expect(banner).toHaveTextContent('monitoring since Sat 10:06:40Z')
+  })
+
+  it('dates a monitoring start weeks back, so it never reads as since this morning', () => {
+    renderApp(
+      <EngineStatusBanner
+        resource={resource(engine('running', { monitoringSince: '2026-10-03T09:12:44Z' }))}
+      />,
+    )
+    expect(screen.getByRole('region', { name: 'Alert engine' })).toHaveTextContent(
+      'monitoring since Oct 3 09:12:44Z',
+    )
   })
 
   it('shows no time of an engine that never ran: there is none to show', () => {

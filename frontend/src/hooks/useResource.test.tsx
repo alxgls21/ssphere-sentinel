@@ -79,6 +79,77 @@ describe('useResource', () => {
     expect(result.current.isRefreshing).toBe(false)
   })
 
+  describe('a key change that fails, with keepPreviousData', () => {
+    /** A search the API refuses, as it refuses more than 8 words with a 400. */
+    const lookup = (refuse: () => boolean) => async (q: string) => {
+      if (q === 'refused' && refuse()) throw new Error('Use at most 8 words.')
+      return q.toUpperCase()
+    }
+
+    it('does not pass the previous key’s data off as the answer for the new key', async () => {
+      const fetch = lookup(() => true)
+      const { result, rerender } = renderHook(
+        ({ q }) => useResource(q, () => fetch(q), { keepPreviousData: true }),
+        { initialProps: { q: 'a' } },
+      )
+      await waitFor(() => expect(result.current.data).toBe('A'))
+      rerender({ q: 'refused' })
+      // While the new key loads, the previous data stays (dimmed): that part does not change.
+      expect(result.current.data).toBe('A')
+      expect(result.current.isRefreshing).toBe(true)
+
+      await waitFor(() => expect(result.current.status).toBe('error'))
+      expect(result.current.data).toBeUndefined()
+      expect(result.current.updatedAt).toBeNull()
+      expect(result.current.isRefreshing).toBe(false)
+      expect(result.current.error?.message).toBe('Use at most 8 words.')
+    })
+
+    it('starts over on Retry, and shows the answer the new key gets', async () => {
+      let refuse = true
+      const fetch = lookup(() => refuse)
+      const { result, rerender } = renderHook(
+        ({ q }) => useResource(q, () => fetch(q), { keepPreviousData: true }),
+        { initialProps: { q: 'a' } },
+      )
+      await waitFor(() => expect(result.current.data).toBe('A'))
+      rerender({ q: 'refused' })
+      await waitFor(() => expect(result.current.status).toBe('error'))
+
+      refuse = false
+      act(() => result.current.refetch())
+      await waitFor(() => expect(result.current.data).toBe('REFUSED'))
+      expect(result.current.status).toBe('success')
+      expect(result.current.error).toBeNull()
+    })
+
+    it('still keeps a key’s own data when a later refresh of that same key fails', async () => {
+      let fail = false
+      const { result, rerender } = renderHook(
+        ({ q }) =>
+          useResource(
+            q,
+            async () => {
+              if (fail) throw new Error('flaky')
+              return q.toUpperCase()
+            },
+            { keepPreviousData: true },
+          ),
+        { initialProps: { q: 'a' } },
+      )
+      await waitFor(() => expect(result.current.data).toBe('A'))
+      rerender({ q: 'b' })
+      await waitFor(() => expect(result.current.data).toBe('B'))
+
+      fail = true
+      act(() => result.current.refetch())
+      await waitFor(() => expect(result.current.error?.message).toBe('flaky'))
+      expect(result.current.status).toBe('success')
+      expect(result.current.data).toBe('B')
+      expect(result.current.updatedAt).not.toBeNull()
+    })
+  })
+
   it('drops previous data on a key change by default', async () => {
     const { result, rerender } = renderHook(({ k }) => useResource(k, async () => k), {
       initialProps: { k: 'a' },
@@ -100,13 +171,70 @@ describe('useResource', () => {
     await act(async () => {
       await vi.advanceTimersByTimeAsync(2100)
     })
-    expect(fetcher.mock.calls.length).toBeGreaterThanOrEqual(3)
+    // The first load, then one at 1000 ms and one at 2000 ms: exactly one request per interval.
+    expect(fetcher).toHaveBeenCalledTimes(3)
     unmount()
     const calls = fetcher.mock.calls.length
     await act(async () => {
       await vi.advanceTimersByTimeAsync(5000)
     })
     expect(fetcher).toHaveBeenCalledTimes(calls)
+  })
+
+  describe('pause', () => {
+    const elapse = async (ms: number) => {
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(ms)
+      })
+    }
+    const pausable = (fetcher: () => Promise<number>) =>
+      renderHook(({ paused }) => useResource('k', fetcher, { refreshMs: 1000, paused }), {
+        initialProps: { paused: false },
+      })
+
+    it('freezes polling while paused, and catches up with the skipped poll at once on resume', async () => {
+      vi.useFakeTimers()
+      const fetcher = vi.fn(async () => 1)
+      const { rerender } = pausable(fetcher)
+      await elapse(0)
+      expect(fetcher).toHaveBeenCalledTimes(1)
+
+      rerender({ paused: true })
+      await elapse(5000)
+      expect(fetcher).toHaveBeenCalledTimes(1)
+
+      rerender({ paused: false })
+      await elapse(0)
+      expect(fetcher).toHaveBeenCalledTimes(2)
+      // And the usual interval from there.
+      await elapse(1000)
+      expect(fetcher).toHaveBeenCalledTimes(3)
+    })
+
+    it('does not load early on resume when no poll was skipped', async () => {
+      vi.useFakeTimers()
+      const fetcher = vi.fn(async () => 1)
+      const { rerender } = pausable(fetcher)
+      await elapse(0)
+      rerender({ paused: true })
+      await elapse(500)
+      rerender({ paused: false })
+      await elapse(0)
+      expect(fetcher).toHaveBeenCalledTimes(1)
+      await elapse(500)
+      expect(fetcher).toHaveBeenCalledTimes(2)
+    })
+
+    it('still loads on an explicit refetch while paused', async () => {
+      vi.useFakeTimers()
+      const fetcher = vi.fn(async () => 1)
+      const { result, rerender } = pausable(fetcher)
+      await elapse(0)
+      rerender({ paused: true })
+      act(() => result.current.refetch())
+      await elapse(0)
+      expect(fetcher).toHaveBeenCalledTimes(2)
+    })
   })
 
   describe('hidden tabs', () => {

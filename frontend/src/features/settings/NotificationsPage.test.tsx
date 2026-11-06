@@ -87,7 +87,8 @@ describe('reading the preferences', () => {
     const address = screen.getByLabelText('Account email')
     expect(address).toHaveValue('maria@example.com')
     expect(address).toHaveAttribute('readonly')
-    expect(screen.getByText(/^Saved \d/)).toBeInTheDocument()
+    // Saved the day before the answer: the weekday leads the time.
+    expect(screen.getByText('Saved Sat 08:00:00Z')).toBeInTheDocument()
   })
 
   it('shows the defaults of an account that never saved, and says so', async () => {

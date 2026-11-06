@@ -66,6 +66,8 @@ const isAbort = (error: unknown): boolean =>
   'name' in error &&
   (error.name === 'AbortError' || error.name === 'TimeoutError')
 
+const timedOut = () => new ApiError('The server took too long to answer.', null, 'timeout')
+
 function withTimeout(signal: AbortSignal | undefined, ms: number): AbortSignal {
   const timeout = AbortSignal.timeout(ms)
   return signal ? AbortSignal.any([signal, timeout]) : timeout
@@ -134,7 +136,7 @@ export function createTransport({
       })
     } catch (error) {
       if (init?.signal?.aborted) throw error
-      if (isAbort(error)) throw new ApiError('The server took too long to answer.', null, 'timeout')
+      if (isAbort(error)) throw timedOut()
       throw new ApiError('Cannot reach the server.', null, 'network')
     }
 
@@ -152,7 +154,10 @@ export function createTransport({
     let data: unknown
     try {
       data = await response.json()
-    } catch {
+    } catch (error) {
+      // The timeout also covers the body: an answer it cut off is a timeout, and a caller's own cancel stays one.
+      if (init?.signal?.aborted) throw error
+      if (isAbort(error)) throw timedOut()
       throw new ApiError('The server sent an unreadable response.', response.status, 'bad_response')
     }
     // The session, sign-in and sign-out answers carry the CSRF token for the writes that follow.

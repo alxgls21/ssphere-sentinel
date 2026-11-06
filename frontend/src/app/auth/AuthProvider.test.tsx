@@ -101,6 +101,28 @@ describe('AuthProvider', () => {
     await waitFor(() => expect(status()).toBe('authenticated'))
   })
 
+  it('says the server’s own words when the check fails, and a plain sentence for any other failure', async () => {
+    const getSession = vi
+      .fn()
+      .mockRejectedValueOnce(new ApiError('The server is unavailable (HTTP 502).', 502))
+      .mockRejectedValueOnce(new TypeError('Failed to fetch'))
+    const user = userEvent.setup()
+    render(
+      <AuthProvider client={client({ getSession })}>
+        <Probe />
+      </AuthProvider>,
+    )
+    await waitFor(() => expect(status()).toBe('unreachable'))
+    expect(screen.getByLabelText('error')).toHaveTextContent(
+      'The server is unavailable (HTTP 502).',
+    )
+    await user.click(screen.getByRole('button', { name: 'refresh' }))
+    await waitFor(() =>
+      expect(screen.getByLabelText('error')).toHaveTextContent('Cannot reach the server.'),
+    )
+    expect(status()).toBe('unreachable')
+  })
+
   it('signs in with the credentials and becomes authenticated', async () => {
     const c = client()
     const user = userEvent.setup()
@@ -171,6 +193,24 @@ describe('AuthProvider', () => {
     await waitFor(() => expect(status()).toBe('anonymous'))
     expect(signOut).toHaveBeenCalledTimes(2)
     expect(screen.getByLabelText('signed-out')).toHaveTextContent('true')
+  })
+
+  it('says the server’s own words when a sign-out fails', async () => {
+    const signOut = vi
+      .fn()
+      .mockRejectedValue(new ApiError('The server is unavailable (HTTP 503).', 503))
+    const user = userEvent.setup()
+    render(
+      <AuthProvider client={client({ getSession: vi.fn(async () => ALICE), signOut })}>
+        <Probe />
+      </AuthProvider>,
+    )
+    await waitFor(() => expect(status()).toBe('authenticated'))
+    await user.click(screen.getByRole('button', { name: 'out' }))
+    await waitFor(() => expect(status()).toBe('signout-failed'))
+    expect(screen.getByLabelText('error')).toHaveTextContent(
+      'The server is unavailable (HTTP 503).',
+    )
   })
 
   it('shows nothing of the session while the server is being told', async () => {
@@ -368,6 +408,45 @@ describe('AuthProvider', () => {
       // A second report changes nothing.
       act(() => signals.expired.emit())
       expect(status()).toBe('expired')
+    })
+
+    it('is not reported for a visitor who was never signed in', async () => {
+      const signals = createSessionSignals()
+      render(
+        <AuthProvider client={client()} signals={signals}>
+          <Probe />
+        </AuthProvider>,
+      )
+      await waitFor(() => expect(status()).toBe('anonymous'))
+      act(() => signals.expired.emit())
+      expect(status()).toBe('anonymous')
+    })
+
+    it('is checked for only while the tab is visible, and at once when it comes back', async () => {
+      vi.useFakeTimers({ shouldAdvanceTime: true })
+      const setVisibility = (state: DocumentVisibilityState) => {
+        Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => state })
+        document.dispatchEvent(new Event('visibilitychange'))
+      }
+      try {
+        const getSession = vi.fn(async () => ALICE)
+        render(
+          <AuthProvider client={client({ getSession })}>
+            <Probe />
+          </AuthProvider>,
+        )
+        await waitFor(() => expect(status()).toBe('authenticated'))
+        expect(getSession).toHaveBeenCalledTimes(1)
+
+        act(() => setVisibility('hidden'))
+        await act(() => vi.advanceTimersByTimeAsync(REVALIDATE_MS * 3))
+        expect(getSession).toHaveBeenCalledTimes(1)
+
+        act(() => setVisibility('visible'))
+        await waitFor(() => expect(getSession).toHaveBeenCalledTimes(2))
+      } finally {
+        Reflect.deleteProperty(document, 'visibilityState')
+      }
     })
 
     it('is noticed by the periodic check, without any data request', async () => {

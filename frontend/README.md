@@ -43,7 +43,7 @@ npm run dev        # http://localhost:5173, sign-in required
 ```
 
 ```bash
-npm run check      # lint + typecheck + tests + production build
+npm run check      # lint + typecheck + tests + production build + format check
 npm test           # unit and component tests only
 npm run lint       # Oxlint (React, hooks, jsx-a11y, TypeScript)
 npm run format     # Prettier
@@ -191,7 +191,7 @@ routes can be opened and reloaded directly; `/assets/` is cached for good, and
 ([server deployment](../docs/server-deployment.md)).
 
 The console's pages are served with a Content Security Policy that allows only
-same-origin scripts, styles, images, fonts and connections (plus inline styles)
-and no framing ([deploy/frontend/nginx.conf](../deploy/frontend/nginx.conf)):
-code that loads anything from another origin, or runs inline scripts, does not
-work in production.
+same-origin scripts, styles, images, fonts and connections (plus inline styles, and
+`data:` images for the favicon that carries the verdict) and no framing
+([deploy/frontend/nginx.conf](../deploy/frontend/nginx.conf)): code that loads
+anything from another origin, or runs inline scripts, does not work in production.

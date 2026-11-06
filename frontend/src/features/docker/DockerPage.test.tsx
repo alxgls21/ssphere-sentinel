@@ -261,6 +261,22 @@ describe('DockerPage over the console API', () => {
     return { api: createTestApi({ listContainers }), listContainers }
   }
 
+  it('dates a start that was not today in the tooltip of its age', async () => {
+    const base = await paged()
+    const first = base.items[0]!
+    const started = {
+      ...first,
+      container: { ...first.container, state: 'running', startedAt: '2026-09-21T14:00:00.000Z' },
+    } as typeof first
+    page(
+      '/docker',
+      served({ ...base, generatedAt: new Date(NOW).toISOString(), items: [started] }).api,
+    )
+    const t = await table()
+    await userEvent.setup().hover(within(t).getByText('21d ago'))
+    expect(await screen.findByRole('tooltip')).toHaveTextContent('Sep 21 14:00:00Z')
+  })
+
   it('asks for one page of the query, not the inventory, with the paging', async () => {
     const { api, listContainers } = served(await paged())
     page('/docker?q=pg&status=warning&sort=server&dir=desc&page=2&server=srv-1', api)
@@ -356,14 +372,17 @@ describe('DockerPage over the console API', () => {
     expect(screen.queryByRole('alert')).toBeNull()
   })
 
-  it('keeps the last good rows under a banner when only a refresh fails', async () => {
+  it('says why a filter change failed, with Retry, instead of keeping the previous filter’s rows', async () => {
     const { api, listContainers } = served(await paged(), new ApiError('Service unavailable', 503))
     page('/docker', api)
     await table()
     await userEvent.setup().click(screen.getByRole('button', { name: /WARN/ }))
     await waitFor(() => expect(listContainers.mock.calls.length).toBeGreaterThan(1))
-    expect(await screen.findByText('Refresh failed')).toBeInTheDocument()
-    expect(screen.getByRole('table', { name: 'Containers' })).toBeInTheDocument()
+    const failure = await screen.findByRole('alert')
+    expect(failure).toHaveTextContent('Could not load containers')
+    expect(failure).toHaveTextContent('Service unavailable')
+    expect(within(failure).getByRole('button', { name: 'Retry' })).toBeInTheDocument()
+    expect(screen.queryByRole('table', { name: 'Containers' })).toBeNull()
   })
 
   it('is tagged live over the console API, and mock over the sample fleet', async () => {

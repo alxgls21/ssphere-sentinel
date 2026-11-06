@@ -9,17 +9,7 @@ import { fakeCharts, resetFakeCharts } from '@/charts/testing/fakeEcharts'
 import { registryOverrides } from '@/config/testing'
 import { createTestApi, renderApp } from '@/test/render'
 import DeviceDetailPage from './DeviceDetailPage'
-import {
-  detail,
-  deviceSeries,
-  iface,
-  interfaceSeries,
-  item,
-  iso,
-  noRates,
-  poll,
-  rates,
-} from './testing'
+import { detail, deviceSeries, iface, interfaceSeries, item, noRates, poll, rates } from './testing'
 
 vi.mock('@/charts/echarts', async () =>
   (await import('@/charts/testing/fakeEcharts')).fakeEchartsModule(),
@@ -583,6 +573,7 @@ describe('missing, failing and provenance', () => {
     await summary()
     expect(await screen.findByText('No interfaces listed')).toBeInTheDocument()
     expect(screen.queryByRole('table', { name: 'Interfaces' })).toBeNull()
-    expect(iso(0)).toBeTruthy()
+    expect(screen.getByText('No polls')).toBeInTheDocument()
+    expect(screen.queryByRole('table', { name: 'Recent polls' })).toBeNull()
   })
 })

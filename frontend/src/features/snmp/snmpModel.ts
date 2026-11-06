@@ -136,9 +136,7 @@ export const requestOf = (query: SnmpQuery, q: string): DeviceListOptions => ({
 /** The page of one device. A path segment, so the id is encoded. */
 export const devicePath = (id: string): string => `/snmp/${encodeURIComponent(id)}`
 
-/** The page of the server an agent runs on, for a link the API has already authorized by giving its id. */
-export const agentServerPath = (serverId: string): string =>
-  `/servers/${encodeURIComponent(serverId)}`
+export { agentServerPath } from '@/lib/paths'
 
 /** The response time of a row, as the present value only where the API judged the device from a current poll. */
 export function responseCell(item: DeviceListItem): { text: string; note?: string } {

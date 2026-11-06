@@ -14,6 +14,7 @@ import {
   interfaceTitle,
   invalidSentence,
   isCurrentDevice,
+  perSecond,
   pollErrorText,
   pollScheduleText,
   polledAgo,
@@ -22,6 +23,15 @@ import {
   snmpText,
   speedText,
 } from './devices'
+
+describe('perSecond', () => {
+  it('writes a count per second with two decimals under 10 and one from there', () => {
+    expect(perSecond(0)).toBe('0.00/s')
+    expect(perSecond(0.05)).toBe('0.05/s')
+    expect(perSecond(9.5)).toBe('9.50/s')
+    expect(perSecond(12.34)).toBe('12.3/s')
+  })
+})
 
 describe('the tag word of a device’s reason', () => {
   const words: Record<DeviceReason, string> = {

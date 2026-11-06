@@ -1,12 +1,7 @@
 import type { AuthClient, ConsoleSession, PublishedThresholds, SessionCapabilities } from '../auth'
-import { ApiError } from '../errors'
 import type { ScopeOptions } from '../types'
+import { bad, isRecord } from './parse'
 import type { Transport } from './transport'
-
-const bad = () => new ApiError('The server sent an unexpected answer.', null, 'bad_response')
-
-const isRecord = (value: unknown): value is Record<string, unknown> =>
-  typeof value === 'object' && value !== null && !Array.isArray(value)
 
 /** Validates the session payload: the shape of a network answer is never trusted. */
 export function parseSession(raw: unknown): ConsoleSession {

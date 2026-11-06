@@ -23,7 +23,7 @@ export const DEVICE_TYPE_LABEL: Record<DeviceType, string> = {
   other: 'Other',
 }
 
-export const SNMP_VERSION_LABEL: Record<SnmpVersion, string> = { '2c': 'SNMPv2c', '3': 'SNMPv3' }
+const SNMP_VERSION_LABEL: Record<SnmpVersion, string> = { '2c': 'SNMPv2c', '3': 'SNMPv3' }
 
 /** The tag word of a device's reason. The health still decides the colour and the shape. */
 export function deviceReasonWord(reason: DeviceReason): string {
@@ -237,7 +237,8 @@ export interface RateCell {
   note?: string
 }
 
-const perSecond = (value: number): string => `${value.toFixed(value < 10 ? 2 : 1)}/s`
+/** A count per second (errors, discards): two decimals under 10, one above. */
+export const perSecond = (value: number): string => `${value.toFixed(value < 10 ? 2 : 1)}/s`
 
 export function rateText(
   iface: DeviceInterface,

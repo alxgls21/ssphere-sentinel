@@ -99,6 +99,56 @@ describe('CSRF', () => {
     await expect(second.post('auth/logout/')).rejects.toMatchObject({ code: 'csrf_failed' })
     expect(again.calls).toHaveLength(4)
   })
+
+  it('never sends the token on a read, even while it holds one', async () => {
+    const { fetchImpl, calls } = fakeFetch(session('tok-R'), json({}), json({ ok: true }))
+    const transport = createTransport({ fetchImpl })
+    await transport.get('session/')
+    await transport.get('scope/')
+    await transport.post('auth/logout/')
+    expect(header(calls[1], 'X-CSRFToken')).toBeUndefined()
+    // It did hold the token: the write that follows carries it.
+    expect(header(calls[2], 'X-CSRFToken')).toBe('tok-R')
+  })
+
+  it('does not fetch a new token and repeat a read that answers csrf_failed', async () => {
+    const { fetchImpl, calls } = fakeFetch(session('tok-1'), failure(403, 'csrf_failed'))
+    const transport = createTransport({ fetchImpl })
+    await transport.get('session/')
+    await expect(transport.get('scope/')).rejects.toMatchObject({ code: 'csrf_failed' })
+    expect(calls).toHaveLength(2)
+  })
+
+  it('does not send a write when the token it needs cannot be fetched', async () => {
+    const offline = fakeFetch(new TypeError('Failed to fetch'))
+    await expect(
+      createTransport({ fetchImpl: offline.fetchImpl }).post('auth/logout/'),
+    ).rejects.toMatchObject({ code: 'network' })
+    expect(offline.calls.map(([url]) => url)).toEqual(['/api/v1/console/session/'])
+
+    const broken = fakeFetch(failure(500, 'internal_error', 'Boom.'))
+    await expect(
+      createTransport({ fetchImpl: broken.fetchImpl }).post('auth/logout/'),
+    ).rejects.toMatchObject({ status: 500, code: 'internal_error' })
+    expect(broken.calls.map(([url]) => url)).toEqual(['/api/v1/console/session/'])
+  })
+
+  it('keeps the token it has when a later answer carries an empty or odd one', async () => {
+    const { fetchImpl, calls } = fakeFetch(
+      session('tok-K'),
+      json({ csrfToken: '' }),
+      json({ csrfToken: 42 }),
+      json({ csrfToken: null }),
+      json({ ok: true }),
+    )
+    const transport = createTransport({ fetchImpl })
+    await transport.get('session/')
+    await transport.get('a/')
+    await transport.get('b/')
+    await transport.get('c/')
+    await transport.post('auth/logout/')
+    expect(header(calls[4], 'X-CSRFToken')).toBe('tok-K')
+  })
 })
 
 describe('errors', () => {
@@ -137,6 +187,23 @@ describe('errors', () => {
       ApiError,
     )
     expect(onForbidden).toHaveBeenCalledTimes(1)
+  })
+
+  it('reports a session only for the exact status and code: nothing else ends or re-reads it', async () => {
+    const onUnauthenticated = vi.fn()
+    const onForbidden = vi.fn()
+    const { fetchImpl } = fakeFetch(
+      failure(403, 'permission_denied'),
+      failure(400, 'forbidden'),
+      failure(403, 'unauthenticated'),
+      failure(400, 'unauthenticated'),
+    )
+    const transport = createTransport({ fetchImpl, onUnauthenticated, onForbidden })
+    for (const path of ['a/', 'b/', 'c/', 'd/']) {
+      await expect(transport.get(path)).rejects.toBeInstanceOf(ApiError)
+    }
+    expect(onForbidden).not.toHaveBeenCalled()
+    expect(onUnauthenticated).not.toHaveBeenCalled()
   })
 
   it('does not trust a body that is not the API error shape (a proxy page, an empty 502)', async () => {
@@ -178,6 +245,38 @@ describe('errors', () => {
         init.signal?.addEventListener('abort', () => reject(init.signal?.reason))
       })) as unknown as typeof fetch
     const pending = createTransport({ fetchImpl }).get('x/', { signal: controller.signal })
+    controller.abort()
+    await expect(pending).rejects.toMatchObject({ name: 'AbortError' })
+  })
+
+  /**
+   * The headers arrive in time and the body is still coming when the request is cut: a browser then
+   * rejects the body read with the signal's reason, which is what this answer does.
+   */
+  const slowBody = ((_url: string, init: RequestInit) =>
+    Promise.resolve({
+      ok: true,
+      status: 200,
+      headers: new Headers(),
+      json: () =>
+        new Promise((_resolve, reject) => {
+          const { signal } = init
+          if (signal?.aborted) reject(signal.reason)
+          else signal?.addEventListener('abort', () => reject(signal.reason))
+        }),
+    })) as unknown as typeof fetch
+
+  it('reports a timeout while the answer is still arriving as a timeout, not as an unreadable answer', async () => {
+    await expect(
+      createTransport({ fetchImpl: slowBody, timeoutMs: 20 }).get('x/'),
+    ).rejects.toMatchObject({ name: 'ApiError', code: 'timeout' })
+  })
+
+  it('lets a caller cancel its own request while the answer is arriving, without it becoming an error to show', async () => {
+    const controller = new AbortController()
+    const pending = createTransport({ fetchImpl: slowBody }).get('x/', {
+      signal: controller.signal,
+    })
     controller.abort()
     await expect(pending).rejects.toMatchObject({ name: 'AbortError' })
   })

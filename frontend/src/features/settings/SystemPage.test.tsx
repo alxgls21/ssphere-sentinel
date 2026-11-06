@@ -177,6 +177,20 @@ describe('the notifier’s state', () => {
     expect(banner).toHaveTextContent('logging in to the mail server failed')
   })
 
+  it('dates a mail server failure that was not today', async () => {
+    setup(
+      systemStatus({
+        notifier: notifier({
+          state: 'failed',
+          lastSmtpError: { at: iso(21 * 86_400), category: 'authentication' },
+        }),
+      }),
+    )
+    expect(await notifierBanner()).toHaveTextContent(
+      'Last mail server failure Sep 27 10:00:00Z: logging in to the mail server failed.',
+    )
+  })
+
   it('says what the notifier reported of its mail settings, as reported', async () => {
     setup(
       systemStatus({

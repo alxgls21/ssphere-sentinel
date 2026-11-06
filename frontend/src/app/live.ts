@@ -5,7 +5,7 @@ import { POLL_MS, NO_DATA_AFTER_SECONDS, STALE_AFTER_SECONDS } from '@/lib/thres
 export type { Freshness }
 
 /** What each live resource reports about itself. */
-export interface ResourceReport {
+interface ResourceReport {
   updatedAt: number | null
   failed: boolean
   fetching: boolean
@@ -106,7 +106,7 @@ export function useLiveSnapshot(): LiveSnapshot {
   return useSyncExternalStore(store.subscribe, store.getSnapshot, store.getSnapshot)
 }
 
-export interface FreshnessInput {
+interface FreshnessInput {
   now: number
   snapshot: LiveSnapshot
   paused: boolean

@@ -161,4 +161,13 @@ describe('the latest change of an incident', () => {
     expect(closed.text).toBe('closed 30s ago')
     expect(closed.title).toMatch(/^The object was disabled or stopped\./)
   })
+
+  it('dates a change that was not today, so a weeks-old acknowledgement never reads as this morning', () => {
+    const change = lastChange(
+      incident({ status: 'acknowledged', openedSecondsAgo: 21 * 86_400 }),
+      NOW,
+      'utc',
+    )
+    expect(change.title).toBe('Acknowledged by maria at Sep 27 10:01:00Z. Still open.')
+  })
 })

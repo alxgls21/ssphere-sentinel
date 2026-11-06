@@ -117,11 +117,15 @@ panel --useLiveResource(id, key, fetch)--> useApi() --> SentinelApi --> console 
 - `useResource` owns loading / success / error, polling, abort, pause, and
   stale-while-revalidate: a failed refresh keeps the last good data, a reload
   keeps the previous render, an explicit retry of a failed first load shows the
-  loading state again. `useLiveResource` wires it into the live layer.
+  loading state again. Data kept across a key change (`keepPreviousData`) only bridges
+  the load: if the new search, filter, page, scope or range fails, its error shows, never
+  the previous key's rows. `useLiveResource` wires it into the live layer.
 - **The live layer** (`app/live.ts`): one poll interval (15 s), pause (`p`),
   refresh now (`r`), and a freshness store every live resource reports into. The
   shared summary also polls every 60 s in a hidden tab, so a background tab's
-  title and favicon stay true.
+  title and favicon stay true. Those two judge the summary by its own age and failure
+  (`shell/useDocumentStatus`): requests that keep answering cannot hold a failing
+  summary at a healthy verdict.
 - **Freshness**: older than 45 s reads STALE, older than 120 s (or every request
   failed) reads NO DATA. A panel also judges its own data age, so one dead
   endpoint is visible on its own panel. A dead dashboard must never look healthy:
@@ -529,8 +533,9 @@ BrowserRouter > ModeContext > AuthProvider > ApiProvider > LimitsProvider > Pref
   depends on the contract in `api/` only; only `app/` wires it in (a test
   enforces both).
 - **`AuthProvider`** owns the state (`checking`, `anonymous`, `expired`,
-  `denied`, `unreachable`, `authenticated`) and nothing else decides it: not the
-  URL, not browser storage. `RequireAuth` guards every route but `/login`; the
+  `denied`, `unreachable`, `signing-out`, `signout-failed`, `authenticated`) and nothing
+  else decides it: not the URL, not browser storage. `RequireAuth` guards every route but
+  `/login` and `/setup`; the
   live layer, the shared summary and the frame state only exist while signed in,
   so nothing polls on the sign-in page and nothing survives a sign-out.
 - **One rule for a dead session.** The transport reports every 401
@@ -556,8 +561,9 @@ BrowserRouter > ModeContext > AuthProvider > ApiProvider > LimitsProvider > Pref
   run with `VITE_SENTINEL_API=mock` loads, through a dynamic import behind that build-time
   setting, so a production bundle holds no import of it and none of its names. It is
   announced by a `DEMO DATA` strip above every designed screen. The composed port is an
-  `http` source, which makes nothing live by itself: the registry says which features the
-  console reads (`overview`, `servers`, `site-links`). Adding a method and marking its
+  `http` source, which makes nothing live by itself: the registry (`config/features.ts`) says
+  which features the console reads (today every one but `network-overview`, `events` and
+  `customers`). Adding a method and marking its
   feature connected is how a screen goes live, together.
 - **Capabilities.** What the account may do beyond reading (`capabilities` of the session, refreshed
   with it every minute) is carried by `useAuth().capabilities`. It is an offer, not a permission: a screen
@@ -606,7 +612,7 @@ STALE tag, and only marks and large figures dim.
 - `ui/`, `shell/`, `features/`: Testing Library tests for behavior that matters
   (keyboard, states, accessibility roles), not for pixels.
 - `features/overview/OverviewPage.test.tsx`: the page against the sample API.
-- `lib/overview.test.ts`, `app/consoleApi.test.ts`: the Overview derived from the console API's two lists, shared requests, aborts, and that a failure is never replaced.
+- `lib/overview.test.ts`, `app/consoleApi.test.ts`: the Overview derived from the console API's four lists (servers, containers, probe targets, SNMP devices), shared requests, aborts, and that a failure is never replaced.
 - `styles/tokens.test.ts`: WCAG contrast of every text and mark token, no color
   literal outside `tokens.css`, status-color utilities (healthy, warning, critical and
   offline, with their tint and line) only in `ui/status`, `ui/meters` and `charts`,

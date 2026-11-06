@@ -344,15 +344,18 @@ describe('empty, error and provenance', () => {
     expect(screen.queryByRole('table')).toBeNull()
   })
 
-  it('keeps the last good rows under a banner when only a refresh fails', async () => {
+  it('says why a filter change failed, with Retry, instead of keeping the previous filter’s rows', async () => {
     const user = userEvent.setup()
     const { api, listTargets } = served(list(FLEET), new ApiError('Service unavailable', 503))
     page('/network', api)
     await table()
     await user.click(screen.getByRole('button', { name: /WARN/ }))
     await waitFor(() => expect(listTargets.mock.calls.length).toBeGreaterThan(1))
-    expect(await screen.findByText('Refresh failed')).toBeInTheDocument()
-    expect(screen.getByRole('table', { name: 'Network targets' })).toBeInTheDocument()
+    const failure = await screen.findByRole('alert')
+    expect(failure).toHaveTextContent('Could not load targets')
+    expect(failure).toHaveTextContent('Service unavailable')
+    expect(within(failure).getByRole('button', { name: 'Retry' })).toBeInTheDocument()
+    expect(screen.queryByRole('table', { name: 'Network targets' })).toBeNull()
   })
 
   it('is live over the console API when the whole feature is connected, mock over the sample API', async () => {

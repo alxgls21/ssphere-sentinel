@@ -1,4 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
+import { ApiError } from '../errors'
+import { bad } from './parse'
 import { createAuthClient, getScopeOptions, parseScope, parseSession } from './session'
 import type { Transport } from './transport'
 
@@ -92,6 +94,14 @@ describe('parseSession', () => {
     })
   })
 
+  it('carries an account that may see every customer as such, and never claims it for nobody', () => {
+    expect(parseSession({ ...signedIn, access: { allCustomers: true } })).toMatchObject({
+      authenticated: true,
+      allCustomers: true,
+    })
+    expect(parseSession({ ...anonymous, access: { allCustomers: true } }).allCustomers).toBe(false)
+  })
+
   it('reads an anonymous answer, and an account without console access', () => {
     expect(parseSession(anonymous)).toMatchObject({
       authenticated: false,
@@ -115,6 +125,23 @@ describe('parseSession', () => {
     ['no access block', { ...signedIn, access: null }],
   ])('refuses %s', (_name, raw) => {
     expect(() => parseSession(raw)).toThrow(/unexpected answer/)
+  })
+
+  it('refuses with the one bad_response error every adapter of the console API uses', () => {
+    let refused: unknown
+    try {
+      parseSession({ ...signedIn, csrfToken: '' })
+    } catch (error) {
+      refused = error
+    }
+    const shared = bad()
+    expect(refused).toBeInstanceOf(ApiError)
+    expect(refused).toMatchObject({
+      message: shared.message,
+      status: shared.status,
+      code: shared.code,
+    })
+    expect(shared).toMatchObject({ code: 'bad_response', status: null })
   })
 })
 

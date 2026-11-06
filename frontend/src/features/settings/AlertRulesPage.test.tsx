@@ -1,4 +1,4 @@
-import { screen, waitFor, within } from '@testing-library/react'
+import { act, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { Route, Routes, useLocation } from 'react-router'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -125,6 +125,15 @@ const lastRequest = (served: ReturnType<typeof setup>) =>
   served.listAlertRules.mock.calls.at(-1)?.[0]
 const toggleButton = (verb: 'Enable' | 'Disable', name: string) =>
   screen.getByRole('button', { name: `${verb} rule ${name}` })
+
+describe('when a rule last changed', () => {
+  it('dates a change that was not today in the tooltip of its age', async () => {
+    setup(can('viewAlertRules'), { list: ruleList([rule({ updatedAt: iso(21 * 86_400) })]) })
+    await table()
+    act(() => (screen.getByLabelText('Updated 21d ago') as HTMLElement).focus())
+    expect(await screen.findByRole('tooltip')).toHaveTextContent('Updated Sep 27 10:00:00Z')
+  })
+})
 
 describe('who may see the list', () => {
   it('says so, and asks the server for nothing, to an account without the permission', () => {

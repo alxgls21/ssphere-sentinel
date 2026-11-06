@@ -157,6 +157,40 @@ describe('production safety', () => {
     expect(screen.queryByText('the app')).toBeNull()
   })
 
+  it('says why, instead of a blank page, when mock mode is asked for in another case', () => {
+    vi.stubEnv('VITE_SENTINEL_API', 'Mock')
+    const fetchSpy = vi.fn()
+    vi.stubGlobal('fetch', fetchSpy)
+    render(
+      <AppProviders>
+        <p>the app</p>
+      </AppProviders>,
+    )
+    expect(screen.getByRole('heading', { name: 'Console misconfigured' })).toBeVisible()
+    expect(screen.getByRole('alert')).toHaveTextContent('not "Mock"')
+    expect(screen.queryByText('the app')).toBeNull()
+    expect(fetchSpy).not.toHaveBeenCalled()
+  })
+
+  it('says why, instead of a blank page, when the sample fleet cannot be loaded', async () => {
+    vi.stubEnv('VITE_SENTINEL_API', 'mock')
+    vi.doMock('@/api/mock/client', () => {
+      throw new Error('the sample fleet chunk did not load')
+    })
+    try {
+      render(
+        <AppProviders>
+          <p>the app</p>
+        </AppProviders>,
+      )
+      expect(await screen.findByRole('heading', { name: 'Console misconfigured' })).toBeVisible()
+      expect(screen.getByRole('alert')).toHaveTextContent(/^The sample fleet could not be loaded: /)
+      expect(screen.queryByText('the app')).toBeNull()
+    } finally {
+      vi.doUnmock('@/api/mock/client')
+    }
+  })
+
   it('uses the console API when nothing is set, in production as well', async () => {
     vi.stubEnv('PROD', true)
     const { calls } = stubApi(session())
@@ -235,6 +269,9 @@ describe('with the console API', () => {
     expect(here()).toBe('/servers/abc?range=6h')
     const login = calls.indexOf('POST /api/v1/console/auth/login/')
     expect(login).toBeGreaterThan(-1)
+    // Before the sign-in only the session was asked about: nothing of the console was read for nobody.
+    expect(calls.slice(0, login).filter((call) => !/\/(session|setup)\/$/.test(call))).toEqual([])
+    expect(calls.slice(login + 1).length).toBeGreaterThan(0)
   })
 
   it('refuses a wrong password without leaving the page, and keeps the screens locked', async () => {
