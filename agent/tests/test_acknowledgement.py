@@ -1,7 +1,7 @@
 import json
 import unittest
 
-from agent.acknowledgement import parse_acknowledgement
+from agent.acknowledgement import NETWORK, SNMP, parse_acknowledgement
 
 A, B, C, D = (f"00000000-0000-0000-0000-00000000000{i}" for i in range(1, 5))
 
@@ -123,6 +123,22 @@ class CountsWithoutResultsTests(unittest.TestCase):
                 ack = parse_acknowledgement(body(**extra), [A, B, C])
                 self.assertTrue(ack.is_batch_failure)
                 self.assertEqual(ack.stored, set())
+
+
+class ServerTextTests(unittest.TestCase):
+    """A2: the detail of a rejected section is the server's own text, and it goes on to the log."""
+
+    def test_the_detail_of_a_rejected_section_is_made_printable_and_short(self):
+        detail = "x\n<0>forged emergency\x00\x1b[31m\x85" + "y" * 500
+        for section in (NETWORK, SNMP):
+            with self.subTest(section=section.name):
+                ack = parse_acknowledgement(
+                    body(**{section.name: "rejected", f"{section.name}_detail": detail}), [A], section
+                )
+                self.assertTrue(ack.is_batch_failure)
+                self.assertTrue(ack.batch_failure.isprintable(), repr(ack.batch_failure))
+                self.assertIn("x <0>forged emergency", ack.batch_failure)
+                self.assertNotIn("y" * 201, ack.batch_failure)
 
 
 if __name__ == "__main__":

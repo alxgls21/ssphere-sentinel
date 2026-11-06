@@ -181,6 +181,45 @@ class DeliveryTestCase(unittest.TestCase):
         return items
 
 
+class ServerTextInTheLogTests(DeliveryTestCase):
+    """A2: text that comes from the server reaches the log printable and short."""
+
+    def test_the_detail_of_a_rejected_snmp_section_is_logged_printable(self):
+        self.enqueue()
+        detail = "x\n<0>forged emergency\x00\x1b[2J\x85" + "y" * 500
+        response = HttpResponse(200, body(snmp="rejected", snmp_detail=detail))
+        with patch("agent.heartbeat.post_json", return_value=response), self.assertLogs(
+            "sentinel_agent", level="DEBUG"
+        ) as logs:
+            send_heartbeat(
+                Config(sentinel_url="https://sentinel.example.com", agent_token="token"),
+                collect_fn=lambda: {"version": 1},
+                docker_fn=lambda: {"version": 1},
+                snmp_delivery=self.delivery,
+            )
+        messages = [record.getMessage() for record in logs.records]
+        self.assertEqual(len([m for m in messages if "not acknowledged" in m]), 1)
+        for message in messages:
+            self.assertTrue(message.isprintable(), repr(message))
+            self.assertNotIn("y" * 201, message)
+
+    def test_the_reason_of_a_failed_batch_is_logged_printable_and_short(self):
+        from agent.network_delivery import DeliveryBatch
+        from agent.snmp_delivery import SnmpBatch
+
+        cases = (
+            (NetworkDelivery(self.queue), DeliveryBatch((measurement(),))),
+            (self.delivery, SnmpBatch((poll(),))),
+        )
+        for delivery, batch in cases:
+            with self.subTest(type(delivery).__name__):
+                with self.assertLogs("sentinel_agent", level="WARNING") as logs:
+                    delivery.record_failure(batch, "HTTP 500\n<0>forged\x1b[2J" + "z" * 500)
+                message = logs.records[-1].getMessage()
+                self.assertTrue(message.isprintable(), repr(message))
+                self.assertNotIn("z" * 201, message)
+
+
 class DeliveryTests(DeliveryTestCase):
     def test_nothing_pending_means_an_empty_batch(self):
         batch = self.delivery.prepare_batch()

@@ -211,8 +211,11 @@ class _Reply:
     def __init__(self, body: bytes) -> None:
         self._body = body
 
-    def read(self) -> bytes:
-        return self._body
+    def read(self, amt: int | None = None) -> bytes:
+        # Like HTTPResponse.read: up to ``amt`` bytes, then what is left, then nothing.
+        size = len(self._body) if amt is None or amt < 0 else amt
+        data, self._body = self._body[:size], self._body[size:]
+        return data
 
     def __enter__(self) -> _Reply:
         return self

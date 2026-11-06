@@ -31,6 +31,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from agent.acknowledgement import SNMP, Acknowledgement, parse_acknowledgement
+from agent.errors import safe_text
 from agent.http_client import MAX_REQUEST_BYTES, encoded_size, size_with_member
 from agent.measurement_queue import MeasurementQueue, QueueError
 from agent.network_delivery import (
@@ -207,7 +208,7 @@ class SnmpDelivery:
         logger.warning(
             "SNMP batch of %d poll(s) not acknowledged (%s); kept queued, next attempt in %ds",
             count,
-            reason[:200],
+            safe_text(reason),
             int(delay),
         )
 

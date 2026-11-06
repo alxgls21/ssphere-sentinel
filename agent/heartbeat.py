@@ -10,7 +10,7 @@ from typing import Any
 
 from agent.config import Config, uses_insecure_http
 from agent.docker_discovery import MAX_CONTAINERS, collect_docker
-from agent.errors import HeartbeatError, RequestTooLargeError
+from agent.errors import HeartbeatError, RequestTooLargeError, safe_text
 from agent.http_client import MAX_REQUEST_BYTES, encoded_size, post_json, size_with_member
 from agent.network_delivery import DeliveryBatch, NetworkDelivery
 from agent.snmp_delivery import SnmpBatch, SnmpDelivery, request_size_with_empty_section
@@ -339,12 +339,16 @@ def log_subsystem_status(body: str) -> dict[str, str]:
 
     A 2xx only proves liveness was recorded; telemetry, Docker and network
     data may still have been rejected. Returns ``{subsystem: status}`` for the
-    subsystems the server reported on. Only server-generated status fields are
-    logged, truncated and stripped of control characters.
+    subsystems the server reported on. The server's text that this logs
+    (statuses, details, rejected ids and reasons) goes through ``_safe_text``:
+    every non-printable character becomes a space and it is cut to 200
+    characters. Counts are logged only when they are integers. Server text
+    logged elsewhere (a rejected section's detail in the delivery back-off
+    warnings, a transport error) is made printable and cut the same way.
     """
     try:
         data = json.loads(body) if body and body.strip() else {}
-    except ValueError:
+    except (ValueError, RecursionError):  # RecursionError: a body nested thousands of levels deep
         logger.warning("Heartbeat response is not valid JSON; subsystem status unknown")
         return {}
     if not isinstance(data, dict):
@@ -377,7 +381,10 @@ def _log_network_status(status: str, data: dict[str, Any]) -> None:
     accepted = data.get("network_accepted")
     rejected = data.get("network_rejected")
     if status == "accepted":
-        logger.debug("Sentinel accepted network measurements (accepted=%s)", accepted)
+        logger.debug(
+            "Sentinel accepted network measurements (accepted=%s)",
+            accepted if isinstance(accepted, int) else "unknown",
+        )
         return
 
     logger.warning(
@@ -409,7 +416,10 @@ def _log_snmp_status(status: str, data: dict[str, Any]) -> None:
     accepted = data.get("snmp_accepted")
     rejected = data.get("snmp_rejected")
     if status == "accepted":
-        logger.debug("Sentinel accepted SNMP polls (accepted=%s)", accepted)
+        logger.debug(
+            "Sentinel accepted SNMP polls (accepted=%s)",
+            accepted if isinstance(accepted, int) else "unknown",
+        )
         return
 
     logger.warning(
@@ -438,9 +448,4 @@ def _log_snmp_status(status: str, data: dict[str, Any]) -> None:
 
 
 def _safe_text(value: Any) -> str:
-    if value is None:
-        return "-"
-    text = "".join(char if char.isprintable() else " " for char in str(value))
-    if len(text) > MAX_LOGGED_TEXT_LENGTH:
-        text = text[:MAX_LOGGED_TEXT_LENGTH] + "..."
-    return text
+    return safe_text(value, MAX_LOGGED_TEXT_LENGTH)

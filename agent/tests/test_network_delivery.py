@@ -195,6 +195,20 @@ class DeliveryTests(unittest.TestCase):
             self._heartbeat(HttpResponse(200, "not json"))
         self.assertNotIn(self.config.agent_token, "\n".join(logs.output))
 
+    def test_server_text_reaches_the_log_only_printable_and_short(self):
+        # A2: the detail of a rejected section went into the back-off warning as sent; "\n<0>..." in it
+        # makes journald record a second, forged entry at emergency priority.
+        self._enqueue(1)
+        detail = "x\n<0>forged emergency\x00\x1b[2J\x85" + "y" * 500
+        body = json.dumps({"status": "ok", "network": "rejected", "network_detail": detail})
+        with self.assertLogs("sentinel_agent", level="DEBUG") as logs:
+            self._heartbeat(HttpResponse(200, body))
+        messages = [record.getMessage() for record in logs.records]
+        self.assertEqual(len([m for m in messages if "not acknowledged" in m]), 1)
+        for message in messages:
+            self.assertTrue(message.isprintable(), repr(message))
+            self.assertNotIn("y" * 201, message)
+
 
 if __name__ == "__main__":
     unittest.main()

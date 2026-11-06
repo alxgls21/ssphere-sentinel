@@ -62,6 +62,40 @@ class ConfigTests(unittest.TestCase):
             load_config({"SENTINEL_URL": "https://sentinel.example.com"})
         self.assertIn("SENTINEL_AGENT_TOKEN", str(ctx.exception))
 
+    def test_a_token_with_whitespace_or_control_characters_is_refused_without_repeating_it(self):
+        # A4: a token pasted over two lines reached the Authorization header, where http.client refused
+        # it with a message that repeated it (escaped, so redaction missed it) at every heartbeat.
+        for token in (
+            "first-half\nsecond-half",
+            "first-half\r\nsecond-half",
+            "first-half second-half",
+            "first-half\tsecond-half",
+            "first-half\x00second-half",
+            "first-half\x1bsecond-half",
+            "first-half\x85second-half",
+            "first-half second-half",
+            "first-half​second-half",
+        ):
+            with self.subTest(token=repr(token)):
+                with self.assertRaises(ConfigError) as ctx:
+                    load_config(
+                        {"SENTINEL_URL": "https://sentinel.example.com", "SENTINEL_AGENT_TOKEN": token}
+                    )
+                self.assertIn("SENTINEL_AGENT_TOKEN", str(ctx.exception))
+                self.assertNotIn("first-half", str(ctx.exception))
+                self.assertNotIn("second-half", str(ctx.exception))
+        # What the server issues (secrets.token_urlsafe) is accepted.
+        token = "Ab9-_xY" * 6
+        config = load_config({"SENTINEL_URL": "https://sentinel.example.com", "SENTINEL_AGENT_TOKEN": token})
+        self.assertEqual(config.agent_token, token)
+
+    def test_the_token_is_not_in_the_repr_of_the_config(self):
+        config = load_config(
+            {"SENTINEL_URL": "https://sentinel.example.com", "SENTINEL_AGENT_TOKEN": "secret-token-value"}
+        )
+        self.assertNotIn("secret-token-value", repr(config))
+        self.assertEqual(config.agent_token, "secret-token-value")
+
     def test_empty_values_are_rejected(self):
         with self.assertRaises(ConfigError):
             load_config(

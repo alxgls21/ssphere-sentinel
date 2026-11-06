@@ -56,9 +56,9 @@ They return no configuration, version, host or error details.
   stores only an HMAC-SHA256 of each token, keyed with `AGENT_TOKEN_PEPPER`
   (kept outside the database). A database leak alone does not reveal usable
   tokens.
-- A raw token exists in three places only: the one page or command output
-  that displays it, the agent's environment file, and the `Authorization`
-  header of agent requests.
+- A raw token exists only in the one page or command output that displays
+  it, the agent's environment file, the agent's process environment and
+  memory, and the `Authorization` header of agent requests.
 - The admin shows a new token on a single page served with
   `Cache-Control: no-store`. It is never put in Django's messages framework
   (whose cookie is signed but not encrypted) or in the session. Adding an
@@ -69,8 +69,13 @@ They return no configuration, version, host or error details.
   and reject `SENTINEL_URL` values containing credentials. The agent does not
   follow HTTP redirects, so the token can never be forwarded to another host
   or downgraded to plain HTTP by a redirect.
-- Error messages printed by the agent are redacted if they ever contain the
-  token; `ping` runs with a minimal environment that does not include it.
+- The agent refuses a token that contains any whitespace or non-printable
+  character (spaces, line breaks, control and invisible characters) without
+  repeating it, and reports a request header that the HTTP
+  library refuses as `invalid request header`, without its value. Error
+  messages that still contain the token as it is are redacted (`***`); an
+  altered copy (escaped, or split) would not be. `ping` runs with a minimal
+  environment that does not include the token.
 - Unknown, disabled and malformed credentials all get the same `401`.
 
 ## Console authentication and access control
@@ -252,7 +257,7 @@ the counter, this includes staff and superuser accounts, at both doors: someone
 who knows an administrator's user name can keep that administrator out of the
 console and the admin for the lockout period. This is the accepted price of a
 throttle that works without a trustworthy client address; another
-administrator can delete the row, otherwise the lock ends by itself. Put the console behind the same
+administrator can delete the row, otherwise the lock ends by itself. If the only administrator is locked, run `docker compose exec web python manage.py unlock_login <username>` on the server (it needs shell access to the web service, not a sign-in); `--all` instead of a name clears every row. Put the console behind the same
 front-end protections as the admin (Cloudflare Access or WAF rate limiting) if
 it is exposed to the internet.
 
@@ -316,8 +321,11 @@ The systemd unit ([agent-deployment.md](agent-deployment.md)) runs the agent
 as a dedicated system account without capabilities, with a read-only view of
 the system (`ProtectSystem=strict`), no access to home directories, a private
 `/tmp` and devices, a system call filter and resource limits. Only its state
-directory (`/var/lib/ssphere-sentinel-agent`, mode `0700`) is writable. The
-token file is root-only and read by systemd before privileges are dropped.
+directory (`/var/lib/ssphere-sentinel-agent`, mode `0700`) is writable, apart
+from scratch space: its private `/tmp` and `/var/tmp` (discarded when it
+stops) and `/dev/shm` (what it leaves there is removed when it stops,
+`RemoveIPC=yes`). The token file is root-only and read by systemd before
+privileges are dropped.
 
 ### SNMP credentials
 
@@ -326,10 +334,11 @@ credentials for *other* systems: community strings and SNMPv3 keys.
 
 - They live only in the agent's credentials file, which Sentinel never reads or
   stores. The server's device settings hold the profile *name* and nothing else.
-- The agent refuses a credentials file that is a symlink, is owned by another
-  user, is accessible to other users or is writable by group or others, and
-  names the problem without printing any content. Recommended: `root:sentinel-agent`,
-  mode `0640`.
+- The agent refuses a credentials file that is a symlink, is owned by a user
+  other than root or the agent's account, gives any access to others (users
+  outside its owner and group) or is writable by group or others, and names
+  the problem without printing any content. Members of the file's group can
+  read it. Recommended: `root:sentinel-agent`, mode `0640`.
 - A secret is never queued, logged or sent: the queue and the heartbeat carry a
   fixed whitelist of poll fields, error messages repeat only the key and the rule,
   and library messages are scrubbed of every secret first.

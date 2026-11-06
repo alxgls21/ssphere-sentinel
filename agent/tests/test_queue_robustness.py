@@ -23,29 +23,37 @@ import unittest
 from contextlib import closing
 from unittest.mock import patch
 
+from agent.config import Config
+from agent.heartbeat import send_heartbeat
+from agent.http_client import HttpResponse
 from agent.measurement_queue import QueueError, quarantine_corrupt_file
+from agent.network_delivery import NetworkDelivery
 from agent.tests.queue_helpers import QueueTestCase, measurement, poll
+
+# JSON nested far deeper than the parser can follow: json.loads raises RecursionError, which is not a
+# ValueError (audit item "poisoned queue row", X1).
+TOO_DEEP = "[" * 1_000_000 + "]" * 1_000_000
 
 
 class UnreadableRowTests(QueueTestCase):
-    def _insert_bad_measurements(self, count):
+    def _insert_bad_measurements(self, count, payload="{not json"):
         with closing(sqlite3.connect(self.path, timeout=5)) as conn:
             for index in range(count):
                 conn.execute(
                     "INSERT INTO pending_measurements (measurement_id, payload, enqueued_at) "
                     "VALUES (?, ?, ?)",
-                    (f"00000000-0000-4000-8000-{index:012d}", "{not json", self.clock.now),
+                    (f"00000000-0000-4000-8000-{index:012d}", payload, self.clock.now),
                 )
             conn.commit()
 
-    def _insert_bad_polls(self, count):
+    def _insert_bad_polls(self, count, payload="{not json"):
         with closing(sqlite3.connect(self.path, timeout=5)) as conn:
             for index in range(count):
                 conn.execute(
                     "INSERT INTO pending_snmp "
                     "(poll_id, payload, interface_count, payload_bytes, enqueued_at) "
                     "VALUES (?, ?, 1, 10, ?)",
-                    (f"00000000-0000-4000-8000-{index:012d}", "{not json", self.clock.now),
+                    (f"00000000-0000-4000-8000-{index:012d}", payload, self.clock.now),
                 )
             conn.commit()
 
@@ -85,6 +93,58 @@ class UnreadableRowTests(QueueTestCase):
         with self.assertLogs("sentinel_agent", level="WARNING"):
             batch = queue.pending_snmp_batch(max_polls=3, max_interfaces=2000, max_bytes=10**6)
         self.assertEqual([p["poll_id"] for p in batch], [good["poll_id"]])
+
+    # -- a row nested too deeply to parse is one more unreadable row (X1) ------------
+
+    def test_a_measurement_nested_too_deeply_to_parse_is_removed_and_the_rest_is_returned(self):
+        queue = self.open_queue()
+        self._insert_bad_measurements(1, payload=TOO_DEEP)
+        good = measurement()
+        queue.enqueue(good)
+        with self.assertLogs("sentinel_agent", level="WARNING") as logs:
+            batch = queue.pending_batch(10)
+        self.assertEqual([m["measurement_id"] for m in batch], [good["measurement_id"]])
+        self.assertEqual(queue.count(), 1)
+        self.assertIn("unreadable", "\n".join(logs.output))
+
+    def test_a_poll_nested_too_deeply_to_parse_is_removed_and_the_rest_is_returned(self):
+        queue = self.open_queue()
+        self._insert_bad_polls(1, payload=TOO_DEEP)
+        good = poll()
+        queue.enqueue_snmp(good)
+        with self.assertLogs("sentinel_agent", level="WARNING") as logs:
+            batch = queue.pending_snmp_batch(max_polls=10, max_interfaces=2000, max_bytes=10**6)
+        self.assertEqual([p["poll_id"] for p in batch], [good["poll_id"]])
+        self.assertEqual(queue.snmp_count(), 1)
+        self.assertIn("unreadable", "\n".join(logs.output))
+
+    def test_a_row_nested_too_deeply_to_parse_does_not_fail_the_heartbeat(self):
+        # Before: RecursionError left prepare_batch, so every heartbeat failed (liveness included)
+        # until the age purge removed the row.
+        queue = self.open_queue()
+        self._insert_bad_measurements(1, payload=TOO_DEEP)
+        good = measurement()
+        queue.enqueue(good)
+        sent = []
+
+        def fake_post(_url, *, headers=None, payload=None, timeout=None):
+            sent.append(payload)
+            return HttpResponse(200, '{"status": "ok"}')
+
+        with patch("agent.heartbeat.post_json", side_effect=fake_post), self.assertLogs(
+            "sentinel_agent", level="WARNING"
+        ):
+            send_heartbeat(
+                Config(sentinel_url="https://sentinel.example.com", agent_token="token"),
+                collect_fn=lambda: {"version": 1},
+                docker_fn=lambda: {"version": 1},
+                network_delivery=NetworkDelivery(queue),
+            )
+        self.assertEqual(len(sent), 1)
+        self.assertEqual(
+            [m["measurement_id"] for m in sent[0]["network"]["measurements"]], [good["measurement_id"]]
+        )
+        self.assertEqual(queue.count(), 1)  # the unreadable row is gone, the good one waits for its ack
 
 
 class _CommitFailsOnce:

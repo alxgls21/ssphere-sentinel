@@ -58,8 +58,16 @@ MAX_POLL_SECONDS = 120.0
 CANCEL_CHECK_SECONDS = 0.25
 MAX_IF_INDEX = 2**31 - 1  # the largest ifIndex the server accepts
 MAX_MESSAGE_LENGTH = 200
+# The most characters kept of one value: the longest text the collector sends (MAX_SYS_DESCR), so
+# what it sends does not change. A device can put about 64 KB in a value.
+MAX_TEXT_LENGTH = 1024
+# The most characters of text one poll keeps, all values of all walks together. A device within the
+# IF-MIB sizes stays far below it (4,096 interfaces of 255 + 255 + 64 characters is about 2.4 million);
+# above it the poll fails as a protocol error instead of filling the agent's memory.
+MAX_POLL_TEXT_CHARS = 4 * 1024 * 1024
 
-_CONTROL_RE = re.compile(r"[\x00-\x1f\x7f]+")
+# C0 controls, DEL and the C1 controls (U+0080..U+009F, such as NEL and CSI).
+_CONTROL_RE = re.compile(r"[\x00-\x1f\x7f-\x9f]+")
 _EXCEPTION_VALUES = frozenset({"NoSuchObject", "NoSuchInstance", "EndOfMibView"})
 
 # pysnmp error indications by class name. Anything not listed is "unknown".
@@ -362,6 +370,19 @@ class _Session:
         self._target = target
         self._context = context
         self._secrets = secrets
+        self._text_left = MAX_POLL_TEXT_CHARS  # one session is one poll
+
+    def _keep(self, value: Any) -> Any:
+        """``_value(value)``, its text counted against what one poll may keep."""
+        converted = _value(value)
+        if isinstance(converted, str):
+            self._text_left -= len(converted)
+            if self._text_left < 0:
+                raise SnmpFetchError(
+                    ERROR_PROTOCOL,
+                    f"device sent more than {MAX_POLL_TEXT_CHARS} characters of text in one poll",
+                )
+        return converted
 
     async def get(self, wanted: list[str]) -> dict[str, Any]:
         api = self._api
@@ -374,7 +395,7 @@ class _Session:
             lookupMib=False,
         )
         _raise_for(error, status, self._secrets)
-        return {str(name): _value(value) for name, value in binds if not _is_exception(value)}
+        return {str(name): self._keep(value) for name, value in binds if not _is_exception(value)}
 
     async def walk(self, column_oid: str, repetitions: int, max_rows: int) -> dict[int, Any]:
         api = self._api
@@ -403,7 +424,7 @@ class _Session:
                     index = int(suffix)
                     if not 1 <= index <= MAX_IF_INDEX:
                         continue
-                    rows[index] = _value(value)
+                    rows[index] = self._keep(value)
                 if len(rows) > max_rows:
                     raise SnmpFetchError(
                         ERROR_PROTOCOL, f"interface table has more than {max_rows} rows"
@@ -457,17 +478,18 @@ def _is_exception(value: Any) -> bool:
 
 
 def _value(value: Any) -> Any:
-    """Plain ``int`` for numbers, ``str`` for text and OIDs."""
+    """Plain ``int`` for numbers, ``str`` for text and OIDs (at most ``MAX_TEXT_LENGTH`` characters)."""
     kind = type(value).__name__
     if kind in ("OctetString", "DisplayString"):
         text = bytes(value.asOctets()).decode("utf-8", errors="replace")
-        return _CONTROL_RE.sub(" ", text).strip()
+        return _CONTROL_RE.sub(" ", text).strip()[:MAX_TEXT_LENGTH]
     if kind in ("ObjectIdentifier", "ObjectName"):
-        return str(value)
+        return str(value)[:MAX_TEXT_LENGTH]
     try:
         return int(value)
     except (TypeError, ValueError):
-        return str(value.prettyPrint()) if hasattr(value, "prettyPrint") else str(value)
+        text = str(value.prettyPrint()) if hasattr(value, "prettyPrint") else str(value)
+        return text[:MAX_TEXT_LENGTH]
 
 
 def _raise_for(error: Any, status: Any, secrets: tuple[str, ...] = ()) -> None:

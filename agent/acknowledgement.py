@@ -20,6 +20,8 @@ import json
 from collections.abc import Sequence
 from dataclasses import dataclass, field
 
+from agent.errors import safe_text
+
 STORED_RESULTS = frozenset({"created", "duplicate"})
 KNOWN_STATUSES = frozenset({"accepted", "partial", "rejected"})
 
@@ -58,7 +60,7 @@ def parse_acknowledgement(
 
     try:
         data = json.loads(body) if body and body.strip() else None
-    except ValueError:
+    except (ValueError, RecursionError):  # RecursionError: a body nested thousands of levels deep
         return Acknowledgement(batch_failure="response is not valid JSON")
     if not isinstance(data, dict):
         return Acknowledgement(batch_failure="response is not a JSON object")
@@ -73,11 +75,12 @@ def parse_acknowledgement(
     results = data.get(f"{section.name}_results")
     if results is not None:
         return _from_results(results, sent, section)
-    # An envelope problem: the whole section was rejected, nothing is stored.
+    # An envelope problem: the whole section was rejected, nothing is stored. The detail is the
+    # server's own text and it is logged: printable and short only.
     detail = data.get(f"{section.name}_detail")
     return Acknowledgement(
         batch_failure=f"{section.name} section rejected"
-        + (f": {detail[:200]}" if isinstance(detail, str) else "")
+        + (f": {safe_text(detail)}" if isinstance(detail, str) else "")
     )
 
 

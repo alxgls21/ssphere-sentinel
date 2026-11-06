@@ -146,7 +146,12 @@ sudo systemctl enable --now sentinel-agent
 `enable` starts the agent at boot, after the network is online. systemd
 restarts it 10 seconds after a crash. On `systemctl stop` the agent stops
 probing, lets running probes finish, keeps queued measurements on disk and
-exits cleanly.
+exits cleanly. A heartbeat that is being sent ends first: the server's answer
+must arrive within 30 seconds of the moment the request has been sent, and
+connecting and sending have a 10-second timeout per step (resolving the server's
+name has no limit of its own). That normally fits in the unit's
+45-second stop timeout; if stopping takes longer, systemd kills the agent and
+the measurements already queued on disk are kept.
 
 ## 6. Check
 
@@ -182,9 +187,12 @@ sudo systemd-run --pty --quiet --uid=sentinel-agent --gid=sentinel-agent \
 Docker discovery is off unless you enable it. It needs the Docker SDK and
 access to the Docker API, and access to the Docker API is **equivalent to root
 on the host**: whoever can use it can start a privileged container. The agent
-only reads container metadata (names, images, state, health; never
-environment variables, mounts, commands or logs), but the permission is what
-matters if the service account is ever compromised.
+sends only container metadata (names, images, state, health; never
+environment variables, mounts, commands or logs). To get it, the Docker SDK
+inspects every container, so each container's full configuration, environment
+variables and mounts included, passes through the agent's memory; none of it
+is sent, stored or logged. The permission is what matters if the service
+account is ever compromised.
 
 Install the extra in both cases:
 
@@ -195,8 +203,13 @@ sudo /opt/ssphere-sentinel-agent/venv/bin/pip install \
 
 ### Recommended: read-only socket proxy
 
-A filtering proxy owns the socket and only allows the read-only endpoints the
-agent uses (`/_ping`, `/version`, container and image inspection):
+A filtering proxy owns the socket and passes on only `GET` and `HEAD`
+requests (`POST=0`), to the parts of the API it is told to allow. It filters
+by part, not by endpoint: with `CONTAINERS=1` and `IMAGES=1` it allows every
+read under `/containers` and `/images`, not only what the agent uses (`/_ping`,
+`/version`, container and image inspection). That includes container logs,
+files copied out of a container (`/containers/{id}/archive`), container export
+and image export:
 
 ```bash
 docker run -d --name sentinel-docker-proxy --restart unless-stopped \
@@ -207,9 +220,14 @@ docker run -d --name sentinel-docker-proxy --restart unless-stopped \
 ```
 
 Then add `DOCKER_HOST=tcp://127.0.0.1:2375` to `agent.env` and restart the
-agent. Any local user can read container metadata through the proxy, but
-nobody can change anything. If SELinux or AppArmor blocks the proxy's socket
-access, follow the proxy's documentation (it may need `--privileged`).
+agent. The proxy has no authentication: every local user, and every container
+started with `--network host`, can send it the same requests as the agent.
+Whoever can reach `127.0.0.1:2375` can read every container's environment
+variables (often passwords and API keys), command line and mounts, through the
+same inspection the agent needs, and its logs and files through the other
+reads above. The `:ro` on the socket mount does not limit what the API
+allows. If SELinux or AppArmor blocks the proxy's socket access, follow the
+proxy's documentation (it may need `--privileged`).
 
 ### Simple: direct socket access
 
@@ -275,8 +293,10 @@ rules, counters, limits) is in [snmp.md](snmp.md). On the agent host:
    sudo install -m 0640 -o root -g sentinel-agent snmp_devices.json /etc/ssphere-sentinel-agent/snmp_devices.json
    ```
 
-   The agent refuses a credentials file that other users can access, that group or
-   others can write, that is a symlink, or that belongs to another user.
+   The agent refuses a credentials file that gives any access to others (users
+   outside its owner and group), that group or others can write, that is a
+   symlink, or that belongs to a user other than root or the agent's account.
+   Members of the file's group can read it, so keep the group `sentinel-agent`.
 
 4. Enable it in `agent.env` and restart:
 
@@ -380,10 +400,14 @@ sudo userdel sentinel-agent
 sudo rm -f /etc/sysctl.d/60-ssphere-sentinel-agent-icmp.conf
 sudo sysctl -w net.ipv4.ping_group_range="1 0"
 sudo sysctl --system
+# If you set up the Docker socket proxy (Docker monitoring): remove it too.
+sudo docker rm -f sentinel-docker-proxy
 ```
 
 Removing `/var/lib/ssphere-sentinel-agent` deletes measurements that were not
-delivered yet.
+delivered yet. The Docker socket proxy does not stop with the agent: until its
+container is removed, it keeps answering on `127.0.0.1:2375` to every local
+user.
 
 ## macOS
 

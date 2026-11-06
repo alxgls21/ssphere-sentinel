@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import os
 import threading
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from urllib.parse import urlparse
 
 from agent.errors import ConfigError
@@ -19,7 +19,7 @@ MAX_HEARTBEAT_INTERVAL = int(threading.TIMEOUT_MAX)
 @dataclass(frozen=True)
 class Config:
     sentinel_url: str
-    agent_token: str
+    agent_token: str = field(repr=False)  # a printed or logged Config never shows it
     heartbeat_interval: int = DEFAULT_HEARTBEAT_INTERVAL
 
     @property
@@ -58,6 +58,12 @@ def load_config(
         raise ConfigError(f"{ENV_SENTINEL_URL} is not set")
     if not token:
         raise ConfigError(f"{ENV_AGENT_TOKEN} is not set")
+    if any(char.isspace() or not char.isprintable() for char in token):
+        # Sentinel's tokens are URL-safe, so such a token cannot be one (a token pasted over two lines,
+        # say), and http.client would refuse it with a message that repeats it. Never repeat it here.
+        raise ConfigError(
+            f"{ENV_AGENT_TOKEN} must not contain spaces, line breaks or control characters"
+        )
 
     parsed = urlparse(raw_url)
     if parsed.scheme not in {"http", "https"} or not parsed.netloc:
