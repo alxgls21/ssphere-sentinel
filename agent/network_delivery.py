@@ -10,6 +10,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from agent.acknowledgement import Acknowledgement, parse_acknowledgement
+from agent.errors import safe_text
 from agent.measurement_queue import MeasurementQueue, QueueError
 from agent.network import NETWORK_PAYLOAD_VERSION
 
@@ -118,7 +119,7 @@ class NetworkDelivery:
             "Network batch of %d measurement(s) not acknowledged (%s); "
             "kept queued, next attempt in %ds",
             count,
-            reason[:200],
+            safe_text(reason),
             int(delay),
         )
 

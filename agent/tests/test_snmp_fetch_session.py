@@ -12,10 +12,13 @@ NOT EXECUTED when written: expect to fix small details (names, imports).
 
 import asyncio
 import unittest
+from unittest.mock import patch
 
+from agent import snmp_fetch
 from agent import snmp_oids as oids
 from agent.snmp_fetch import (
     MAX_IF_INDEX,
+    MAX_WALK_ROWS,
     FetchPlan,
     PysnmpFetcher,
     RawDeviceData,
@@ -147,6 +150,13 @@ class ValueConversionTests(unittest.TestCase):
         text = _value(OctetString(b"Gi0/1\x00\x07 uplink\n"))
         self.assertEqual(text, "Gi0/1  uplink")
 
+    def test_c1_control_characters_are_removed_like_c0_ones(self):
+        # U+0080..U+009F (NEL, CSI, ...) encoded as UTF-8: they used to reach the payload and the log.
+        text = _value(OctetString("Gi0/1\u0085\u009b31m uplink\u0080".encode("utf-8")))
+        self.assertEqual(text, "Gi0/1 31m uplink")
+        # The characters right after the C1 range are text, not controls: kept.
+        self.assertEqual(_value(OctetString("café ©".encode("utf-8"))), "café ©")
+
     def test_invalid_utf8_is_replaced_not_raised(self):
         self.assertEqual(_value(DisplayString(b"caf\xc3\xa9 \xff")), "café �")
 
@@ -167,6 +177,26 @@ class ValueConversionTests(unittest.TestCase):
                 return "odd"
 
         self.assertEqual(_value(Odd()), "odd")
+
+    def test_long_text_is_cut_to_the_longest_text_the_collector_keeps(self):
+        # A5: one value can carry about 64 KB; only the first 1,024 characters are kept (MAX_SYS_DESCR,
+        # the collector's largest limit), whatever type the device sends it as.
+        class Opaque:  # not a number: kept as its pretty print (hex)
+            def prettyPrint(self) -> str:  # noqa: N802
+                return "0x" + "ab" * 40_000
+
+        self.assertEqual(_value(OctetString(b"a" * 70_000)), "a" * 1024)
+        self.assertEqual(_value(ObjectIdentifier("1." * 3_000 + "1")), ("1." * 3_000)[:1024])
+        self.assertEqual(_value(Opaque()), ("0x" + "ab" * 40_000)[:1024])
+
+    def test_cutting_long_text_changes_nothing_the_collector_sends(self):
+        from agent.snmp_collector import MAX_ALIAS, MAX_NAME, MAX_SYS_DESCR, MAX_SYS_NAME, _text
+
+        full = "xé\U0001f600 " * 1_500  # 6,000 characters of 1, 2 and 4 bytes in UTF-8
+        kept = _value(OctetString(full.encode("utf-8")))
+        for limit in (MAX_ALIAS, MAX_NAME, MAX_SYS_NAME, MAX_SYS_DESCR):
+            with self.subTest(limit=limit):
+                self.assertEqual(_text(kept, limit), _text(full.strip(), limit))
 
 
 class WalkTests(unittest.TestCase):
@@ -240,6 +270,34 @@ class WalkTests(unittest.TestCase):
                     run()
                 self.assertEqual(ctx.exception.category, category)
                 self.assertTrue(walker.closed)
+
+    # -- the text one poll keeps is bounded (A5) ------------------------------------
+
+    def test_a_poll_that_sends_more_text_than_a_poll_keeps_is_a_protocol_error(self):
+        rows = [_row(OPER, index, OctetString(b"x" * 1_000)) for index in range(1, 11)]  # 10,000 characters
+        with patch("agent.snmp_fetch.MAX_POLL_TEXT_CHARS", 5_000, create=True):
+            walker, run = self._walk([(None, 0, 0, rows)])
+            with self.assertRaises(SnmpFetchError) as ctx:
+                run()
+        self.assertEqual(ctx.exception.category, ERROR_PROTOCOL)
+        self.assertTrue(walker.closed)
+
+    def test_the_text_budget_is_for_the_whole_poll_not_for_each_walk(self):
+        rows = [_row(OPER, index, OctetString(b"x" * 1_000)) for index in range(1, 4)]  # 3,000 per walk
+        with patch("agent.snmp_fetch.MAX_POLL_TEXT_CHARS", 5_000, create=True):
+            api = FakeApi(walker=FakeWalker([(None, 0, 0, rows)]))
+            session = _session(api)
+            self.assertEqual(len(asyncio.run(session.walk(OPER, 25, 100))), 3)
+            api.walker = FakeWalker([(None, 0, 0, rows)])
+            with self.assertRaises(SnmpFetchError) as ctx:
+                asyncio.run(session.walk(OPER, 25, 100))
+        self.assertEqual(ctx.exception.category, ERROR_PROTOCOL)
+
+    def test_a_device_within_the_if_mib_sizes_cannot_reach_the_text_budget(self):
+        # ifName and ifDescr are DisplayString (255 characters at most), ifAlias 64; the system group adds
+        # sysName and sysDescr (255 each) and sysObjectID.
+        largest_legitimate_poll = MAX_WALK_ROWS * (255 + 255 + 64) + 255 + 255 + 1024
+        self.assertGreater(getattr(snmp_fetch, "MAX_POLL_TEXT_CHARS", 0), largest_legitimate_poll)
 
 
 class GetTests(unittest.TestCase):

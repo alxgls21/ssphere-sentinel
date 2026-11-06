@@ -198,9 +198,13 @@ class HeartbeatTests(unittest.TestCase):
     def test_user_agent_header_is_sent(self, mock_urlopen):
         class FakeResponse:
             status = 200
+            body = b'{"status":"ok"}'
 
-            def read(self):
-                return b'{"status":"ok"}'
+            def read(self, amt=None):
+                # Like HTTPResponse.read: up to ``amt`` bytes, then what is left, then nothing.
+                size = len(self.body) if amt is None else amt
+                data, self.body = self.body[:size], self.body[size:]
+                return data
 
             def __enter__(self):
                 return self
@@ -376,6 +380,17 @@ class HeartbeatResponseHandlingTests(unittest.TestCase):
         self.assertIn("line1 forged log line", output)
         self.assertNotIn("x" * 201, output)
         self.assertIn("...", output)
+
+    def test_counts_of_an_accepted_section_are_logged_only_as_integers(self):
+        # A2: at DEBUG, network_accepted and snmp_accepted were logged as the server sent them.
+        self.logger.setLevel(logging.DEBUG)
+        for section in ("network", "snmp"):
+            log_subsystem_status(
+                json.dumps({"status": "ok", section: "accepted", f"{section}_accepted": "1\n<0>forged\x1b[2J"})
+            )
+        output = self.stream.getvalue()
+        self.assertNotIn("forged", output)
+        self.assertEqual(output.count("(accepted=unknown)"), 2)
 
     def test_token_and_payload_never_logged(self):
         body = json.dumps(

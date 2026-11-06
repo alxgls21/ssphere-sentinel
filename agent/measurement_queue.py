@@ -437,7 +437,7 @@ class MeasurementQueue:
         for payload, measurement_id in rows:
             try:
                 batch.append(json.loads(payload))
-            except ValueError:
+            except (ValueError, RecursionError):  # RecursionError: nested too deeply to parse
                 unreadable.append(measurement_id)
         if unreadable:
             # An unreadable row would keep a slot in every batch (and starve
@@ -551,7 +551,7 @@ class MeasurementQueue:
                 break
             try:
                 batch.append(json.loads(payload))
-            except ValueError:
+            except (ValueError, RecursionError):  # RecursionError: nested too deeply to parse
                 unreadable.append(poll_id)
                 continue
             interfaces += interface_count

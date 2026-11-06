@@ -1,8 +1,12 @@
 """Optional Docker Engine discovery (read-only).
 
 Uses the official Docker SDK. Never crashes the agent: always returns a
-versioned status payload. Does not collect env vars, mounts, labels, commands,
-or logs.
+versioned status payload. Never sends env vars, mounts, labels, commands or
+logs: a container is reported with the fields of ``_serialize_container``
+only. The SDK reads more than that: ``containers.list`` inspects every
+container, so each one's full inspection document (environment variables,
+command, mounts and labels included) is in the agent's memory while the
+payload is built. None of it is sent, stored or logged.
 """
 
 from __future__ import annotations

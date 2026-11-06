@@ -97,6 +97,23 @@ class CliTests(unittest.TestCase):
         self.assertEqual(code, 1)
         self.assertIn("SENTINEL_AGENT_TOKEN is not set", err)
 
+    @patch("agent.heartbeat.collect_docker", return_value={"version": 1, "available": False, "status": "unavailable", "collected_at": "2026-10-07T00:00:00+00:00", "containers": []})
+    @patch("agent.heartbeat.collect_telemetry", return_value={"version": 1, "collected_at": "2026-10-07T00:00:00+00:00", "cpu_percent": 1.0, "memory_total_bytes": 1, "memory_used_bytes": 1, "memory_percent": 100.0, "disk_total_bytes": 1, "disk_used_bytes": 1, "disk_percent": 100.0, "uptime_seconds": 1})
+    def test_a_token_split_over_two_lines_is_refused_and_never_printed(self, _telemetry, _docker):
+        # A4: the scenario of the audit (a terminal-wrapped token in agent.env). The one-shot CLI used to
+        # print http.client's "Invalid header value b'Bearer <token>'" with the token in it.
+        token = "first-half-of-the-token\nsecond-half-of-the-token"
+        code, out, err = self._run(
+            ["heartbeat"],
+            # Loopback, port 9: whatever happens, nothing leaves the machine.
+            {"SENTINEL_URL": "https://127.0.0.1:9", "SENTINEL_AGENT_TOKEN": token},
+        )
+        self.assertEqual(code, 1)
+        self.assertEqual(out, "")
+        self.assertIn("SENTINEL_AGENT_TOKEN", err)
+        self.assertNotIn("first-half-of-the-token", err)
+        self.assertNotIn("second-half-of-the-token", err)
+
     @patch("agent.cli.send_heartbeat")
     def test_cli_redacts_token_if_present_in_error(self, mock_send):
         token = "should-never-appear"

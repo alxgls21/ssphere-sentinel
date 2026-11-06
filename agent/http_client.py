@@ -2,15 +2,18 @@
 
 from __future__ import annotations
 
+import functools
 import http.client
+import io
 import json
+import time
 import urllib.error
 import urllib.request
 from dataclasses import dataclass
 from typing import Any, Mapping
 
 from agent import __version__
-from agent.errors import HeartbeatError, RequestTooLargeError
+from agent.errors import HeartbeatError, RequestTooLargeError, safe_text
 
 DEFAULT_TIMEOUT_SECONDS = 10.0
 USER_AGENT = f"SSphere-Sentinel-Agent/{__version__}"
@@ -21,6 +24,16 @@ USER_AGENT = f"SSphere-Sentinel-Agent/{__version__}"
 # request is kept below it, measured in the bytes that are sent. A reverse proxy
 # may refuse less: see docs/server-deployment.md.
 MAX_REQUEST_BYTES = 2_500_000
+
+# The most bytes of a response body the agent reads. Sentinel's answer to the largest request is a
+# few KB; a longer body is not read further and the request fails.
+MAX_RESPONSE_BYTES = 1024 * 1024
+# How long the response to one request may take to arrive, status line, headers and body together,
+# counted from the moment the response is asked for, that is once the request has been sent (name
+# resolution, connecting, the TLS handshake and the upload of the body are not part of it: they have
+# the per-operation ``timeout``). ``timeout`` bounds each socket operation only: without this a
+# server that sends a byte now and then could hold a heartbeat (and the agent's stop) indefinitely.
+REQUEST_DEADLINE_SECONDS = 30.0
 
 
 @dataclass(frozen=True)
@@ -41,7 +54,72 @@ class _NoRedirectHandler(urllib.request.HTTPRedirectHandler):
         return None
 
 
-_opener = urllib.request.build_opener(_NoRedirectHandler)
+class _DeadlineReader(io.RawIOBase):
+    """What a response reads from its socket, until the request's deadline.
+
+    Every read of a response passes here: status line, headers, chunk sizes and body. Each one waits
+    at most for the time that is left (and never longer than the socket's own timeout); once the
+    deadline has passed none starts, and the request ends with ``TimeoutError`` like any timeout.
+    """
+
+    def __init__(self, stream: Any, sock: Any, deadline: float) -> None:
+        super().__init__()
+        self._stream = stream  # what the response opened on the socket; it keeps the socket open
+        self._sock = sock
+        self._timeout = sock.gettimeout()
+        self._deadline = deadline
+
+    def readable(self) -> bool:
+        return True
+
+    def readinto(self, buffer: Any) -> int:
+        left = self._deadline - time.monotonic()
+        if left <= 0:
+            raise TimeoutError("request deadline passed")
+        self._sock.settimeout(left if self._timeout is None else min(self._timeout, left))
+        return self._stream.readinto1(buffer)
+
+    def fileno(self) -> int:
+        return self._stream.fileno()
+
+    def close(self) -> None:
+        if not self.closed:
+            self._stream.close()
+        super().close()
+
+
+class _DeadlineResponse(http.client.HTTPResponse):
+    """``HTTPResponse`` that reads through ``_DeadlineReader``."""
+
+    def __init__(self, sock: Any, *args: Any, budget: float, **kwargs: Any) -> None:
+        # Created when the response is asked for (``getresponse``), after the request was sent, so
+        # ``budget`` seconds are counted from that moment.
+        super().__init__(sock, *args, **kwargs)
+        self.fp = io.BufferedReader(_DeadlineReader(self.fp, sock, time.monotonic() + budget))
+
+
+class _DeadlineHandler:
+    """Makes the connections of a request read their responses with ``_DeadlineResponse``."""
+
+    def do_open(self, http_class: Any, req: Any, **http_conn_args: Any) -> Any:
+        def connection(*args: Any, **kwargs: Any) -> Any:
+            conn = http_class(*args, **kwargs)
+            conn.response_class = functools.partial(_DeadlineResponse, budget=REQUEST_DEADLINE_SECONDS)
+            return conn
+
+        return super().do_open(connection, req, **http_conn_args)  # type: ignore[misc]
+
+
+class _HTTPHandler(_DeadlineHandler, urllib.request.HTTPHandler):
+    pass
+
+
+class _HTTPSHandler(_DeadlineHandler, urllib.request.HTTPSHandler):
+    pass
+
+
+# Subclasses of the default HTTP and HTTPS handlers replace them; everything else stays the default.
+_opener = urllib.request.build_opener(_NoRedirectHandler, _HTTPHandler, _HTTPSHandler)
 
 
 def post(
@@ -57,6 +135,9 @@ def post(
     responses (including redirects, which are never followed) are returned
     to the caller for handling. A body over ``MAX_REQUEST_BYTES`` is never
     sent: every request passes this check, on the bytes that would go out.
+    A response must arrive within ``REQUEST_DEADLINE_SECONDS`` of the moment
+    the request has been sent and its body must not exceed
+    ``MAX_RESPONSE_BYTES``; otherwise the request fails (HeartbeatError).
     """
     if body is not None and len(body) > MAX_REQUEST_BYTES:
         raise RequestTooLargeError(
@@ -79,8 +160,7 @@ def post(
 
     try:
         with _opener.open(request, timeout=timeout) as response:
-            raw = response.read()
-            text = raw.decode("utf-8", errors="replace")
+            text = _read_body(response).decode("utf-8", errors="replace")
             return HttpResponse(status=response.status, body=text)
     except urllib.error.HTTPError as exc:
         # The error wraps the open response; close it so the socket is
@@ -88,11 +168,11 @@ def post(
         # An exception raised here skips the sibling ``except`` clauses below,
         # so a truncated or stalled error body is mapped here.
         try:
-            raw = exc.read()
+            raw = _read_body(exc)
         except TimeoutError as read_exc:
             raise HeartbeatError("request timed out") from read_exc
         except (OSError, http.client.HTTPException) as read_exc:
-            raise HeartbeatError(f"connection failed: {read_exc}") from read_exc
+            raise _connection_failed(read_exc) from read_exc
         finally:
             exc.close()
         text = raw.decode("utf-8", errors="replace") if raw else ""
@@ -105,11 +185,37 @@ def post(
             raise HeartbeatError("request timed out") from exc
         # Never include request headers (may contain Authorization).
         message = str(reason) if reason is not None else str(exc)
-        raise HeartbeatError(f"connection failed: {message}") from exc
+        raise HeartbeatError(f"connection failed: {safe_text(message)}") from exc
     except (OSError, http.client.HTTPException) as exc:
         # HTTPException (BadStatusLine, IncompleteRead, InvalidURL, ...) is
         # not an OSError.
-        raise HeartbeatError(f"connection failed: {exc}") from exc
+        raise _connection_failed(exc) from exc
+    except ValueError:
+        # http.client refuses a header value it cannot send (a line break, a character outside
+        # Latin-1) with a message that repeats the value, token included. None of it is passed on,
+        # and ``from None`` keeps it out of tracebacks too.
+        raise HeartbeatError("invalid request header") from None
+
+
+def _read_body(response: Any) -> bytes:
+    """The body of ``response``, at most ``MAX_RESPONSE_BYTES``: a longer one is not read further."""
+    body = response.read(MAX_RESPONSE_BYTES + 1)
+    if len(body) > MAX_RESPONSE_BYTES:
+        raise HeartbeatError(
+            f"response body is larger than {MAX_RESPONSE_BYTES} bytes; not read further"
+        )
+    # read(n) returns a body cut short of its Content-Length as it is; read() raises IncompleteRead.
+    response.read()
+    return body
+
+
+def _connection_failed(exc: BaseException) -> HeartbeatError:
+    """``connection failed`` with the class of ``exc`` and its text, printable and short.
+
+    The text can come from the server: ``BadStatusLine`` carries whatever line came instead of a
+    status line (up to 64 KiB, control characters included), and the run loop logs the error.
+    """
+    return HeartbeatError(f"connection failed: {type(exc).__name__}: {safe_text(exc)}")
 
 
 def encode_json(value: Any) -> bytes:

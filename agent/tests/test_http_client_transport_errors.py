@@ -17,12 +17,50 @@ NOT EXECUTED when written: expect to fix small details.
 import socket
 import socketserver
 import threading
+import time
 import unittest
+from unittest.mock import patch
 
 from agent.errors import HeartbeatError
 from agent.http_client import post_json
 
 TOKEN = "secret-token"
+RESPONSE_LIMIT = 1024 * 1024  # the response cap the owner approved (audit A3)
+
+
+def _reply(data: bytes):
+    """A server script that sends ``data`` and then closes the connection."""
+
+    def script(sock, _release):
+        try:
+            sock.sendall(data)
+            # Close like a real server: send FIN, then read what is still coming until the client closes.
+            # Closing a socket that has unread data makes the kernel send a reset instead, which can
+            # destroy the reply before the client has read all of it (flaky on macOS, a 1 MiB body).
+            sock.shutdown(socket.SHUT_WR)
+            sock.settimeout(1.0)
+            while sock.recv(65536):
+                pass
+        except OSError:
+            pass  # the client stopped reading
+
+    return script
+
+
+def _drip(prefix: bytes, dripped: bytes, step: float = 0.05):
+    """A server script that sends ``prefix``, then ``dripped`` one byte every ``step`` seconds."""
+
+    def script(sock, release):
+        try:
+            sock.sendall(prefix)
+            for index in range(len(dripped)):
+                if release.wait(step):
+                    return
+                sock.sendall(dripped[index : index + 1])
+        except OSError:
+            pass
+
+    return script
 
 
 class _Handler(socketserver.BaseRequestHandler):
@@ -129,6 +167,95 @@ class TransportErrorTests(unittest.TestCase):
         except HeartbeatError:
             return
         self.assertEqual(response.status, 503)
+
+    # -- text from the server in an error message (audit A2) --------------------------
+
+    def test_a_status_line_that_is_not_http_reaches_the_error_printable_and_short(self):
+        # BadStatusLine carries the raw line (up to 64 KiB; NUL, ESC and C1 controls included) into the
+        # message that the run loop logs at every heartbeat and the one-shot CLI prints.
+        line = b"\x1b[2J\x00<0>forged emergency\x85\x9b" + b"x" * 5_000 + b"\r\n"
+        url = self.serve(lambda sock, _release: sock.sendall(line))
+        message = str(self.assertHeartbeatError(url))
+        self.assertTrue(message.isprintable(), repr(message[:300]))
+        self.assertIn("BadStatusLine", message)
+        self.assertIn("forged emergency", message)
+        self.assertLess(len(message), 300)
+
+    # -- response size and overall deadline (audit A3) --------------------------------
+
+    def test_the_limits_are_what_was_approved(self):
+        from agent import http_client
+
+        self.assertEqual(getattr(http_client, "MAX_RESPONSE_BYTES", None), RESPONSE_LIMIT)
+        self.assertEqual(getattr(http_client, "REQUEST_DEADLINE_SECONDS", None), 30)
+
+    def test_a_body_over_the_limit_is_refused_whatever_its_framing_or_status(self):
+        too_large = b"x" * (RESPONSE_LIMIT + 1)
+        replies = {
+            "content-length": b"HTTP/1.1 200 OK\r\nContent-Length: %d\r\n\r\n" % len(too_large) + too_large,
+            "until close": b"HTTP/1.1 200 OK\r\nConnection: close\r\n\r\n" + too_large,
+            "chunked": b"HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n%x\r\n" % len(too_large)
+            + too_large
+            + b"\r\n0\r\n\r\n",
+            "error status": b"HTTP/1.1 500 Internal Server Error\r\nContent-Length: %d\r\n\r\n" % len(too_large)
+            + too_large,
+        }
+        for label, reply in replies.items():
+            with self.subTest(label):
+                error = self.assertHeartbeatError(self.serve(_reply(reply)))
+                self.assertIn(str(RESPONSE_LIMIT), str(error))
+
+    def test_a_body_of_exactly_the_limit_is_read_whole(self):
+        body = b"x" * RESPONSE_LIMIT
+        url = self.serve(_reply(b"HTTP/1.1 200 OK\r\nContent-Length: %d\r\n\r\n" % len(body) + body))
+        response = self.post(url)
+        self.assertEqual((response.status, len(response.body)), (200, RESPONSE_LIMIT))
+
+    def assertEndsAtTheDeadline(self, script) -> None:
+        # Each byte comes well within the 2 s socket timeout, so only an overall deadline (1 s here)
+        # can end the request before the server is done (about 2 to 4 s).
+        url = self.serve(script)
+        started = time.monotonic()
+        with patch("agent.http_client.REQUEST_DEADLINE_SECONDS", 1.0, create=True):
+            error = self.assertHeartbeatError(url, timeout=2.0)
+        self.assertEqual(str(error), "request timed out")
+        self.assertLess(time.monotonic() - started, 2.0)
+
+    def test_headers_sent_a_byte_at_a_time_end_at_the_deadline(self):
+        reply = b"HTTP/1.1 200 OK\r\nX-Padding: " + b"x" * 40 + b"\r\nContent-Length: 2\r\n\r\n{}"
+        self.assertEndsAtTheDeadline(_drip(b"", reply))
+
+    def test_a_body_sent_a_byte_at_a_time_ends_at_the_deadline(self):
+        body = b'{"status": "ok", "padding": "' + b"x" * 40 + b'"}'
+        self.assertEndsAtTheDeadline(
+            _drip(b"HTTP/1.1 200 OK\r\nContent-Length: %d\r\n\r\n" % len(body), body)
+        )
+
+    def test_chunk_sizes_sent_a_byte_at_a_time_end_at_the_deadline(self):
+        chunks = b"0" * 40 + b"2\r\n{}\r\n0\r\n\r\n"
+        self.assertEndsAtTheDeadline(
+            _drip(b"HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n", chunks)
+        )
+
+    def test_an_error_body_sent_a_byte_at_a_time_ends_at_the_deadline(self):
+        body = b"x" * 60
+        self.assertEndsAtTheDeadline(
+            _drip(b"HTTP/1.1 503 Service Unavailable\r\nContent-Length: %d\r\n\r\n" % len(body), body)
+        )
+
+    # -- a header value that http.client refuses (audit A4) ---------------------------
+
+    def test_a_header_value_that_cannot_be_sent_is_an_error_that_does_not_repeat_it(self):
+        # http.client raises ValueError("Invalid header value b'Bearer ...'"), the token escaped inside.
+        url = self.serve(lambda sock, _release: sock.close())
+        for token in ("first-half\nsecond-half", "first-half€second-half"):  # line break; not Latin-1
+            with self.subTest(token=repr(token)):
+                with self.assertRaises(HeartbeatError) as ctx:
+                    post_json(url, headers={"Authorization": f"Bearer {token}"}, payload={}, timeout=2.0)
+                self.assertEqual(str(ctx.exception), "invalid request header")
+                # Not chained either, so a traceback cannot show it.
+                self.assertIsNone(ctx.exception.__cause__)
+                self.assertTrue(ctx.exception.__suppress_context__)
 
 
 if __name__ == "__main__":
