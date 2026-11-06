@@ -131,7 +131,7 @@ export interface DockerContainer {
 
 /* ------------------------------------------------------------------ events */
 
-export type SubjectKind = 'server' | 'container' | 'target' | 'device' | 'interface' | 'site'
+type SubjectKind = 'server' | 'container' | 'target' | 'device' | 'interface' | 'site'
 
 export interface SubjectRef {
   kind: SubjectKind
@@ -1052,7 +1052,7 @@ export interface NotificationPreferences {
 export type TestEmailStatus = 'pending' | 'sending' | 'sent' | 'failed' | 'cancelled' | 'expired'
 
 /** Why a test email was not sent, by category, with the server's own words for it. Never an SMTP message. */
-export interface TestEmailFailure {
+interface TestEmailFailure {
   category: string
   label: string
 }

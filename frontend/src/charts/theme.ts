@@ -73,7 +73,7 @@ export function readChartTokens(root: HTMLElement = document.documentElement): C
 }
 
 /** Decals (45 and 135 degree texture on bars) are opt-in: only where hue is not dependable. */
-export function needsDecals(): boolean {
+function needsDecals(): boolean {
   if (typeof window === 'undefined' || !window.matchMedia) return false
   return (
     window.matchMedia('(forced-colors: active)').matches ||

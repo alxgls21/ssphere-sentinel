@@ -101,6 +101,54 @@ export function formatClock(ms: number, tz: Timezone, seconds = true): string {
   return `${formatTime(ms, tz, seconds)}${tz === 'utc' ? 'Z' : ''}`
 }
 
+const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'] as const
+const MONTHS = [
+  'Jan',
+  'Feb',
+  'Mar',
+  'Apr',
+  'May',
+  'Jun',
+  'Jul',
+  'Aug',
+  'Sep',
+  'Oct',
+  'Nov',
+  'Dec',
+] as const
+
+/** The calendar day an instant falls on in the chosen timezone. */
+function calendarDay(ms: number, tz: Timezone) {
+  const date = new Date(ms)
+  return tz === 'utc'
+    ? {
+        y: date.getUTCFullYear(),
+        m: date.getUTCMonth(),
+        d: date.getUTCDate(),
+        wd: date.getUTCDay(),
+      }
+    : { y: date.getFullYear(), m: date.getMonth(), d: date.getDate(), wd: date.getDay() }
+}
+
+/**
+ * formatClock for a moment that may not be today, judged against `nowMs` (the clock of the data):
+ * today the clock alone ("09:12:44Z"), in the six days before led by the weekday ("Tue 09:12:44Z"),
+ * otherwise by the date ("Oct 3 09:12:44Z", with the year when it is not this one). A weeks-old
+ * moment never reads as this morning's.
+ */
+export function formatStamp(ms: number, tz: Timezone, nowMs: number): string {
+  const clock = formatClock(ms, tz)
+  const then = calendarDay(ms, tz)
+  const now = calendarDay(nowMs, tz)
+  // Whole calendar days between the two, counted on the calendar so a DST change cannot shift them.
+  const daysBefore = Math.round(
+    (Date.UTC(now.y, now.m, now.d) - Date.UTC(then.y, then.m, then.d)) / 86_400_000,
+  )
+  if (daysBefore === 0) return clock
+  if (daysBefore > 0 && daysBefore < 7) return `${WEEKDAYS[then.wd]} ${clock}`
+  return `${MONTHS[then.m]} ${then.d}${then.y === now.y ? '' : ` ${then.y}`} ${clock}`
+}
+
 /** "1 minute", "28 minutes": a count with its noun, plural unless the count is 1. */
 export function formatQuantity(value: number, noun: string): string {
   return `${value} ${noun}${value === 1 ? '' : 's'}`

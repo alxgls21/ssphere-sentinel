@@ -38,10 +38,19 @@ function ApiProvider({ http, children }: { http: ConsoleHttp | null; children: R
   const [createMock, setCreateMock] = useState<
     typeof import('@/api/mock/client').createMockApi | null
   >(null)
+  const [loadFailure, setLoadFailure] = useState<string | null>(null)
   useEffect(() => {
     if (http) return
     let live = true
-    void loadSampleFleet().then((create) => live && setCreateMock(() => create))
+    loadSampleFleet().then(
+      (create) => live && setCreateMock(() => create),
+      // Said on the page, not left as a blank one with an error in the console.
+      (error: unknown) =>
+        live &&
+        setLoadFailure(
+          `The sample fleet could not be loaded: ${error instanceof Error ? error.message : String(error)}`,
+        ),
+    )
     return () => {
       live = false
     }
@@ -50,6 +59,7 @@ function ApiProvider({ http, children }: { http: ConsoleHttp | null; children: R
     if (http) return createConsoleApi(http)
     return createMock ? createMock({ scenario }) : null
   }, [scenario, http, createMock])
+  if (loadFailure) return <Misconfigured message={loadFailure} />
   if (!api) return null
   return (
     <ApiContext.Provider value={api}>

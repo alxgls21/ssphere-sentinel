@@ -20,7 +20,7 @@ import { emptyCounts } from './status'
  */
 export type VerdictState = 'critical' | 'degraded' | 'partial' | 'nominal' | 'nodata'
 
-export const VERDICT_WORD: Record<VerdictState, string> = {
+const VERDICT_WORD: Record<VerdictState, string> = {
   critical: 'CRITICAL',
   degraded: 'DEGRADED',
   partial: 'PARTIAL',

@@ -18,7 +18,9 @@ describe('navigation registry', () => {
   })
 
   it('references only known backend features', () => {
-    for (const item of NAV_ITEMS) if (item.feature) expect(FEATURES[item.feature]).toBeDefined()
+    for (const item of NAV_ITEMS) {
+      if (item.feature) expect(FEATURES[item.feature].id, item.id).toBe(item.feature)
+    }
   })
 
   it('lists the Overview first, then the designed screens in order of approval', () => {

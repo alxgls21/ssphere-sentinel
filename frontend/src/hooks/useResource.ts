@@ -29,12 +29,17 @@ export interface ResourceOptions {
    * resource behind the tab title and favicon: a wall of background tabs must stay true.
    */
   hiddenRefreshMs?: number
-  /** On a key change, keep showing the previous data while the new key loads. */
+  /**
+   * On a key change, keep showing the previous data while the new key loads. If that load fails,
+   * the previous data is dropped: it never stands in for the answer of another key.
+   */
   keepPreviousData?: boolean
 }
 
 interface State<T> {
   key: string
+  /** The key `data` was loaded for: while keepPreviousData holds it across a key change, the old one. */
+  dataKey: string | null
   data: T | undefined
   error: Error | null
   updatedAt: number | null
@@ -57,6 +62,7 @@ function reducer<T>(state: State<T>, action: Action<T>): State<T> {
       }
       return {
         key: action.key,
+        dataKey: action.keepPreviousData ? state.dataKey : null,
         data: action.keepPreviousData ? state.data : undefined,
         error: null,
         updatedAt: action.keepPreviousData ? state.updatedAt : null,
@@ -65,10 +71,29 @@ function reducer<T>(state: State<T>, action: Action<T>): State<T> {
     }
     case 'success':
       return action.key === state.key
-        ? { ...state, data: action.data, error: null, updatedAt: action.at, fetching: false }
+        ? {
+            ...state,
+            dataKey: action.key,
+            data: action.data,
+            error: null,
+            updatedAt: action.at,
+            fetching: false,
+          }
         : state
     case 'failure':
-      return action.key === state.key ? { ...state, error: action.error, fetching: false } : state
+      if (action.key !== state.key) return state
+      // Data kept from another key is no answer for this one: once this key's load has failed, showing it
+      // would pass another search, filter, page, scope or range off as this one. The failure shows instead.
+      return state.dataKey === action.key
+        ? { ...state, error: action.error, fetching: false }
+        : {
+            ...state,
+            dataKey: null,
+            data: undefined,
+            updatedAt: null,
+            error: action.error,
+            fetching: false,
+          }
   }
 }
 
@@ -88,6 +113,7 @@ export function useResource<T>(
 ): Resource<T> {
   const [state, dispatch] = useReducer(reducer<T>, {
     key,
+    dataKey: null,
     data: undefined,
     error: null,
     updatedAt: null,

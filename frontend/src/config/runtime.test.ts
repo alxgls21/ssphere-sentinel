@@ -6,7 +6,19 @@ describe('resolveApiMode', () => {
     expect(resolveApiMode({ PROD: false })).toBe('http')
     expect(resolveApiMode({ PROD: true })).toBe('http')
     expect(resolveApiMode({ PROD: true, VITE_SENTINEL_API: '' })).toBe('http')
-    expect(resolveApiMode({ PROD: true, VITE_SENTINEL_API: ' HTTP ' })).toBe('http')
+    expect(resolveApiMode({ PROD: true, VITE_SENTINEL_API: 'http' })).toBe('http')
+  })
+
+  it('takes only the exact values, as the build-time check of the sample fleet does', () => {
+    // "Mock" passed this check and failed that one: a blank page instead of either mode.
+    for (const value of ['Mock', 'MOCK', ' mock', 'mock ', ' HTTP ', 'Http']) {
+      expect(() => resolveApiMode({ PROD: false, VITE_SENTINEL_API: value }), value).toThrow(
+        ConfigurationError,
+      )
+    }
+    expect(() => resolveApiMode({ PROD: false, VITE_SENTINEL_API: ' mock' })).toThrow(
+      'VITE_SENTINEL_API must be "http" or "mock", not " mock".',
+    )
   })
 
   it('allows mock mode in development only when it is asked for', () => {

@@ -2,6 +2,7 @@ import { act, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { OverviewSummary } from '@/api/types'
 import { registryOverrides } from '@/config/testing'
+import { engine, overview } from '@/features/alerts/testing'
 import { makeSummary, renderShell } from './testing'
 import { useDocumentStatus } from './useDocumentStatus'
 
@@ -96,6 +97,34 @@ describe('useDocumentStatus: title and favicon', () => {
       },
     })
     await waitFor(() => expect(document.title).toBe('[MOCK] ○ NO DATA - Overview - Sentinel'))
+  })
+
+  it('goes to NO DATA when only the summary keeps failing, however fresh the other requests are', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    let failing = false
+    const getOverviewSummary = vi.fn(async () => {
+      if (failing) throw new Error('devices/ failed')
+      return NOMINAL
+    })
+    const getIncidentOverview = vi.fn(async () => overview())
+    renderShell(<Host />, {
+      api: { getOverviewSummary, getIncidentOverview, getEngineStatus: async () => engine() },
+      withAlerts: true,
+      pollMs: 10_000,
+    })
+    await waitFor(() => expect(document.title).toBe('[MOCK] ● 30 OK - Overview - Sentinel'))
+
+    failing = true
+    // React only renders when an act() scope ends, so step poll by poll, past the 120 s bound.
+    for (let poll = 0; poll < 13; poll++) {
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(10_000)
+      })
+    }
+    // The summary was asked on every poll and failed; the incidents kept answering. The summary's own age decides.
+    expect(getOverviewSummary.mock.calls.length).toBeGreaterThanOrEqual(13)
+    expect(getIncidentOverview.mock.calls.length).toBeGreaterThanOrEqual(13)
+    expect(document.title).toBe('[MOCK] ○ NO DATA - Overview - Sentinel')
   })
 })
 

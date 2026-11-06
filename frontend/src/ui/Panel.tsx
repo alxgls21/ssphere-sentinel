@@ -203,7 +203,13 @@ export function Panel({
       </header>
 
       {status === 'success' && error ? (
-        <ErrorState banner title="Refresh failed" lastGood={lastGood} onRetry={onRetry} />
+        <ErrorState
+          banner
+          title="Refresh failed"
+          message={error.message}
+          lastGood={lastGood}
+          onRetry={onRetry}
+        />
       ) : null}
 
       <div

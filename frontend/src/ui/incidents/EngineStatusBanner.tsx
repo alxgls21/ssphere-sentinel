@@ -2,7 +2,7 @@ import type { EngineStatus } from '@/api/types'
 import { usePrefs } from '@/app/prefs'
 import type { Resource } from '@/hooks/useResource'
 import { cn } from '@/lib/cn'
-import { EMPTY, formatAge, formatClock } from '@/lib/format'
+import { EMPTY, formatAge, formatClock, formatStamp } from '@/lib/format'
 import {
   ENGINE_HEALTH,
   ENGINE_WORD,
@@ -100,7 +100,7 @@ export function EngineStatusBanner({
             <>
               {' · '}monitoring since{' '}
               <time dateTime={data.monitoringSince}>
-                {formatClock(Date.parse(data.monitoringSince), tz)}
+                {formatStamp(Date.parse(data.monitoringSince), tz, nowMs)}
               </time>
             </>
           ) : null}

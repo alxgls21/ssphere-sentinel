@@ -10,6 +10,7 @@ import {
   formatLatency,
   formatPercent,
   formatQuantity,
+  formatStamp,
 } from './format'
 
 describe('format', () => {
@@ -72,6 +73,37 @@ describe('format', () => {
     expect(formatClock(at, 'utc')).toBe('15:32:07Z')
     expect(formatClock(at, 'utc', false)).toBe('15:32Z')
     expect(formatClock(at, 'local')).not.toMatch(/Z$/)
+  })
+
+  it('stamps a moment with its clock today, its weekday in the six days before, and its date before that', () => {
+    const now = Date.parse('2026-11-06T15:00:00Z') // a Friday
+    const stamp = (iso: string) => formatStamp(Date.parse(iso), 'utc', now)
+    expect(stamp('2026-11-06T09:12:44Z')).toBe('09:12:44Z')
+    expect(stamp('2026-11-06T00:00:00Z')).toBe('00:00:00Z')
+    expect(stamp('2026-11-05T23:59:59Z')).toBe('Thu 23:59:59Z')
+    expect(stamp('2026-10-31T09:00:00Z')).toBe('Sat 09:00:00Z')
+    // A week back falls on today's weekday, so it is dated instead.
+    expect(stamp('2026-10-30T09:00:00Z')).toBe('Oct 30 09:00:00Z')
+    expect(stamp('2026-10-03T09:12:44Z')).toBe('Oct 3 09:12:44Z')
+    expect(stamp('2025-12-31T09:00:00Z')).toBe('Dec 31 2025 09:00:00Z')
+    // A later day than the clock it is judged by (a skewed clock) is dated, never given a weekday.
+    expect(stamp('2026-11-07T01:00:00Z')).toBe('Nov 7 01:00:00Z')
+  })
+
+  it('decides what is today in the chosen timezone', () => {
+    // Built from local fields, so these hold in whatever timezone the tests run.
+    const now = new Date(2026, 10, 6, 15, 0, 0).getTime()
+    expect(formatStamp(new Date(2026, 10, 6, 0, 30, 0).getTime(), 'local', now)).toBe('00:30:00')
+    expect(formatStamp(new Date(2026, 10, 5, 23, 30, 0).getTime(), 'local', now)).toBe(
+      'Thu 23:30:00',
+    )
+    expect(formatStamp(new Date(2026, 9, 3, 9, 12, 44).getTime(), 'local', now)).toBe(
+      'Oct 3 09:12:44',
+    )
+    // 23:30 UTC on the 5th is the day before 00:30 UTC on the 6th, whatever the local clock says.
+    expect(
+      formatStamp(Date.parse('2026-11-05T23:30:00Z'), 'utc', Date.parse('2026-11-06T00:30:00Z')),
+    ).toBe('Thu 23:30:00Z')
   })
 
   it('pluralizes a quantity unless it is exactly one', () => {

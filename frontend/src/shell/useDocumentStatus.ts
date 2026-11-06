@@ -1,12 +1,12 @@
 import { useEffect, useRef } from 'react'
 import { useShowsDemoData } from '@/hooks/useProvenance'
-import { useLive } from '@/app/live'
+import { computeFreshness, useLive } from '@/app/live'
 import { useShell } from '@/app/shell'
 import { useSummary } from '@/app/summary'
 import { VERDICT_STATUS, computeVerdict, type VerdictState } from '@/lib/verdict'
 import { documentTitle, verdictSentence } from './documentStatus'
 import { faviconHref, setFavicon } from './favicon'
-import { useFreshness } from './topbar/useFreshness'
+import { useNow } from './useNow'
 
 /**
  * Keeps the browser tab honest: the title and the favicon carry the verdict
@@ -19,10 +19,23 @@ import { useFreshness } from './topbar/useFreshness'
  * (the verdict depends on how old the data is) and must not re-render the shell.
  */
 export function useDocumentStatus(screen: string): void {
-  const { pollMs } = useLive()
+  const { pollMs, paused } = useLive()
   const { announce } = useShell()
   const summary = useSummary()
-  const { state: freshness } = useFreshness()
+  const now = useNow()
+  // The verdict is the summary's, so it is judged by the summary's own age and failure, with the shared
+  // rules: requests that keep answering (the incidents, the alert engine) must not keep a failing summary
+  // looking fresh. The same report useLiveResource makes, for this one resource.
+  const { state: freshness } = computeFreshness({
+    now,
+    paused,
+    snapshot: {
+      lastUpdatedAt: summary.updatedAt,
+      allFailed: summary.error !== null && summary.updatedAt === null,
+      fetching: summary.isRefreshing || summary.status === 'loading',
+      resources: 1,
+    },
+  })
 
   // Until the first answer there is no verdict, and a tab must not say NO DATA for 300 ms.
   const verdict = summary.status === 'loading' ? null : computeVerdict(summary.data, freshness)

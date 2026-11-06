@@ -214,6 +214,32 @@ describe('ServersListPage', () => {
     await waitFor(() => expect(listServers).toHaveBeenCalledTimes(2))
   })
 
+  it('does not keep the previous search’s servers under a search the API refused, and says why', async () => {
+    const user = userEvent.setup()
+    const real = mock()
+    // The console API refuses a search of more than 8 words (400 invalid_parameter).
+    const listServers = vi.fn<SentinelApi['listServers']>(async (options) => {
+      if ((options?.q ?? '').trim().split(/\s+/).length > 8)
+        throw new ApiError('Use at most 8 words.', 400, 'invalid_parameter')
+      return real.listServers(options)
+    })
+    page('/servers', createTestApi({ listServers }))
+    await table()
+    await user.click(screen.getByRole('searchbox', { name: 'Search servers' }))
+    await user.paste('a b c d e f g h i')
+    await waitFor(() =>
+      expect(listServers).toHaveBeenLastCalledWith(
+        expect.objectContaining({ q: 'a b c d e f g h i' }),
+      ),
+    )
+
+    expect(await screen.findByText('Use at most 8 words.')).toBeInTheDocument()
+    expect(screen.getByText('Could not load servers')).toBeInTheDocument()
+    expect(screen.queryByRole('table', { name: 'Servers' })).toBeNull()
+    expect(screen.queryByText(/of 16 shown/)).toBeNull()
+    expect(screen.getByRole('button', { name: 'Retry' })).toBeInTheDocument()
+  })
+
   it('carries the scope to the API', async () => {
     const real = mock()
     const listServers = vi.fn((options) => real.listServers(options))

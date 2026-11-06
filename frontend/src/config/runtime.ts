@@ -22,7 +22,9 @@ export class ConfigurationError extends Error {
 }
 
 export function resolveApiMode({ PROD, VITE_SENTINEL_API }: RuntimeEnv): ApiMode {
-  const value = (VITE_SENTINEL_API ?? '').trim().toLowerCase()
+  // Exactly these values: the build-time test that loads the sample fleet compares the raw setting with
+  // 'mock', so a "Mock" this accepted would select mock mode and then find no sample fleet.
+  const value = VITE_SENTINEL_API ?? ''
   if (value === '' || value === 'http') return 'http'
   if (value === 'mock') {
     if (PROD) {

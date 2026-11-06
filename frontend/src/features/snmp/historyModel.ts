@@ -2,6 +2,7 @@ import type { DeviceSeries, InterfaceSeries, RangeKey } from '@/api/types'
 import type { ChartTableModel } from '@/charts/ChartTable'
 import type { ChartColorName, ChartColors } from '@/charts/theme'
 import type { TooltipContent, TooltipRow } from '@/charts/tooltip'
+import { perSecond } from '@/lib/devices'
 import {
   EMPTY,
   formatBitsPerSecond,
@@ -180,8 +181,6 @@ export const hasInterfaceHistory = (series: InterfaceSeries): boolean =>
 /** Whether any bucket has a value to draw: samples may all have been unusable. */
 export const hasInterfaceValues = (series: InterfaceSeries): boolean =>
   INTERFACE_HISTORY_IDS.some((id) => interfaceValues(series, id).some((value) => value !== null))
-
-const perSecond = (value: number): string => `${value.toFixed(value < 10 ? 2 : 1)}/s`
 
 function interfaceText(series: InterfaceSeries, id: InterfaceHistoryId, index: number): string {
   const value = interfaceValues(series, id)[index]

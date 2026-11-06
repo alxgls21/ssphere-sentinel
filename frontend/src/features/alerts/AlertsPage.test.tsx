@@ -531,15 +531,18 @@ describe('failures', () => {
     expect(await table()).toBeVisible()
   })
 
-  it('keeps the last list under a banner when a refresh fails', async () => {
+  it('says why a filter change failed, with Retry, instead of keeping the previous filter’s list', async () => {
     const user = userEvent.setup()
     const served = setup({ lists: [list(INCIDENTS), new ApiError('flaky', 503)] })
     page('/alerts', served)
     await table()
     await user.click(screen.getByRole('button', { name: /^CRIT/ }))
     await waitFor(() => expect(served.listIncidents).toHaveBeenCalledTimes(2))
-    expect(await screen.findByText(/Refresh failed/)).toBeInTheDocument()
-    expect(screen.getByRole('table', { name: 'Incidents' })).toBeVisible()
+    const failure = await screen.findByRole('alert')
+    expect(failure).toHaveTextContent('Could not load incidents')
+    expect(failure).toHaveTextContent('flaky')
+    expect(within(failure).getByRole('button', { name: 'Retry' })).toBeInTheDocument()
+    expect(screen.queryByRole('table', { name: 'Incidents' })).toBeNull()
   })
 })
 

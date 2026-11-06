@@ -8,7 +8,7 @@ import type {
   IncidentStatusFilter,
   SortDirection,
 } from '@/api/types'
-import { EMPTY, formatAge, formatClock, type Timezone } from '@/lib/format'
+import { EMPTY, formatAge, formatStamp, type Timezone } from '@/lib/format'
 import { CLOSE_REASON_TEXT, allCount, endedCount, openCount } from '@/lib/incidents'
 
 /**
@@ -217,7 +217,7 @@ export const requestOf = (query: AlertsQuery, q: string): IncidentListOptions =>
 /** What happened last to an incident, in a few words and with its time: who saw it, how it ended. */
 export function lastChange(item: IncidentItem, nowMs: number, tz: Timezone) {
   const ago = (iso: string | null) => (iso ? `${formatAge(iso, nowMs)} ago` : null)
-  const at = (iso: string | null) => (iso ? formatClock(Date.parse(iso), tz) : undefined)
+  const at = (iso: string | null) => (iso ? formatStamp(Date.parse(iso), tz, nowMs) : undefined)
   switch (item.status) {
     case 'active':
       return { text: EMPTY, title: 'Not acknowledged yet.' }

@@ -49,10 +49,20 @@ describe('capability fixtures', () => {
 
 describe('the notifier’s state', () => {
   it('has a word and a drawing for each state the API names', () => {
-    for (const state of STATES) {
-      expect(NOTIFIER_WORD[state], state).toBeTruthy()
-      expect(NOTIFIER_HEALTH[state], state).toBeTruthy()
-    }
+    expect(NOTIFIER_WORD).toEqual({
+      running: 'RUNNING',
+      failed: 'FAILED',
+      stale: 'STALE',
+      never_started: 'NEVER STARTED',
+      disabled: 'DISABLED',
+    })
+    expect(NOTIFIER_HEALTH).toEqual({
+      running: 'healthy',
+      failed: 'critical',
+      stale: 'warning',
+      never_started: 'unknown',
+      disabled: 'idle',
+    })
   })
 
   it('draws only a running notifier as healthy', () => {
@@ -116,18 +126,18 @@ describe('the notifier’s state', () => {
   })
 
   it.each([
-    ['connection', /could not connect to the mail server/],
-    ['timeout', /did not answer in time/],
-    ['tls', /TLS with the mail server failed/],
-    ['authentication', /logging in to the mail server failed/],
+    ['connection', 'could not connect to the mail server'],
+    ['timeout', 'the mail server did not answer in time'],
+    ['tls', 'TLS with the mail server failed'],
+    ['authentication', 'logging in to the mail server failed'],
   ] as const)('says a failed notifier could not reach the mail server: %s', (category, words) => {
     const sentence = notifierSentence(
       notifier({ state: 'failed', lastSmtpError: { at: iso(120), category } }),
       NOW,
     )
-    expect(sentence).toMatch(words)
+    expect(sentence).toContain(words)
     expect(sentence).toMatch(/tried again/)
-    expect(SMTP_ERROR_TEXT[category]).toBeTruthy()
+    expect(SMTP_ERROR_TEXT[category]).toBe(words)
   })
 
   it.each([
@@ -154,7 +164,14 @@ describe('the notifier’s state', () => {
 
 describe('test emails', () => {
   it('names every status the API has, and draws only sent as healthy', () => {
-    for (const status of STATUSES) expect(TEST_EMAIL_WORD[status], status).toBeTruthy()
+    expect(TEST_EMAIL_WORD).toEqual({
+      pending: 'QUEUED',
+      sending: 'SENDING',
+      sent: 'SENT',
+      failed: 'FAILED',
+      cancelled: 'CANCELLED',
+      expired: 'EXPIRED',
+    })
     expect(STATUSES.filter((status) => TEST_EMAIL_HEALTH[status] === 'healthy')).toEqual(['sent'])
     expect(TEST_EMAIL_HEALTH.failed).toBe('critical')
   })

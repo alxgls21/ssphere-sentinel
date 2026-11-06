@@ -1,7 +1,7 @@
 import type { NotifierStatus } from '@/api/types'
 import { usePrefs } from '@/app/prefs'
 import { cn } from '@/lib/cn'
-import { formatClock } from '@/lib/format'
+import { formatStamp } from '@/lib/format'
 import {
   NOTIFIER_HEALTH,
   NOTIFIER_WORD,
@@ -75,7 +75,7 @@ export function NotifierBanner({
         <p className="text-fg-muted">
           Last mail server failure{' '}
           <time dateTime={status.lastSmtpError.at}>
-            {formatClock(Date.parse(status.lastSmtpError.at), tz)}
+            {formatStamp(Date.parse(status.lastSmtpError.at), tz, nowMs)}
           </time>
           : {SMTP_ERROR_TEXT[status.lastSmtpError.category]}.
         </p>

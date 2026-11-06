@@ -4,7 +4,7 @@ import type { NotificationPreferencesInput, NotificationSettings } from '@/api/t
 import { usePrefs } from '@/app/prefs'
 import { ShellContext } from '@/app/shell'
 import { describeWriteFailure, summaryOf, type FormFailure } from '@/lib/forms'
-import { formatClock } from '@/lib/format'
+import { formatStamp } from '@/lib/format'
 import { SEVERITY_CHOICES } from '@/lib/settings'
 import { Panel } from '@/ui/Panel'
 import { Button, Checkbox, Field, RadioGroup, controlClass } from '@/ui/controls'
@@ -90,7 +90,7 @@ export function NotificationForm({ settings, onSaved, className }: NotificationF
       footer={
         <span className="truncate">
           {settings.preferences.updatedAt
-            ? `Saved ${formatClock(Date.parse(settings.preferences.updatedAt), tz)}`
+            ? `Saved ${formatStamp(Date.parse(settings.preferences.updatedAt), tz, Date.parse(settings.generatedAt))}`
             : 'Not saved yet: these are the defaults.'}
         </span>
       }

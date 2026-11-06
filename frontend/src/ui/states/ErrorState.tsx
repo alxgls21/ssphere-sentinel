@@ -19,6 +19,7 @@ export function ErrorState({ title, message, lastGood, onRetry, banner = false }
         <StatusTag status="critical" word="ERROR" />
         <span className="min-w-0 flex-1 truncate text-fg-muted">
           {title}
+          {message ? <span>: {message}</span> : null}
           {lastGood ? <span className="text-fg-faint"> · {lastGood}</span> : null}
         </span>
         {onRetry ? (

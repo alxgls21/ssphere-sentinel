@@ -189,8 +189,10 @@ describe('Panel', () => {
     )
     expect(screen.getByText('last good data')).toBeInTheDocument()
     expect(screen.getByRole('status')).toHaveTextContent('ERROR')
-    expect(screen.getByRole('status')).toHaveTextContent('Refresh failed')
-    expect(screen.getByRole('status')).toHaveTextContent('Showing data from 14:03:10Z')
+    // The server's own reason, not only that something failed.
+    expect(screen.getByRole('status')).toHaveTextContent(
+      'Refresh failed: flaky · Showing data from 14:03:10Z',
+    )
   })
 
   it('dims content only while a reload is in flight, and labels stale in words', () => {
