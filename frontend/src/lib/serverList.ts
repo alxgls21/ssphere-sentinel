@@ -1,3 +1,4 @@
+import { positiveWhole } from '@/lib/listQuery'
 import type {
   HealthStatus,
   PageInfo,
@@ -143,9 +144,6 @@ export function countByHealth(items: readonly ServerListItem[]): Record<HealthSt
 export const DEFAULT_PAGE_SIZE = 50
 export const MAX_PAGE_SIZE = 200
 
-const whole = (value: number | undefined, fallback: number): number =>
-  value !== undefined && Number.isInteger(value) && value >= 1 ? value : fallback
-
 /**
  * The answer to a list query over `items` (the whole scope): the requested page of what
  * matches, and the counts and totals that go with it. A page past the end is empty, as the
@@ -164,8 +162,8 @@ export function queryServers(
     sort: options.sort ?? 'status',
     dir: options.dir ?? ((options.sort ?? 'status') === 'name' ? 'asc' : 'desc'),
   })
-  const size = Math.min(whole(options.pageSize, DEFAULT_PAGE_SIZE), MAX_PAGE_SIZE)
-  const number = whole(options.page, 1)
+  const size = Math.min(positiveWhole(options.pageSize, DEFAULT_PAGE_SIZE), MAX_PAGE_SIZE)
+  const number = positiveWhole(options.page, 1)
   const counts: StatusCounts = countByHealth(searched)
   const page: PageInfo = {
     number,

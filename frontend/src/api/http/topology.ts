@@ -1,6 +1,5 @@
 import type { SentinelApi } from '../client'
 import type {
-  HealthStatus,
   Topology,
   TopologyAgent,
   TopologyCount,
@@ -11,6 +10,8 @@ import type {
   TopologyOptions,
 } from '../types'
 import {
+  AGENT_STATUS,
+  HEALTH,
   array,
   bad,
   flag,
@@ -32,7 +33,6 @@ import type { Transport } from './transport'
  * `bad_response` error: nothing is dropped, added or repaired to make it fit.
  */
 
-const HEALTH: readonly HealthStatus[] = ['healthy', 'warning', 'critical', 'unknown', 'idle']
 const KINDS: readonly TopologyNodeKind[] = [
   'customer',
   'site',
@@ -43,7 +43,6 @@ const KINDS: readonly TopologyNodeKind[] = [
   'device',
   'interface',
 ]
-const AGENT_STATUS: readonly TopologyAgent['status'][] = ['online', 'offline', 'unknown']
 const EDGE_KINDS: readonly TopologyEdge['kind'][] = ['probes', 'polls']
 const INCLUDES: readonly TopologyInclude[] = ['containers', 'interfaces']
 

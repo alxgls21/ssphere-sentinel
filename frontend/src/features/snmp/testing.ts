@@ -1,3 +1,4 @@
+import { testList } from '@/test/list'
 import type {
   DeviceDetail,
   DeviceInterface,
@@ -11,7 +12,7 @@ import type {
   InterfaceSeries,
   InvalidReason,
 } from '@/api/types'
-import { countStatuses, emptyCounts } from '@/lib/status'
+import { emptyCounts } from '@/lib/status'
 
 /** Fixtures for the SNMP tests, in the shapes the console API serves. Imported by tests only. */
 
@@ -107,14 +108,7 @@ export function item({
 }
 
 export function list(items: DeviceListItem[], over: Partial<DeviceList> = {}): DeviceList {
-  return {
-    generatedAt: new Date(NOW).toISOString(),
-    items,
-    page: { number: 1, size: 50, total: items.length, pages: 1 },
-    counts: { ...emptyCounts(), ...countStatuses(items.map((entry) => entry.health)) },
-    scopeTotal: items.length,
-    ...over,
-  }
+  return testList(items, NOW, over)
 }
 
 export const rates = (over: Partial<InterfaceRates> = {}): InterfaceRates => ({

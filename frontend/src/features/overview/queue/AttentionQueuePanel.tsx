@@ -1,3 +1,4 @@
+import { focusIsVisible } from '@/lib/focus'
 import {
   useContext,
   useEffect,
@@ -51,13 +52,6 @@ const FEATURES: readonly FeatureId[] = ['servers', 'network', 'snmp', 'overview'
 const NO_ITEMS: QueueItem[] = []
 
 /** A mouse click focuses a button too; only keyboard focus (a ring on screen) is worth keeping. */
-function keyboardFocused(element: HTMLElement): boolean {
-  try {
-    return element.matches(':focus-visible')
-  } catch {
-    return true
-  }
-}
 
 /**
  * [1] Needs attention: the primary action surface. Non-healthy servers,
@@ -141,7 +135,7 @@ export function AttentionQueuePanel({ className }: { className?: string }) {
 
   // A control that disappears when pressed would take keyboard focus with it: land on the selected row instead.
   const keepPlace = (event: MouseEvent<HTMLElement>) => {
-    if (keyboardFocused(event.currentTarget)) nav.focusSoon()
+    if (focusIsVisible(event.currentTarget)) nav.focusSoon()
   }
 
   // Digit key 1 focuses the panel region itself; the selected row is where the operator belongs.

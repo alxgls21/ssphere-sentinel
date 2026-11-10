@@ -196,6 +196,20 @@ export function growingGridHeight(
   return Math.max(minPx, containerPx / scale - fixedPx)
 }
 
+/** Share the growing plot height equally across stacked grids. */
+export function stackedGridHeight(
+  containerPx: number | undefined,
+  scale: number,
+  fixedPx: number,
+  minGridPx: number,
+  grids: number,
+): number {
+  return growingGridHeight(containerPx, scale, fixedPx, grids * minGridPx) / grids
+}
+
+export const maxNonNull = (values: readonly (number | null)[]): number =>
+  values.reduce<number>((max, value) => (value !== null && value > max ? value : max), 0)
+
 /** The chart pixel x of the sample at `time`, or null while the chart cannot convert it. */
 export function timeCursorX(chart: ChartInstance, time: number): number | null {
   const x = chart.convertToPixel({ xAxisIndex: 0 }, time)

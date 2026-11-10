@@ -1,3 +1,4 @@
-/** The page of the server an agent runs on, for a link the API has already authorized by giving its id. */
-export const agentServerPath = (serverId: string): string =>
-  `/servers/${encodeURIComponent(serverId)}`
+/** The page of a server whose id the API has already authorized for this view. */
+export const serverPath = (serverId: string): string => `/servers/${encodeURIComponent(serverId)}`
+
+export const agentServerPath = serverPath

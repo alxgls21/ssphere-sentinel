@@ -1,7 +1,7 @@
 import type { SentinelApi } from '../client'
 import type { ContainerList, ContainerListItem, ContainerListOptions } from '../types'
-import { listQuery, parseCounts, parsePage } from './lists'
-import { array, record, text, time, whole } from './parse'
+import { listQuery, parseStandardList } from './lists'
+import { record, text } from './parse'
 import { parseContainer } from './servers'
 import type { Transport } from './transport'
 
@@ -22,14 +22,7 @@ function parseItem(raw: unknown): ContainerListItem {
 }
 
 export function parseContainerList(raw: unknown): ContainerList {
-  const row = record(raw)
-  return {
-    generatedAt: time(row.generatedAt),
-    items: array(row.items).map(parseItem),
-    page: parsePage(row.page),
-    counts: parseCounts(row.counts),
-    scopeTotal: whole(row.scopeTotal),
-  }
+  return parseStandardList(raw, parseItem)
 }
 
 export const listContainers =

@@ -1,7 +1,7 @@
+import { createSortHead } from '@/ui/SortHead'
 /* oxlint-disable jsx-a11y/no-noninteractive-tabindex --
    A time shown as an age carries its exact time in a tooltip. It takes a tab stop so a keyboard user
    can open it, and names the same text for a screen reader. */
-import { ChevronDown, ChevronUp } from 'lucide-react'
 import { Link, useLocation, useNavigate } from 'react-router'
 import type { AlertRule, RuleSortKey } from '@/api/types'
 import { useViewTo } from '@/app/viewSearch'
@@ -26,38 +26,7 @@ const HEAD =
   'type-label sticky top-0 z-10 h-6 border-b border-border bg-raised text-left whitespace-nowrap text-fg-faint'
 const CELL = 'border-b border-border whitespace-nowrap'
 
-interface SortHeadProps {
-  sortKey: RuleSortKey
-  query: RulesQuery
-  onSort: (next: Pick<RulesQuery, 'sort' | 'dir'>) => void
-  className?: string
-}
-
-function SortHead({ sortKey, query, onSort, className }: SortHeadProps) {
-  const active = query.sort === sortKey
-  const Arrow = query.dir === 'asc' ? ChevronUp : ChevronDown
-  return (
-    <th
-      scope="col"
-      aria-sort={active ? (query.dir === 'asc' ? 'ascending' : 'descending') : 'none'}
-      className={cn(HEAD, className)}
-    >
-      <button
-        type="button"
-        onClick={() => onSort(nextSort(query, sortKey))}
-        className={cn(
-          'type-label inline-flex h-full items-center gap-1 rounded-sm px-1 -outline-offset-2 hover:text-fg',
-          active && 'text-fg',
-        )}
-      >
-        {SORT_LABEL[sortKey].toUpperCase()}
-        <span aria-hidden="true" className="inline-block size-3">
-          {active ? <Arrow className="size-3" strokeWidth={1.5} /> : null}
-        </span>
-      </button>
-    </th>
-  )
-}
+const SortHead = createSortHead<RuleSortKey, RulesQuery>(SORT_LABEL, nextSort)
 
 interface RulesTableProps {
   rows: readonly AlertRule[]

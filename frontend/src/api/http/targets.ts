@@ -1,7 +1,5 @@
 import type { SentinelApi } from '../client'
 import type {
-  HealthStatus,
-  TargetAgent,
   TargetAvailability,
   TargetConfig,
   TargetDetail,
@@ -14,13 +12,14 @@ import type {
   TargetSeries,
   TargetSeriesOptions,
 } from '../types'
-import { listQuery, parseCounts, parsePage } from './lists'
+import { listQuery, parseStandardList } from './lists'
 import {
+  HEALTH,
+  parseMonitoringAgent,
   array,
   flag,
   nullableNumber,
   nullableText,
-  nullableTime,
   number,
   oneOf,
   parallel,
@@ -38,9 +37,7 @@ import type { Transport } from './transport'
  * a `bad_response` error, never a guess.
  */
 
-const HEALTH: readonly HealthStatus[] = ['healthy', 'warning', 'critical', 'unknown', 'idle']
 const PROTOCOL: readonly TargetProtocol[] = ['icmp', 'tcp']
-const AGENT_STATUS: readonly TargetAgent['status'][] = ['online', 'offline', 'unknown']
 const REASON: readonly TargetReason[] = [
   'disabled',
   'no_agent',
@@ -53,19 +50,6 @@ const REASON: readonly TargetReason[] = [
   'loss',
   'ok',
 ]
-
-function parseAgent(raw: unknown): TargetAgent | null {
-  if (raw === null) return null
-  const row = record(raw)
-  return {
-    id: text(row.id),
-    name: text(row.name),
-    status: oneOf(AGENT_STATUS, row.status),
-    lastSeenAt: nullableTime(row.lastSeenAt),
-    serverId: text(row.serverId),
-    serverName: text(row.serverName),
-  }
-}
 
 function parseConfig(raw: unknown): TargetConfig {
   const row = record(raw)
@@ -81,7 +65,7 @@ function parseConfig(raw: unknown): TargetConfig {
     circuitId: nullableText(row.circuitId),
     siteId: nullableText(row.siteId),
     agentAssigned: flag(row.agentAssigned),
-    agent: parseAgent(row.agent),
+    agent: parseMonitoringAgent(row.agent),
   }
 }
 
@@ -113,14 +97,7 @@ function parseItem(raw: unknown): TargetListItem {
 }
 
 export function parseTargetList(raw: unknown): TargetList {
-  const row = record(raw)
-  return {
-    generatedAt: time(row.generatedAt),
-    items: array(row.items).map(parseItem),
-    page: parsePage(row.page),
-    counts: parseCounts(row.counts),
-    scopeTotal: whole(row.scopeTotal),
-  }
+  return parseStandardList(raw, parseItem)
 }
 
 function parseAvailability(raw: unknown): TargetAvailability {

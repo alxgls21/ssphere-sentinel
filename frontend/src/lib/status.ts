@@ -103,6 +103,9 @@ export function countStatuses(statuses: Iterable<HealthStatus>): StatusCounts {
   return counts
 }
 
+export const sumCounts = (counts: Record<string, number>): number =>
+  Object.values(counts).reduce((sum, count) => sum + count, 0)
+
 /**
  * What a mark shows. "offline" is a presentation of critical, not a health
  * status: a server whose agent stopped reporting is critical to everything that

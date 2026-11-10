@@ -2,7 +2,7 @@ import type { RangeKey, ServerSeries } from '@/api/types'
 import type { ChartTableModel } from '@/charts/ChartTable'
 import type { ChartColorName, ChartColors } from '@/charts/theme'
 import type { TooltipContent } from '@/charts/tooltip'
-import { EMPTY, formatPercent, formatTime, timezoneLabel, type Timezone } from '@/lib/format'
+import { EMPTY, formatPercent, formatHistoryTime, timezoneLabel, type Timezone } from '@/lib/format'
 import { RANGE_MS, RANGE_WORDS } from '@/lib/range'
 
 /**
@@ -55,7 +55,6 @@ export function lastSampleIndex(series: ServerSeries): number {
 
 export const hasHistory = (series: ServerSeries): boolean => lastSampleIndex(series) >= 0
 
-const clock = (ms: number, tz: Timezone) => formatTime(ms, tz, false)
 const spoken = (value: number | null | undefined) =>
   value == null ? 'no data' : `${value.toFixed(1)} percent`
 
@@ -72,12 +71,12 @@ export function summarizeHistory(
   const parts = HISTORY_SERIES.map(
     ({ id, label }) => `${label} ${spoken(valuesOf(series, id)[last])}`,
   )
-  return `${head}: ${parts.join(', ')}${stale ? ` at ${clock(series.t[last] ?? 0, tz)} ${timezoneLabel(tz)}, the last sample before it stopped reporting` : ' now'}`
+  return `${head}: ${parts.join(', ')}${stale ? ` at ${formatHistoryTime(series.t[last] ?? 0, tz)} ${timezoneLabel(tz)}, the last sample before it stopped reporting` : ' now'}`
 }
 
 export function describeSample(series: ServerSeries, index: number, tz: Timezone): string {
   return [
-    `${clock(series.t[index] ?? 0, tz)} ${timezoneLabel(tz)}`,
+    `${formatHistoryTime(series.t[index] ?? 0, tz)} ${timezoneLabel(tz)}`,
     ...HISTORY_SERIES.map(({ id, label }) => `${label} ${spoken(valuesOf(series, id)[index])}`),
   ].join(', ')
 }
@@ -90,7 +89,7 @@ export function tooltipContent(
   colors: ChartColors,
 ): TooltipContent {
   return {
-    title: clock(series.t[index] ?? 0, tz),
+    title: formatHistoryTime(series.t[index] ?? 0, tz),
     rows: HISTORY_SERIES.filter(({ id }) => !hidden.has(id)).map((spec) => ({
       key: 'line',
       color: colors[spec.color],
@@ -116,7 +115,7 @@ export function historyTable(
     rows: series.t
       .map((time, index) => ({
         key: String(time),
-        header: clock(time, tz),
+        header: formatHistoryTime(time, tz),
         cells: HISTORY_SERIES.map(({ id }) => {
           const value = valuesOf(series, id)[index]
           return value == null ? EMPTY : formatPercent(value, 1)

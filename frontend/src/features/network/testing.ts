@@ -1,3 +1,4 @@
+import { testList } from '@/test/list'
 import type {
   TargetDetail,
   TargetList,
@@ -6,7 +7,6 @@ import type {
   TargetReason,
   TargetSeries,
 } from '@/api/types'
-import { emptyCounts, countStatuses } from '@/lib/status'
 
 /** Fixtures for the Network tests, in the shapes the console API serves. Imported by tests only. */
 
@@ -96,14 +96,7 @@ export function item({
 }
 
 export function list(items: TargetListItem[], over: Partial<TargetList> = {}): TargetList {
-  return {
-    generatedAt: new Date(NOW).toISOString(),
-    items,
-    page: { number: 1, size: 50, total: items.length, pages: 1 },
-    counts: { ...emptyCounts(), ...countStatuses(items.map((entry) => entry.health)) },
-    scopeTotal: items.length,
-    ...over,
-  }
+  return testList(items, NOW, over)
 }
 
 export function detail(entry: TargetListItem, over: Partial<TargetDetail> = {}): TargetDetail {

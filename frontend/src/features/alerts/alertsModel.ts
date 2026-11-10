@@ -1,3 +1,5 @@
+import { isOneOf, nextListSort, setQueryParam, wholePage } from '@/lib/listQuery'
+export { MAX_PAGE } from '@/lib/listQuery'
 import type {
   IncidentCounts,
   IncidentItem,
@@ -38,9 +40,6 @@ export const DEFAULT_QUERY: AlertsQuery = {
   dir: 'desc',
   page: 1,
 }
-
-/** The console API refuses a page number above this. */
-export const MAX_PAGE = 10_000
 
 /** Incidents asked for at a time. The console API serves at most 200. */
 export const ALERTS_PAGE_SIZE = 50
@@ -142,15 +141,6 @@ export const FIRST_DIR: Record<IncidentSortKey, SortDirection> = {
   name: 'asc',
 }
 
-const isOneOf = <T extends string>(list: readonly T[], value: string | null): value is T =>
-  value !== null && (list as readonly string[]).includes(value)
-
-/** A page number from the URL: a whole number from 1, anything else is the first page. */
-function wholePage(value: string | null): number {
-  const page = value !== null && /^\d{1,5}$/.test(value) ? Number(value) : 1
-  return page >= 1 && page <= MAX_PAGE ? page : 1
-}
-
 export function parseQuery(params: URLSearchParams): AlertsQuery {
   const status = params.get('status')
   const severity = params.get('severity')
@@ -172,10 +162,8 @@ export function parseQuery(params: URLSearchParams): AlertsQuery {
 /** Writes a query into URL params, omitting defaults to keep links short. Other params are kept. */
 export function writeQuery(params: URLSearchParams, query: AlertsQuery): URLSearchParams {
   const next = new URLSearchParams(params)
-  const set = (name: string, value: string, isDefault: boolean) => {
-    if (isDefault) next.delete(name)
-    else next.set(name, value)
-  }
+  const set = (name: string, value: string, isDefault: boolean) =>
+    setQueryParam(next, name, value, isDefault)
   set('q', query.q.trim(), query.q.trim() === '')
   set('status', query.status, query.status === DEFAULT_QUERY.status)
   set('severity', query.severity, query.severity === DEFAULT_QUERY.severity)
@@ -191,8 +179,7 @@ export function nextSort(
   query: AlertsQuery,
   key: IncidentSortKey,
 ): Pick<AlertsQuery, 'sort' | 'dir'> {
-  if (query.sort === key) return { sort: key, dir: query.dir === 'asc' ? 'desc' : 'asc' }
-  return { sort: key, dir: FIRST_DIR[key] }
+  return nextListSort(query, key, FIRST_DIR)
 }
 
 /** Nothing narrows the list beyond the screen's own opening view. */

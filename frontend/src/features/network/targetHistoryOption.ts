@@ -7,7 +7,8 @@ import type {
 } from '@/charts/echarts'
 import { BASE_ROOT_PX, readRootFontSize, type ChartTokens } from '@/charts/theme'
 import {
-  growingGridHeight,
+  maxNonNull,
+  stackedGridHeight,
   niceAxis,
   referenceLine,
   sharedCrosshair,
@@ -38,11 +39,8 @@ export const TARGET_CHART_HEIGHT_PX = FIXED + GRIDS * G.grid
 
 /** Height of each grid in base px: the plot's spare room is shared by the three. */
 export function targetGridHeight(containerPx: number | undefined, scale: number): number {
-  return growingGridHeight(containerPx, scale, FIXED, GRIDS * G.grid) / GRIDS
+  return stackedGridHeight(containerPx, scale, FIXED, G.grid, GRIDS)
 }
-
-const maxOf = (values: readonly (number | null)[]): number =>
-  values.reduce<number>((max, value) => (value !== null && value > max ? value : max), 0)
 
 export interface TargetOptionInput {
   protocol: TargetProtocol
@@ -73,12 +71,15 @@ export function buildTargetOption({
 
   const shown = (id: TargetHistoryId) => !hidden.has(id)
   const latencyTop = Math.max(
-    ...(shown('latency') ? [maxOf(series.latencyMs)] : [0]),
-    ...(shown('latencyMax') ? [maxOf(series.latencyMaxMs)] : [0]),
+    ...(shown('latency') ? [maxNonNull(series.latencyMs)] : [0]),
+    ...(shown('latencyMax') ? [maxNonNull(series.latencyMaxMs)] : [0]),
     limits.latencyWarnMs,
   )
-  const lossTop = Math.max(shown('loss') ? maxOf(series.lossPercent) : 0, limits.lossWarnPercent)
-  const failedTop = Math.max(shown('failed') ? maxOf(valuesOf(series, 'failed')) : 0, 1)
+  const lossTop = Math.max(
+    shown('loss') ? maxNonNull(series.lossPercent) : 0,
+    limits.lossWarnPercent,
+  )
+  const failedTop = Math.max(shown('failed') ? maxNonNull(valuesOf(series, 'failed')) : 0, 1)
   const axes = [niceAxis(latencyTop, 4), niceAxis(lossTop, 2), niceAxis(failedTop, 2)]
 
   const lines = specs.flatMap((spec): (LineSeriesOption | BarSeriesOption)[] => {

@@ -2,13 +2,12 @@
 
 from datetime import timedelta
 
-from django.contrib.auth.models import Permission
 from django.test import Client, TestCase, override_settings
 from django.utils import timezone
 
 from apps.alerts.models import AlertEngineHeartbeat, Notification, NotifierHeartbeat, TestEmailRequest
 from apps.alerts.tests.helpers import make_rule, open_incident
-from apps.console.tests.helpers import API, make_user, signed_in_client
+from apps.console.tests.helpers import API, grant, make_user, signed_in_client
 from apps.inventory.models import Customer
 
 STATUS = API + "system/status/"
@@ -24,13 +23,6 @@ SMTP_ON = override_settings(
     SENTINEL_URL="https://sentinel.example.com",
 )
 SMTP_OFF = override_settings(SENTINEL_SMTP_HOST="", SENTINEL_SMTP_USER="", SENTINEL_SMTP_PASSWORD="")
-
-
-def grant(user, *codenames: str):
-    for codename in codenames:
-        app, _, name = codename.partition(".")
-        user.user_permissions.add(Permission.objects.get(content_type__app_label=app, codename=name))
-    return type(user).objects.get(pk=user.pk)
 
 
 @SMTP_ON

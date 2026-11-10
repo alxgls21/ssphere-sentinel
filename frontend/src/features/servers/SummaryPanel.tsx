@@ -1,3 +1,4 @@
+import { Fact } from '@/ui/Fact'
 import type { ServerListItem, ServerSeries } from '@/api/types'
 import { usePrefs } from '@/app/prefs'
 import { EMPTY, formatBytes, formatClock } from '@/lib/format'
@@ -6,15 +7,6 @@ import { CellMeter, Sparkline } from '@/ui/meters'
 import { historyLabel, valuesOf } from './historyModel'
 import { reportsLoad } from '@/lib/serverList'
 import { heartbeatText, uptimeText } from './serversModel'
-
-function Fact({ label, children }: { label: string; children: React.ReactNode }) {
-  return (
-    <div className="flex min-w-0 flex-col gap-0.5">
-      <dt className="type-label text-fg-faint">{label}</dt>
-      <dd className="type-data min-w-0 truncate text-fg">{children}</dd>
-    </div>
-  )
-}
 
 interface SummaryPanelProps extends Pick<PanelProps, 'status' | 'error' | 'onRetry' | 'updatedAt'> {
   item: ServerListItem | undefined

@@ -3,7 +3,6 @@ import type {
   EngineBody,
   EngineState,
   EngineStatus,
-  HealthStatus,
   IncidentCloseReason,
   IncidentConditionHealth,
   IncidentCounts,
@@ -18,7 +17,18 @@ import type {
   IncidentStep,
 } from '../types'
 import { listQuery, parsePage } from './lists'
-import { array, flag, nullableText, nullableTime, oneOf, record, text, time, whole } from './parse'
+import {
+  HEALTH,
+  array,
+  flag,
+  nullableText,
+  nullableTime,
+  oneOf,
+  record,
+  text,
+  time,
+  whole,
+} from './parse'
 import type { Transport } from './transport'
 
 /**
@@ -49,13 +59,10 @@ const EVENT: readonly IncidentEventKind[] = [
   'recovered',
   'closed',
 ]
-const HEALTH: readonly HealthStatus[] = ['healthy', 'warning', 'critical', 'unknown', 'idle']
 const ENGINE: readonly EngineState[] = ['running', 'failed', 'stale', 'never_started']
 const ERROR_CATEGORY = ['database', 'internal'] as const
 
 /** An empty string is how the API says "nothing": a reason or a name that is not there. */
-const nullableWord = (value: unknown): string | null => (value === null ? null : text(value))
-
 export function parseIncidentItem(raw: unknown): IncidentItem {
   const row = record(raw)
   const condition = record(row.condition)
@@ -67,7 +74,7 @@ export function parseIncidentItem(raw: unknown): IncidentItem {
     severity: oneOf(SEVERITY, row.severity),
     condition: {
       health: oneOf(CONDITION, condition.health),
-      reason: nullableWord(condition.reason),
+      reason: nullableText(condition.reason),
     },
     entity: { kind: oneOf(KIND, entity.kind), ref: text(entity.ref), label: text(entity.label) },
     rule: { id: text(rule.id), name: text(rule.name) },
@@ -122,7 +129,7 @@ function parseStep(raw: unknown): IncidentStep {
     at: time(row.at),
     kind: oneOf(EVENT, row.kind),
     health: row.health === null ? null : oneOf(HEALTH, row.health),
-    reason: nullableWord(row.reason),
+    reason: nullableText(row.reason),
     actor: nullableText(row.actor),
   }
 }

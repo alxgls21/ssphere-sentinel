@@ -2,7 +2,7 @@ import type { EngineStatus } from '@/api/types'
 import { usePrefs } from '@/app/prefs'
 import type { Resource } from '@/hooks/useResource'
 import { cn } from '@/lib/cn'
-import { EMPTY, formatAge, formatClock, formatStamp } from '@/lib/format'
+import { EMPTY, formatAgo, formatClock, formatStamp } from '@/lib/format'
 import {
   ENGINE_HEALTH,
   ENGINE_WORD,
@@ -15,10 +15,9 @@ import { STATUS_FRAME, STATUS_TINT, StatusTag } from '@/ui/status'
 
 /** "last success 5s ago · last attempt 5s ago · cycle 120 ms": what the engine itself recorded. */
 function facts(status: EngineStatus, nowMs: number): string[] {
-  const ago = (iso: string | null) => (iso ? `${formatAge(iso, nowMs)} ago` : 'never')
   return [
-    `last success ${ago(status.lastSuccessAt)}`,
-    `last attempt ${ago(status.lastAttemptAt)}`,
+    `last success ${formatAgo(status.lastSuccessAt, nowMs)}`,
+    `last attempt ${formatAgo(status.lastAttemptAt, nowMs)}`,
     status.lastCycleMs === null ? null : `cycle ${status.lastCycleMs} ms`,
     status.intervalSeconds === null ? null : `every ${status.intervalSeconds} s`,
   ].filter((part): part is string => part !== null)

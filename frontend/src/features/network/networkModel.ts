@@ -1,3 +1,5 @@
+import { nextListSort, parseBasicListQuery, writeBasicListQuery } from '@/lib/listQuery'
+export { MAX_PAGE } from '@/lib/listQuery'
 import type {
   SortDirection,
   TargetListItem,
@@ -32,9 +34,6 @@ export const DEFAULT_QUERY: NetworkQuery = {
   dir: 'desc',
   page: 1,
 }
-
-/** The console API refuses a page number above this. */
-export const MAX_PAGE = 10_000
 
 /** Targets asked for at a time. The console API serves at most 200. */
 export const NETWORK_PAGE_SIZE = 50
@@ -78,48 +77,18 @@ export const FIRST_DIR: Record<SortKey, SortDirection> = {
   measured: 'desc',
 }
 
-const isOneOf = <T extends string>(list: readonly T[], value: string | null): value is T =>
-  value !== null && (list as readonly string[]).includes(value)
-
-/** A page number from the URL: a whole number from 1, anything else is the first page. */
-function wholePage(value: string | null): number {
-  const page = value !== null && /^\d{1,5}$/.test(value) ? Number(value) : 1
-  return page >= 1 && page <= MAX_PAGE ? page : 1
-}
-
 export function parseQuery(params: URLSearchParams): NetworkQuery {
-  const status = params.get('status')
-  const sort = params.get('sort')
-  const dir = params.get('dir')
-  const key = isOneOf(SORT_KEYS, sort) ? sort : DEFAULT_QUERY.sort
-  return {
-    q: params.get('q') ?? '',
-    status: isOneOf(STATUS_FILTERS, status) ? status : DEFAULT_QUERY.status,
-    sort: key,
-    dir: dir === 'asc' || dir === 'desc' ? dir : FIRST_DIR[key],
-    page: wholePage(params.get('page')),
-  }
+  return parseBasicListQuery(params, STATUS_FILTERS, SORT_KEYS, DEFAULT_QUERY, FIRST_DIR)
 }
 
 /** Writes a query into URL params, omitting defaults to keep links short. Other params are kept. */
 export function writeQuery(params: URLSearchParams, query: NetworkQuery): URLSearchParams {
-  const next = new URLSearchParams(params)
-  const set = (name: string, value: string, isDefault: boolean) => {
-    if (isDefault) next.delete(name)
-    else next.set(name, value)
-  }
-  set('q', query.q.trim(), query.q.trim() === '')
-  set('status', query.status, query.status === DEFAULT_QUERY.status)
-  set('sort', query.sort, query.sort === DEFAULT_QUERY.sort)
-  set('dir', query.dir, query.dir === FIRST_DIR[query.sort])
-  set('page', String(query.page), query.page === DEFAULT_QUERY.page)
-  return next
+  return writeBasicListQuery(params, query, DEFAULT_QUERY, FIRST_DIR)
 }
 
 /** Clicking a column header: the same column flips direction, another starts at its natural one. */
 export function nextSort(query: NetworkQuery, key: SortKey): Pick<NetworkQuery, 'sort' | 'dir'> {
-  if (query.sort === key) return { sort: key, dir: query.dir === 'asc' ? 'desc' : 'asc' }
-  return { sort: key, dir: FIRST_DIR[key] }
+  return nextListSort(query, key, FIRST_DIR)
 }
 
 export const isDefaultView = (query: NetworkQuery): boolean =>

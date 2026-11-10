@@ -1,3 +1,5 @@
+import { isOneOf, nextListSort, setQueryParam, wholePage } from '@/lib/listQuery'
+export { MAX_PAGE } from '@/lib/listQuery'
 import type {
   AlertRule,
   AlertRuleListOptions,
@@ -40,7 +42,6 @@ export const DEFAULT_QUERY: RulesQuery = {
   page: 1,
 }
 
-export const MAX_PAGE = 10_000
 export const RULES_PAGE_SIZE = 50
 
 export const ENABLED_FILTERS: readonly RuleEnabledFilter[] = ['all', 'enabled', 'disabled']
@@ -98,14 +99,6 @@ export const FIRST_DIR: Record<RuleSortKey, SortDirection> = {
   updated: 'desc',
 }
 
-const isOneOf = <T extends string>(list: readonly T[], value: string | null): value is T =>
-  value !== null && (list as readonly string[]).includes(value)
-
-function wholePage(value: string | null): number {
-  const page = value !== null && /^\d{1,5}$/.test(value) ? Number(value) : 1
-  return page >= 1 && page <= MAX_PAGE ? page : 1
-}
-
 export function parseQuery(params: URLSearchParams): RulesQuery {
   const sort = params.get('sort')
   const dir = params.get('dir')
@@ -129,10 +122,8 @@ export function parseQuery(params: URLSearchParams): RulesQuery {
 /** Writes a query into URL params, omitting defaults to keep links short. Other params are kept. */
 export function writeQuery(params: URLSearchParams, query: RulesQuery): URLSearchParams {
   const next = new URLSearchParams(params)
-  const set = (name: string, value: string, isDefault: boolean) => {
-    if (isDefault) next.delete(name)
-    else next.set(name, value)
-  }
+  const set = (name: string, value: string, isDefault: boolean) =>
+    setQueryParam(next, name, value, isDefault)
   set('q', query.q.trim(), query.q.trim() === '')
   set('enabled', query.enabled, query.enabled === DEFAULT_QUERY.enabled)
   set('kind', query.kind, query.kind === DEFAULT_QUERY.kind)
@@ -145,8 +136,7 @@ export function writeQuery(params: URLSearchParams, query: RulesQuery): URLSearc
 }
 
 export function nextSort(query: RulesQuery, key: RuleSortKey): Pick<RulesQuery, 'sort' | 'dir'> {
-  if (query.sort === key) return { sort: key, dir: query.dir === 'asc' ? 'desc' : 'asc' }
-  return { sort: key, dir: FIRST_DIR[key] }
+  return nextListSort(query, key, FIRST_DIR)
 }
 
 export const isDefaultView = (query: RulesQuery): boolean =>

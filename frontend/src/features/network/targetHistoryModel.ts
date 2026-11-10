@@ -6,7 +6,7 @@ import {
   EMPTY,
   formatLatency,
   formatPercent,
-  formatTime,
+  formatHistoryTime,
   timezoneLabel,
   type Timezone,
 } from '@/lib/format'
@@ -72,8 +72,6 @@ export function lastBucketIndex(series: TargetSeries): number {
   return -1
 }
 
-const clock = (ms: number, tz: Timezone) => formatTime(ms, tz, false)
-
 const latencySpoken = (value: number | null | undefined) =>
   value == null ? 'no successful measurement' : `${value.toFixed(1)} milliseconds`
 
@@ -109,7 +107,9 @@ export function describeSample(
           `${LOSS_LABEL[protocol].toLowerCase()} ${percentSpoken(series.lossPercent[index])}`,
           `${series.failed[index] ?? 0} of ${measured} measurements failed`,
         ]
-  return [`${clock(series.t[index] ?? 0, tz)} ${timezoneLabel(tz)}`, ...parts].join(', ')
+  return [`${formatHistoryTime(series.t[index] ?? 0, tz)} ${timezoneLabel(tz)}`, ...parts].join(
+    ', ',
+  )
 }
 
 function valueText(series: TargetSeries, id: TargetHistoryId, index: number): string {
@@ -128,7 +128,7 @@ export function tooltipContent(
   colors: ChartColors,
 ): TooltipContent {
   return {
-    title: clock(series.t[index] ?? 0, tz),
+    title: formatHistoryTime(series.t[index] ?? 0, tz),
     rows: historySpecs(protocol)
       .filter(({ id }) => !hidden.has(id))
       .map((spec) => ({
@@ -159,7 +159,7 @@ export function historyTable(
     rows: series.t
       .map((time, index) => ({
         key: String(time),
-        header: clock(time, tz),
+        header: formatHistoryTime(time, tz),
         cells: [
           ...specs.map(({ id }) => valueText(series, id, index)),
           String(series.measurements[index] ?? 0),
