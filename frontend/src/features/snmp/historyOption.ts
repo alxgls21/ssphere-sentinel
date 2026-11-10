@@ -7,7 +7,8 @@ import type {
 } from '@/charts/echarts'
 import { BASE_ROOT_PX, readRootFontSize, type ChartTokens } from '@/charts/theme'
 import {
-  growingGridHeight,
+  maxNonNull,
+  stackedGridHeight,
   niceAxis,
   sharedCrosshair,
   timeAxis,
@@ -47,11 +48,8 @@ export const SNMP_CHART_HEIGHT_PX = FIXED + GRIDS * G.grid
 
 /** Height of each grid in base px: the plot's spare room is shared by the three. */
 export function snmpGridHeight(containerPx: number | undefined, scale: number): number {
-  return growingGridHeight(containerPx, scale, FIXED, GRIDS * G.grid) / GRIDS
+  return stackedGridHeight(containerPx, scale, FIXED, G.grid, GRIDS)
 }
-
-const maxOf = (values: readonly (number | null)[]): number =>
-  values.reduce<number>((max, value) => (value !== null && value > max ? value : max), 0)
 
 interface Stack<Id extends string> {
   specs: readonly HistorySpec<Id>[]
@@ -155,7 +153,7 @@ function axisTop<Id extends string>(
     1,
     ...specs
       .filter((spec) => spec.grid === grid && !hidden.has(spec.id))
-      .map((spec) => maxOf(values(spec.id))),
+      .map((spec) => maxNonNull(values(spec.id))),
   )
 }
 

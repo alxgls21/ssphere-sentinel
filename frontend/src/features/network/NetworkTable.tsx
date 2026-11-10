@@ -1,7 +1,8 @@
+import { createSortHead } from '@/ui/SortHead'
+import { Reading } from '@/ui/Reading'
 /* oxlint-disable jsx-a11y/no-noninteractive-tabindex --
    A value that is not a current reading, and the status word, carry their reason in a tooltip. They
    take a tab stop so a keyboard user can open it, and name the same sentence for a screen reader. */
-import { ChevronDown, ChevronUp } from 'lucide-react'
 import { Link, useLocation, useNavigate } from 'react-router'
 import type { TargetListItem } from '@/api/types'
 import { useViewTo } from '@/app/viewSearch'
@@ -34,55 +35,9 @@ const HEAD =
   'type-label sticky top-0 z-10 h-6 border-b border-border bg-raised text-left whitespace-nowrap text-fg-faint'
 const CELL = 'border-b border-border whitespace-nowrap'
 
-interface SortHeadProps {
-  sortKey: SortKey
-  query: NetworkQuery
-  onSort: (next: Pick<NetworkQuery, 'sort' | 'dir'>) => void
-  className?: string
-  /** What the header means, where its short words do not say it. */
-  title?: string
-}
-
-/** A column header that sorts: a real button inside the th, with aria-sort on the th. */
-function SortHead({ sortKey, query, onSort, className, title }: SortHeadProps) {
-  const active = query.sort === sortKey
-  const Arrow = query.dir === 'asc' ? ChevronUp : ChevronDown
-  return (
-    <th
-      scope="col"
-      aria-sort={active ? (query.dir === 'asc' ? 'ascending' : 'descending') : 'none'}
-      className={cn(HEAD, className)}
-    >
-      <button
-        type="button"
-        title={title}
-        onClick={() => onSort(nextSort(query, sortKey))}
-        className={cn(
-          'type-label inline-flex h-full items-center gap-1 rounded-sm px-1 -outline-offset-2 hover:text-fg',
-          active && 'text-fg',
-        )}
-      >
-        {SORT_LABEL[sortKey].toUpperCase()}
-        <span aria-hidden="true" className="inline-block size-3">
-          {active ? <Arrow className="size-3" strokeWidth={1.5} /> : null}
-        </span>
-      </button>
-    </th>
-  )
-}
+const SortHead = createSortHead<SortKey, NetworkQuery>(SORT_LABEL, nextSort)
 
 /** A cell that is a current reading, or a dash with the reason in a tooltip. */
-function Reading({ text, note }: { text: string; note?: string }) {
-  return note ? (
-    <Tooltip content={note}>
-      <span tabIndex={0} aria-label={note} className="text-fg-muted">
-        {text}
-      </span>
-    </Tooltip>
-  ) : (
-    <span>{text}</span>
-  )
-}
 
 interface NetworkTableProps {
   rows: readonly TargetListItem[]

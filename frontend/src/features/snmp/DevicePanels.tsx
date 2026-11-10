@@ -1,7 +1,7 @@
+import { Fact } from '@/ui/Fact'
 /* oxlint-disable jsx-a11y/no-noninteractive-tabindex --
    A value that is not a present reading carries its reason in a tooltip. It takes a tab stop so a
    keyboard user can open it, and names the same sentence for a screen reader. */
-import type { ReactNode } from 'react'
 import { Link } from 'react-router'
 import type { DeviceDetail, DeviceInterface, DeviceListItem } from '@/api/types'
 import { usePrefs } from '@/app/prefs'
@@ -34,15 +34,6 @@ import { STATUS_EDGE, StatusTag } from '@/ui/status'
 import { agentServerPath } from './snmpModel'
 
 type DataProps = Pick<PanelProps, 'status' | 'error' | 'onRetry' | 'updatedAt'>
-
-function Fact({ label, children }: { label: string; children: ReactNode }) {
-  return (
-    <div className="flex min-w-0 flex-col gap-0.5">
-      <dt className="type-label text-fg-faint">{label}</dt>
-      <dd className="type-data min-w-0 truncate text-fg">{children}</dd>
-    </div>
-  )
-}
 
 interface SummaryPanelProps extends DataProps {
   item: DeviceListItem | undefined

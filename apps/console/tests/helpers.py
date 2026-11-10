@@ -27,6 +27,13 @@ def permission(codename: str) -> Permission:
     return Permission.objects.get(content_type__app_label="console", codename=codename)
 
 
+def grant(user, *codenames: str):
+    for codename in codenames:
+        app, _, name = codename.partition(".")
+        user.user_permissions.add(Permission.objects.get(content_type__app_label=app, codename=name))
+    return type(user).objects.get(pk=user.pk)
+
+
 def make_user(
     username: str = "viewer",
     *,

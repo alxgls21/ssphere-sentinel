@@ -2,12 +2,13 @@ import type {
   ContainerListOptions,
   DeviceListOptions,
   IncidentListOptions,
+  ServerList,
   PageInfo,
   ServerListOptions,
   StatusCounts,
   TargetListOptions,
 } from '../types'
-import { record, whole } from './parse'
+import { array, record, time, whole } from './parse'
 
 type ListOptions =
   | ServerListOptions
@@ -48,5 +49,20 @@ export function parsePage(raw: unknown): PageInfo {
     size: whole(row.size, 1),
     total: whole(row.total),
     pages: whole(row.pages, 1),
+  }
+}
+
+/** The common envelope of the server, container, target and device lists. */
+export function parseStandardList<Item>(
+  raw: unknown,
+  parseItem: (item: unknown) => Item,
+): Omit<ServerList, 'items'> & { items: Item[] } {
+  const row = record(raw)
+  return {
+    generatedAt: time(row.generatedAt),
+    items: array(row.items).map(parseItem),
+    page: parsePage(row.page),
+    counts: parseCounts(row.counts),
+    scopeTotal: whole(row.scopeTotal),
   }
 }

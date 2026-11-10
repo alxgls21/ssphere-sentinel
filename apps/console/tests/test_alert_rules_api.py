@@ -3,14 +3,13 @@
 import json
 import threading
 
-from django.contrib.auth.models import Permission
 from django.db import connection
 from django.test import Client, TestCase, TransactionTestCase
 
 from apps.alerts.models import AlertRule, ConfigurationEvent, Incident
 from apps.alerts.tests.fleet import PINNED, Fleet, evaluate
 from apps.alerts.tests.helpers import make_rule, open_incident
-from apps.console.tests.helpers import API, make_user, signed_in_client
+from apps.console.tests.helpers import API, grant, make_user, signed_in_client
 from apps.inventory.models import Customer, Site
 
 RULES = API + "alert-rules/"
@@ -20,13 +19,6 @@ ITEM_KEYS = {
     "id", "key", "name", "description", "enabled", "kind", "condition", "health", "reason", "severity",
     "activationSeconds", "recoverySeconds", "scope", "openIncidents", "createdAt", "updatedAt", "version", "canEdit",
 }
-
-
-def grant(user, *codenames: str):
-    for codename in codenames:
-        app, _, name = codename.partition(".")
-        user.user_permissions.add(Permission.objects.get(content_type__app_label=app, codename=name))
-    return type(user).objects.get(pk=user.pk)
 
 
 def rule_admin(name: str = "rules-admin", **options):

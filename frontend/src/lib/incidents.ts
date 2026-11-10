@@ -14,7 +14,7 @@ import type {
   SentinelEvent,
   EventLevel,
 } from '@/api/types'
-import { EMPTY, formatAge, formatDuration } from './format'
+import { EMPTY, formatAgo, formatDuration } from './format'
 
 /**
  * What an incident and the alert engine say in words. The status, the severity, the reason and every
@@ -300,16 +300,15 @@ const ERROR_CATEGORY = { database: 'a database error', internal: 'an internal er
  * list is not good news.
  */
 export function engineSentence(status: EngineStatus, nowMs: number): string {
-  const ago = (iso: string | null) => (iso ? `${formatAge(iso, nowMs)} ago` : 'never')
   switch (status.state) {
     case 'running':
-      return `Evaluating${status.intervalSeconds ? ` every ${status.intervalSeconds} s` : ''}; its latest cycle succeeded ${ago(status.lastSuccessAt)}.`
+      return `Evaluating${status.intervalSeconds ? ` every ${status.intervalSeconds} s` : ''}; its latest cycle succeeded ${formatAgo(status.lastSuccessAt, nowMs)}.`
     case 'failed': {
       const why = status.lastError ? ` with ${ERROR_CATEGORY[status.lastError.category]}` : ''
-      return `Its latest cycle failed${why} ${ago(status.lastError?.at ?? status.lastAttemptAt)}; the last success was ${ago(status.lastSuccessAt)}. Incidents shown may be out of date.`
+      return `Its latest cycle failed${why} ${formatAgo(status.lastError?.at ?? status.lastAttemptAt, nowMs)}; the last success was ${formatAgo(status.lastSuccessAt, nowMs)}. Incidents shown may be out of date.`
     }
     case 'stale':
-      return `It has made no attempt for ${ago(status.lastAttemptAt).replace(' ago', '')} (more than ${formatDuration(status.staleAfterSeconds)}): it has stopped or is stuck, so no incident opens or recovers and those shown may be out of date.`
+      return `It has made no attempt for ${formatAgo(status.lastAttemptAt, nowMs).replace(' ago', '')} (more than ${formatDuration(status.staleAfterSeconds)}): it has stopped or is stuck, so no incident opens or recovers and those shown may be out of date.`
     case 'never_started':
       return 'The alert engine has never run, so nothing has been evaluated. An empty list here does not mean everything is healthy.'
   }

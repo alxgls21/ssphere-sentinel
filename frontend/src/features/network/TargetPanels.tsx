@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react'
+import { Fact } from '@/ui/Fact'
 import { Link } from 'react-router'
 import type {
   TargetAvailability,
@@ -32,15 +32,6 @@ import { STATUS_EDGE, StatusTag } from '@/ui/status'
 import { agentServerPath } from './networkModel'
 
 type DataProps = Pick<PanelProps, 'status' | 'error' | 'onRetry' | 'updatedAt'>
-
-function Fact({ label, children }: { label: string; children: ReactNode }) {
-  return (
-    <div className="flex min-w-0 flex-col gap-0.5">
-      <dt className="type-label text-fg-faint">{label}</dt>
-      <dd className="type-data min-w-0 truncate text-fg">{children}</dd>
-    </div>
-  )
-}
 
 /** The newest measurement, said as a current reading only where the API judged health from it. */
 function LastMeasurement({

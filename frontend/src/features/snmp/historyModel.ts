@@ -7,7 +7,7 @@ import {
   EMPTY,
   formatBitsPerSecond,
   formatLatency,
-  formatTime,
+  formatHistoryTime,
   timezoneLabel,
   type Timezone,
 } from '@/lib/format'
@@ -34,8 +34,6 @@ export interface HistorySpec<Id extends string> {
   /** A thin line: a maximum drawn behind the mean. */
   thin?: boolean
 }
-
-const clock = (ms: number, tz: Timezone) => formatTime(ms, tz, false)
 
 /* ----------------------------------------------------------------- device */
 
@@ -97,7 +95,9 @@ export function describeDeviceBucket(series: DeviceSeries, index: number, tz: Ti
             : `response time ${series.responseMs[index]?.toFixed(1)} milliseconds`,
           `${series.reachablePolls[index]} reachable, ${series.failedPolls[index]} failed`,
         ]
-  return [`${clock(series.t[index] ?? 0, tz)} ${timezoneLabel(tz)}`, ...parts].join(', ')
+  return [`${formatHistoryTime(series.t[index] ?? 0, tz)} ${timezoneLabel(tz)}`, ...parts].join(
+    ', ',
+  )
 }
 
 export function deviceTooltip(
@@ -108,7 +108,7 @@ export function deviceTooltip(
   colors: ChartColors,
 ): TooltipContent {
   return {
-    title: clock(series.t[index] ?? 0, tz),
+    title: formatHistoryTime(series.t[index] ?? 0, tz),
     rows: DEVICE_SPECS.filter(({ id }) => !hidden.has(id)).map((spec) => ({
       key: spec.bar ? ('rect' as const) : ('line' as const),
       color: colors[spec.color],
@@ -133,7 +133,7 @@ export function deviceTable(
     rows: series.t
       .map((time, index) => ({
         key: String(time),
-        header: clock(time, tz),
+        header: formatHistoryTime(time, tz),
         cells: DEVICE_SPECS.map(({ id }) => deviceText(series, id, index)),
       }))
       .reverse(),
@@ -206,7 +206,7 @@ export function describeInterfaceBucket(
   index: number,
   tz: Timezone,
 ): string {
-  const head = `${clock(series.t[index] ?? 0, tz)} ${timezoneLabel(tz)}`
+  const head = `${formatHistoryTime(series.t[index] ?? 0, tz)} ${timezoneLabel(tz)}`
   if (sampledIn(series, index) === 0) return `${head}, no samples`
   if ((series.validSamples[index] ?? 0) === 0) {
     return `${head}, no usable sample: ${series.invalidSamples[index]} without a rate`
@@ -242,7 +242,7 @@ export function interfaceTooltip(
     value: samplesText(series, index),
     label: 'Samples',
   })
-  return { title: clock(series.t[index] ?? 0, tz), rows }
+  return { title: formatHistoryTime(series.t[index] ?? 0, tz), rows }
 }
 
 export function interfaceTable(
@@ -262,7 +262,7 @@ export function interfaceTable(
     rows: series.t
       .map((time, index) => ({
         key: String(time),
-        header: clock(time, tz),
+        header: formatHistoryTime(time, tz),
         cells: [
           ...INTERFACE_SPECS.map(({ id }) => interfaceText(series, id, index)),
           String(series.validSamples[index] ?? 0),

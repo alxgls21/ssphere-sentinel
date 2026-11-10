@@ -1,4 +1,4 @@
-import { ChevronDown, ChevronUp } from 'lucide-react'
+import { createSortHead } from '@/ui/SortHead'
 import { Link, useLocation, useNavigate } from 'react-router'
 import type { ServerListItem } from '@/api/types'
 import { useViewTo } from '@/app/viewSearch'
@@ -29,39 +29,7 @@ const HEAD =
   'type-label sticky top-0 z-10 h-6 border-b border-border bg-raised text-left whitespace-nowrap text-fg-faint'
 const CELL = 'border-b border-border whitespace-nowrap'
 
-interface SortHeadProps {
-  sortKey: SortKey
-  query: ServersQuery
-  onSort: (next: Pick<ServersQuery, 'sort' | 'dir'>) => void
-  className?: string
-}
-
-/** A column header that sorts: a real button inside the th, with aria-sort on the th. */
-function SortHead({ sortKey, query, onSort, className }: SortHeadProps) {
-  const active = query.sort === sortKey
-  const Arrow = query.dir === 'asc' ? ChevronUp : ChevronDown
-  return (
-    <th
-      scope="col"
-      aria-sort={active ? (query.dir === 'asc' ? 'ascending' : 'descending') : 'none'}
-      className={cn(HEAD, className)}
-    >
-      <button
-        type="button"
-        onClick={() => onSort(nextSort(query, sortKey))}
-        className={cn(
-          'type-label inline-flex h-full items-center gap-1 rounded-sm px-1 -outline-offset-2 hover:text-fg',
-          active && 'text-fg',
-        )}
-      >
-        {SORT_LABEL[sortKey].toUpperCase()}
-        <span aria-hidden="true" className="inline-block size-3">
-          {active ? <Arrow className="size-3" strokeWidth={1.5} /> : null}
-        </span>
-      </button>
-    </th>
-  )
-}
+const SortHead = createSortHead<SortKey, ServersQuery>(SORT_LABEL, nextSort)
 
 interface ServersTableProps {
   rows: readonly ServerListItem[]

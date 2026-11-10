@@ -1,3 +1,4 @@
+import { sumCounts } from '@/lib/status'
 import { useEffect } from 'react'
 import { Navigate, useSearchParams } from 'react-router'
 import { useApi } from '@/api/context'
@@ -218,6 +219,3 @@ export default function ServersListPage() {
     </div>
   )
 }
-
-const sumCounts = (counts: Record<string, number>): number =>
-  Object.values(counts).reduce((sum, count) => sum + count, 0)

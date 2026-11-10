@@ -1,3 +1,4 @@
+import { positiveWhole } from '@/lib/listQuery'
 import type {
   ContainerList,
   ContainerListItem,
@@ -68,9 +69,6 @@ export function sortContainers(
   })
 }
 
-const whole = (value: number | undefined, fallback: number): number =>
-  value !== undefined && Number.isInteger(value) && value >= 1 ? value : fallback
-
 /**
  * The answer to a list query over `items` (every container in the scope): the requested page of
  * what matches, and the counts and totals that go with it. A page past the end is empty, as the
@@ -91,8 +89,8 @@ export function queryContainers(
   const sort = options.sort ?? 'status'
   const dir = options.dir ?? (sort === 'status' || sort === 'started' ? 'desc' : 'asc')
   const ordered = sortContainers(matching, { sort, dir })
-  const size = Math.min(whole(options.pageSize, DEFAULT_PAGE_SIZE), MAX_PAGE_SIZE)
-  const number = whole(options.page, 1)
+  const size = Math.min(positiveWhole(options.pageSize, DEFAULT_PAGE_SIZE), MAX_PAGE_SIZE)
+  const number = positiveWhole(options.page, 1)
   const counts: StatusCounts = countStatuses(searched.map((item) => item.status))
   const page: PageInfo = {
     number,

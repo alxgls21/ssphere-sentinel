@@ -1,3 +1,4 @@
+import { focusIsVisible } from '@/lib/focus'
 import {
   cloneElement,
   useCallback,
@@ -180,10 +181,3 @@ function Bubble({
 }
 
 /** Engines without :focus-visible are treated as keyboard so the tooltip is never lost to them. */
-function focusIsVisible(element: HTMLElement): boolean {
-  try {
-    return element.matches(':focus-visible')
-  } catch {
-    return true
-  }
-}

@@ -5,13 +5,12 @@ import threading
 from datetime import timedelta
 from unittest.mock import patch
 
-from django.contrib.auth.models import Permission
 from django.db import connection
 from django.test import Client, TestCase, TransactionTestCase, override_settings
 from django.utils import timezone
 
 from apps.alerts.models import ConfigurationEvent, NotificationSubscription, NotifierHeartbeat, TestEmailRequest
-from apps.console.tests.helpers import API, make_user, signed_in_client
+from apps.console.tests.helpers import API, grant, make_user, signed_in_client
 from apps.inventory.models import Customer
 
 ME = API + "settings/notifications/me/"
@@ -24,13 +23,6 @@ SMTP_ON = override_settings(
     SENTINEL_SMTP_PASSWORD=SMTP_PASSWORD,
 )
 SMTP_OFF = override_settings(SENTINEL_SMTP_HOST="", SENTINEL_SMTP_USER="", SENTINEL_SMTP_PASSWORD="")
-
-
-def grant(user, *codenames: str):
-    for codename in codenames:
-        app, _, name = codename.partition(".")
-        user.user_permissions.add(Permission.objects.get(content_type__app_label=app, codename=name))
-    return type(user).objects.get(pk=user.pk)
 
 
 def put(client: Client, body, **extra):

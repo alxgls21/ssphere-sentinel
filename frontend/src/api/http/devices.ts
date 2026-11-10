@@ -1,6 +1,5 @@
 import type { SentinelApi } from '../client'
 import type {
-  DeviceAgent,
   DeviceConfig,
   DeviceDetail,
   DeviceInterface,
@@ -13,7 +12,6 @@ import type {
   DeviceSeriesOptions,
   DeviceState,
   DeviceType,
-  HealthStatus,
   InterfaceRates,
   InterfaceReason,
   InterfaceSeries,
@@ -21,8 +19,10 @@ import type {
   InvalidReason,
   SnmpVersion,
 } from '../types'
-import { listQuery, parseCounts, parsePage } from './lists'
+import { listQuery, parseCounts, parseStandardList } from './lists'
 import {
+  HEALTH,
+  parseMonitoringAgent,
   array,
   bad,
   flag,
@@ -48,10 +48,8 @@ import type { Transport } from './transport'
  * guess. The rates are the API's: nothing here works out a delta or a rate.
  */
 
-const HEALTH: readonly HealthStatus[] = ['healthy', 'warning', 'critical', 'unknown', 'idle']
 const DEVICE_TYPE: readonly DeviceType[] = ['router', 'switch', 'firewall', 'other']
 const VERSION: readonly SnmpVersion[] = ['2c', '3']
-const AGENT_STATUS: readonly DeviceAgent['status'][] = ['online', 'offline', 'unknown']
 const DEVICE_REASON: readonly DeviceReason[] = [
   'disabled',
   'no_agent',
@@ -71,19 +69,6 @@ const INTERFACE_REASON: readonly InterfaceReason[] = [
 ]
 const INVALID_REASON: readonly InvalidReason[] = ['delta_state', 'interval', 'implausible', 'stale']
 
-function parseAgent(raw: unknown): DeviceAgent | null {
-  if (raw === null) return null
-  const row = record(raw)
-  return {
-    id: text(row.id),
-    name: text(row.name),
-    status: oneOf(AGENT_STATUS, row.status),
-    lastSeenAt: nullableTime(row.lastSeenAt),
-    serverId: text(row.serverId),
-    serverName: text(row.serverName),
-  }
-}
-
 function parseConfig(raw: unknown): DeviceConfig {
   const row = record(raw)
   return {
@@ -99,7 +84,7 @@ function parseConfig(raw: unknown): DeviceConfig {
     timeoutSeconds: whole(row.timeoutSeconds, 1),
     retries: whole(row.retries),
     agentAssigned: flag(row.agentAssigned),
-    agent: parseAgent(row.agent),
+    agent: parseMonitoringAgent(row.agent),
   }
 }
 
@@ -137,14 +122,7 @@ function parseItem(raw: unknown): DeviceListItem {
 }
 
 export function parseDeviceList(raw: unknown): DeviceList {
-  const row = record(raw)
-  return {
-    generatedAt: time(row.generatedAt),
-    items: array(row.items).map(parseItem),
-    page: parsePage(row.page),
-    counts: parseCounts(row.counts),
-    scopeTotal: whole(row.scopeTotal),
-  }
+  return parseStandardList(raw, parseItem)
 }
 
 function parsePoll(raw: unknown): DevicePoll {

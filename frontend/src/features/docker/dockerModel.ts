@@ -1,3 +1,5 @@
+import { isOneOf, nextListSort, setQueryParam, wholePage } from '@/lib/listQuery'
+export { MAX_PAGE } from '@/lib/listQuery'
 import type { ContainerListItem, ContainerListOptions, SortDirection } from '@/api/types'
 
 /**
@@ -33,9 +35,6 @@ export const DEFAULT_QUERY: DockerQuery = {
   server: null,
   focus: null,
 }
-
-/** The console API refuses a page number above this. */
-export const MAX_PAGE = 10_000
 
 /** Containers asked for at a time. The console API serves at most 200. */
 export const DOCKER_PAGE_SIZE = 50
@@ -74,15 +73,6 @@ export const FIRST_DIR: Record<SortKey, SortDirection> = {
   started: 'desc',
 }
 
-const isOneOf = <T extends string>(list: readonly T[], value: string | null): value is T =>
-  value !== null && (list as readonly string[]).includes(value)
-
-/** A page number from the URL: a whole number from 1, anything else is the first page. */
-function wholePage(value: string | null): number {
-  const page = value !== null && /^\d{1,5}$/.test(value) ? Number(value) : 1
-  return page >= 1 && page <= MAX_PAGE ? page : 1
-}
-
 /** An id the console API would accept: it takes at most 36 characters of an id, and refuses the rest. */
 const ID = /^[A-Za-z0-9-]{1,36}$/
 
@@ -117,10 +107,8 @@ export function parseQuery(params: URLSearchParams): DockerQuery {
 /** Writes a query into URL params, omitting defaults to keep links short. Other params are kept. */
 export function writeQuery(params: URLSearchParams, query: DockerQuery): URLSearchParams {
   const next = new URLSearchParams(params)
-  const set = (name: string, value: string, isDefault: boolean) => {
-    if (isDefault) next.delete(name)
-    else next.set(name, value)
-  }
+  const set = (name: string, value: string, isDefault: boolean) =>
+    setQueryParam(next, name, value, isDefault)
   set('q', query.q.trim(), query.q.trim() === '')
   set('status', query.status, query.status === DEFAULT_QUERY.status)
   set('sort', query.sort, query.sort === DEFAULT_QUERY.sort)
@@ -133,8 +121,7 @@ export function writeQuery(params: URLSearchParams, query: DockerQuery): URLSear
 
 /** Clicking a column header: the same column flips direction, another starts at its natural one. */
 export function nextSort(query: DockerQuery, key: SortKey): Pick<DockerQuery, 'sort' | 'dir'> {
-  if (query.sort === key) return { sort: key, dir: query.dir === 'asc' ? 'desc' : 'asc' }
-  return { sort: key, dir: FIRST_DIR[key] }
+  return nextListSort(query, key, FIRST_DIR)
 }
 
 /** The server whose containers are listed: the one asked for, or the one a pointed-at container runs on. */
@@ -175,4 +162,4 @@ export const healthText = (item: ContainerListItem): string =>
   item.container.health === 'none' ? 'no check' : item.container.health
 
 /** The page of the server a container runs on. A path segment, so the id is encoded. */
-export const hostPath = (id: string): string => `/servers/${encodeURIComponent(id)}`
+export { serverPath as hostPath } from '@/lib/paths'

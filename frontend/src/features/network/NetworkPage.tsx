@@ -1,3 +1,4 @@
+import { sumCounts } from '@/lib/status'
 import { useEffect } from 'react'
 import { Navigate, useSearchParams } from 'react-router'
 import { useApi } from '@/api/context'
@@ -48,9 +49,6 @@ const FILTER_GLYPH: Partial<
 
 /** How long the search must hold still before it is asked for: a request per keystroke is noise. */
 const SEARCH_SETTLE_MS = 250
-
-const sumCounts = (counts: Record<string, number>): number =>
-  Object.values(counts).reduce((sum, count) => sum + count, 0)
 
 /**
  * Network: every probe target in scope, worst first, a page at a time. Search, status filter, sort

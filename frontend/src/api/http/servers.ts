@@ -3,7 +3,6 @@ import type {
   ContainerState,
   FleetLoad,
   FleetLoadOptions,
-  HealthStatus,
   Server,
   ServerContainer,
   ServerDetail,
@@ -15,8 +14,9 @@ import type {
   ServerStatus,
   ServerTelemetry,
 } from '../types'
-import { listQuery, parseCounts, parsePage } from './lists'
+import { listQuery, parseCounts, parseStandardList } from './lists'
 import {
+  HEALTH,
   array,
   flag,
   nullableNumber,
@@ -39,7 +39,6 @@ import type { Transport } from './transport'
  * `bad_response` error, never a guess.
  */
 
-const HEALTH: readonly HealthStatus[] = ['healthy', 'warning', 'critical', 'unknown', 'idle']
 const SERVER_STATUS: readonly ServerStatus[] = ['online', 'offline', 'warning', 'unknown']
 const CONTAINER_STATE: readonly ContainerState[] = [
   'running',
@@ -103,14 +102,7 @@ function parseItem(raw: unknown): ServerListItem {
 }
 
 export function parseServerList(raw: unknown): ServerList {
-  const row = record(raw)
-  return {
-    generatedAt: time(row.generatedAt),
-    items: array(row.items).map(parseItem),
-    page: parsePage(row.page),
-    counts: parseCounts(row.counts),
-    scopeTotal: whole(row.scopeTotal),
-  }
+  return parseStandardList(raw, parseItem)
 }
 
 export function parseContainer(raw: unknown): ServerContainer {

@@ -79,6 +79,9 @@ export function formatAge(iso: string | null | undefined, nowMs: number): string
   return `${Math.floor(seconds / 86_400)}d`
 }
 
+export const formatAgo = (iso: string | null, nowMs: number): string =>
+  iso ? `${formatAge(iso, nowMs)} ago` : 'never'
+
 const pad = (value: number) => String(value).padStart(2, '0')
 
 export type Timezone = 'utc' | 'local'
@@ -95,6 +98,8 @@ export function formatTime(ms: number, tz: Timezone, seconds = true): string {
       : [date.getHours(), date.getMinutes(), date.getSeconds()]
   return seconds ? `${pad(h)}:${pad(m)}:${pad(s)}` : `${pad(h)}:${pad(m)}`
 }
+
+export const formatHistoryTime = (ms: number, tz: Timezone): string => formatTime(ms, tz, false)
 
 /** formatTime with the Z that marks UTC, as the console writes every clock time. */
 export function formatClock(ms: number, tz: Timezone, seconds = true): string {

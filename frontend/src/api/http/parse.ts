@@ -1,4 +1,5 @@
 import { ApiError } from '../errors'
+import type { HealthStatus, TargetAgent } from '../types'
 
 /**
  * Guards for answers from the network. The shape of an answer is never trusted:
@@ -6,6 +7,9 @@ import { ApiError } from '../errors'
  */
 
 export const bad = () => new ApiError('The server sent an unexpected answer.', null, 'bad_response')
+
+export const HEALTH: readonly HealthStatus[] = ['healthy', 'warning', 'critical', 'unknown', 'idle']
+export const AGENT_STATUS: readonly TargetAgent['status'][] = ['online', 'offline', 'unknown']
 
 export const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === 'object' && value !== null && !Array.isArray(value)
@@ -64,6 +68,20 @@ export function time(value: unknown): string {
 }
 
 export const nullableTime = (value: unknown): string | null => (value === null ? null : time(value))
+
+/** The agent summary shared by target and device answers. */
+export function parseMonitoringAgent(raw: unknown): TargetAgent | null {
+  if (raw === null) return null
+  const row = record(raw)
+  return {
+    id: text(row.id),
+    name: text(row.name),
+    status: oneOf(AGENT_STATUS, row.status),
+    lastSeenAt: nullableTime(row.lastSeenAt),
+    serverId: text(row.serverId),
+    serverName: text(row.serverName),
+  }
+}
 
 /** One of `allowed`. */
 export function oneOf<T extends string>(allowed: readonly T[], value: unknown): T {

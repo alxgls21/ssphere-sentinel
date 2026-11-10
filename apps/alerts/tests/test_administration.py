@@ -32,7 +32,7 @@ from apps.alerts.models import (
 from apps.alerts.notifications import deliver_test_emails, enqueue
 from apps.alerts.tests.helpers import make_rule, open_incident
 from apps.alerts.tests.test_notifications import FakeSMTP, using, wire
-from apps.console.tests.helpers import make_user
+from apps.console.tests.helpers import grant, make_user
 
 SMTP_PASSWORD = "Smtp-Secret-5d1f27c0"
 SMTP_ON = override_settings(
@@ -44,13 +44,6 @@ SMTP_ON = override_settings(
     SENTINEL_SMTP_PASSWORD=SMTP_PASSWORD,
 )
 NOTIFIER = "apps.alerts.management.commands.run_notifier"
-
-
-def grant(user, *codenames: str):
-    for codename in codenames:
-        app, _, name = codename.partition(".")
-        user.user_permissions.add(Permission.objects.get(content_type__app_label=app, codename=name))
-    return type(user).objects.get(pk=user.pk)
 
 
 def ask(user, *, at=None) -> TestEmailRequest:
