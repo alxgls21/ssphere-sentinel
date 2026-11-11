@@ -52,6 +52,10 @@ export function createTestApi(overrides: Partial<SentinelApi> = {}): SentinelApi
     createAlertRule: unstubbed('createAlertRule'),
     updateAlertRule: unstubbed('updateAlertRule'),
     getSystemStatus: unstubbed('getSystemStatus'),
+    createServer: unstubbed('createServer'),
+    createAgent: unstubbed('createAgent'),
+    rotateAgentToken: unstubbed('rotateAgentToken'),
+    setAgentEnabled: unstubbed('setAgentEnabled'),
     ...overrides,
   }
 }

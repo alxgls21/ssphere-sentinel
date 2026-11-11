@@ -51,6 +51,7 @@ function parseCapabilities(raw: unknown): SessionCapabilities {
     manageOwnNotifications: flag(raw.manageOwnNotifications),
     sendTestEmail: flag(raw.sendTestEmail),
     viewSystemStatus: flag(raw.viewSystemStatus),
+    manageServers: flag(raw.manageServers),
   }
 }
 

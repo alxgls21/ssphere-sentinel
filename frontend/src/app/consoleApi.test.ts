@@ -73,6 +73,10 @@ function fakeHttp(over: Partial<ConsoleHttp> = {}) {
     getServerSeries: vi.fn(),
     getFleetLoad: vi.fn(),
     getTopology: vi.fn(),
+    createServer: vi.fn(),
+    createAgent: vi.fn(),
+    rotateAgentToken: vi.fn(),
+    setAgentEnabled: vi.fn(),
     ...over,
   } as unknown as ConsoleHttp & {
     listServers: ReturnType<typeof vi.fn>
@@ -145,6 +149,10 @@ describe('createConsoleApi', () => {
         'requestTestEmail',
         'saveNotificationPreferences',
         'updateAlertRule',
+        'createServer',
+        'createAgent',
+        'rotateAgentToken',
+        'setAgentEnabled',
         'source',
       ].sort(),
     )

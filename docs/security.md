@@ -63,8 +63,19 @@ They return no configuration, version, host or error details.
   `Cache-Control: no-store`. It is never put in Django's messages framework
   (whose cookie is signed but not encrypted) or in the session. Adding an
   agent in the admin generates its token the same way.
-- Regenerating requires the *change agent* permission and a confirmation
-  step; each rotation is recorded in the admin history without the token.
+- The console creates an agent (`POST /api/v1/console/servers/<id>/agents/`)
+  and rotates its token (`POST .../agents/<id>/rotate-token/`) with the same
+  code; the token is in that one JSON answer only (`Cache-Control: no-store`,
+  as every console answer), never in a later answer, a log line, the URL, the
+  browser's history or storage: the console holds it in the page's state until
+  *Done*. The installation commands it shows read the token hidden into the
+  root-only environment file (a shell builtin and a pipe), never a command
+  line. These writes need the permissions that change alert rules and the
+  admin's permissions on servers and agents (see below).
+- Regenerating in the admin requires the *change agent* permission and a confirmation
+  step; each rotation is recorded in the admin history without the token. The
+  console asks for the same confirmation and logs each creation and rotation
+  with the account's id and the agent's and server's ids, never the token.
 - Agents send the token only in the `Authorization` header, never in URLs,
   and reject `SENTINEL_URL` values containing credentials. The agent does not
   follow HTTP redirects, so the token can never be forwarded to another host
@@ -189,6 +200,22 @@ the CSRF token.
   account's deletion is in the admin's own history. A save in the admin has no
   version check: it is the last word over a change made since the form was
   opened, and the trail records what it changed.
+- **Monitored hosts are added by accounts that change alert rules and hold the
+  admin's permissions for the same actions** (`alerts.change_alertrule` *and*
+  `view_all_customers`, plus `infrastructure.add_server` to add a server,
+  `agents.add_agent` to create its agent and `agents.change_agent` to rotate a
+  token or to disable or enable an agent; a superuser holds them all): a server
+  may be placed on any customer's site, and an agent's token monitors a host
+  whoever may see it. The session announces `manageServers` only to an account
+  that holds all of them, so the console never offers a write the server
+  refuses. Such an account adds a server (name, hostname, placement, address),
+  creates its agent and is answered the token once, rotates the token (the old
+  one stops working at once) and disables or enables the agent; nothing is
+  deleted from the console, and no other field of an agent changes there. Every
+  write is checked on the server, bounded in size, under CSRF, and logged with
+  the account's id and the server's and agent's ids. A server's detail names its
+  agent (id, name, enabled, last heartbeat, version), never a token or its hash,
+  and the token hash is never even read for a detail or a list.
 - **Domains are verified before anything is monitored, by permission too.**
   Adding a domain (`web.add_monitoreddomain`), seeing domains
   (`web.view_monitoreddomain`) and asking for a verification

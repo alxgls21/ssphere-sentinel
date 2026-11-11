@@ -55,6 +55,7 @@ describe('parseSession capabilities', () => {
     manageOwnNotifications: true,
     sendTestEmail: false,
     viewSystemStatus: false,
+    manageServers: true,
   }
 
   it('carries what the server says the account may do, flag by flag', () => {

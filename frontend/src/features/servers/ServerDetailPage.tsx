@@ -15,6 +15,7 @@ import { PlaceName } from '@/ui/PlaceName'
 import { PanelBoundary } from '@/ui/PanelBoundary'
 import { EmptyState, Skeleton } from '@/ui/states'
 import { STATUS_FRAME, STATUS_TINT, StatusTag } from '@/ui/status'
+import { AgentPanel } from './AgentPanel'
 import { ContainersPanel } from './ContainersPanel'
 import { HistoryPanel } from './HistoryPanel'
 import { readingOf } from '@/lib/serverList'
@@ -142,22 +143,31 @@ function ServerPanels({ id, resource }: { id: string; resource: Resource<ServerD
           onRetry={resource.refetch}
         />
       </PanelBoundary>
+      <PanelBoundary title="Agent" index={2} features="servers" className="lg:col-span-12">
+        <AgentPanel
+          index={2}
+          serverId={id}
+          serverName={item?.server.name ?? id}
+          resource={resource}
+          className="lg:col-span-12"
+        />
+      </PanelBoundary>
       <PanelBoundary
         title="Resource history"
-        index={2}
+        index={3}
         features="servers"
         className="lg:col-span-7"
       >
         <HistoryPanel
-          index={2}
+          index={3}
           resource={history}
           name={item?.server.name ?? id}
           className="lg:col-span-7"
         />
       </PanelBoundary>
-      <PanelBoundary title="Containers" index={3} features="servers" className="lg:col-span-5">
+      <PanelBoundary title="Containers" index={4} features="servers" className="lg:col-span-5">
         <ContainersPanel
-          index={3}
+          index={4}
           resource={resource}
           hostOffline={item?.server.status === 'offline'}
           className="lg:col-span-5"
@@ -229,7 +239,7 @@ export default function ServerDetailPage() {
 
       {item ? <ReportingNotice item={item} nowMs={nowMs} /> : null}
 
-      <div className="grid gap-3 lg:min-h-0 lg:flex-1 lg:grid-cols-12 lg:grid-rows-[auto_minmax(20.375rem,1fr)]">
+      <div className="grid gap-3 lg:min-h-0 lg:flex-1 lg:grid-cols-12 lg:grid-rows-[auto_auto_minmax(20.375rem,1fr)]">
         <ServerPanels key={id} id={id} resource={resource} />
       </div>
     </div>

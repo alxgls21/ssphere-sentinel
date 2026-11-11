@@ -1,7 +1,8 @@
 import { sumCounts } from '@/lib/status'
 import { useEffect } from 'react'
-import { Navigate, useSearchParams } from 'react-router'
+import { Link, Navigate, useSearchParams } from 'react-router'
 import { useApi } from '@/api/context'
+import { useAuth } from '@/app/auth/auth'
 import { useLive } from '@/app/live'
 import { usePrefs } from '@/app/prefs'
 import { useViewTo } from '@/app/viewSearch'
@@ -10,9 +11,11 @@ import { useDebouncedValue } from '@/hooks/useDebouncedValue'
 import { useLiveResource } from '@/hooks/useLiveResource'
 import { useMediaQuery } from '@/hooks/useMediaQuery'
 import { formatInteger } from '@/lib/format'
+import { NEW_SERVER_PATH } from '@/lib/paths'
 import { ListSkeleton, Pager } from '@/ui/ListParts'
 import { Panel } from '@/ui/Panel'
 import { Button, Chip, SearchField, Select, type SelectOption } from '@/ui/controls'
+import { buttonStyle } from '@/ui/controls/buttonStyle'
 import { limitsOrigin, useResourceLimits } from '@/ui/meters'
 import { EmptyState } from '@/ui/states'
 import { StatusGlyph } from '@/ui/status'
@@ -58,6 +61,8 @@ export default function ServersListPage() {
   const [query, update] = useServersQuery()
   const wide = useMediaQuery('(min-width: 48rem)')
   const limits = useResourceLimits()
+  // Offered to an account that may add hosts; the server decides again when one is added.
+  const mayAdd = useAuth().capabilities.manageServers
 
   const search = useDebouncedValue(query.q, SEARCH_SETTLE_MS)
   const asked = {
@@ -104,6 +109,11 @@ export default function ServersListPage() {
         <p className="type-data text-fg-muted" aria-live="polite">
           {list ? `${formatInteger(matching)} of ${formatInteger(list.scopeTotal)} shown` : null}
         </p>
+        {mayAdd ? (
+          <Link to={viewTo(NEW_SERVER_PATH)} className={`${buttonStyle('primary')} ml-auto`}>
+            Add server
+          </Link>
+        ) : null}
       </header>
 
       <search aria-label="Filter servers" className="flex flex-wrap items-center gap-2">
@@ -166,7 +176,21 @@ export default function ServersListPage() {
           nothingMonitored ? (
             <EmptyState
               title="No servers monitored"
-              hint="Install the agent on a host and it appears here after its first heartbeat."
+              hint={
+                <>
+                  {mayAdd
+                    ? 'Add a server and install its agent on the host: it appears here, and reports after its first heartbeat.'
+                    : 'Install the agent on a host and it appears here after its first heartbeat.'}
+                  {mayAdd ? (
+                    <Link
+                      to={viewTo(NEW_SERVER_PATH)}
+                      className={`${buttonStyle('primary', { size: 'sm' })} ml-2`}
+                    >
+                      Add server
+                    </Link>
+                  ) : null}
+                </>
+              }
             />
           ) : (
             <EmptyState

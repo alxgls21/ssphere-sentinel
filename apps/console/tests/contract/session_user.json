@@ -16,7 +16,8 @@
     "viewSystemStatus": false,
     "viewDomains": false,
     "addDomains": false,
-    "verifyDomains": false
+    "verifyDomains": false,
+    "manageServers": false
   },
   "thresholds": {
     "resourceWarnPercent": 80,

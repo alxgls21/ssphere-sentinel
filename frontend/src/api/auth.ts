@@ -30,6 +30,8 @@ export interface SessionCapabilities {
   manageOwnNotifications: boolean
   sendTestEmail: boolean
   viewSystemStatus: boolean
+  /** Add a server and its agent, rotate the agent's token, enable or disable the agent. */
+  manageServers: boolean
 }
 
 /** Nothing offered: an anonymous session, an answer without capabilities, the sample fleet. */
@@ -41,6 +43,7 @@ export const NO_CAPABILITIES: SessionCapabilities = {
   manageOwnNotifications: false,
   sendTestEmail: false,
   viewSystemStatus: false,
+  manageServers: false,
 }
 
 /**

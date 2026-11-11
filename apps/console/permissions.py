@@ -16,6 +16,15 @@ what to offer (``/session/``).
   and ``web.verify_monitoreddomain`` to ask for a verification, with **global
   visibility**: the list names every customer's domains. Whoever may add or verify
   domains may see them.
+* Monitored hosts (adding a server, its agent and the agent's token, rotating the
+  token, enabling or disabling the agent): the accounts that may change alert rules
+  (``alerts.change_alertrule`` with global visibility) **and** hold the model permission
+  the admin asks for the same action: ``infrastructure.add_server`` to add a server,
+  ``agents.add_agent`` to create its agent, ``agents.change_agent`` to rotate a token or
+  to enable or disable an agent. A server may be placed on any customer's site, and an
+  agent's token monitors a host whoever may see it. The ``manageServers`` capability is
+  announced only to an account that holds all of them, so the UI never offers a write
+  the API refuses.
 """
 
 from __future__ import annotations
@@ -32,6 +41,10 @@ VIEW_SYSTEM_STATUS = "console.view_system_status"
 VIEW_DOMAINS = "web.view_monitoreddomain"
 ADD_DOMAINS = "web.add_monitoreddomain"
 VERIFY_DOMAINS = "web.verify_monitoreddomain"
+# The model permissions the admin asks for the same actions on monitored hosts.
+ADD_SERVERS = "infrastructure.add_server"
+ADD_AGENTS = "agents.add_agent"
+CHANGE_AGENTS = "agents.change_agent"
 
 
 def may_view_rules(user, visibility: Visibility) -> bool:
@@ -63,6 +76,26 @@ def may_view_domains(user, visibility: Visibility) -> bool:
     return visibility.all_access and any(user.has_perm(name) for name in (VIEW_DOMAINS, ADD_DOMAINS, VERIFY_DOMAINS))
 
 
+def may_add_servers(user, visibility: Visibility) -> bool:
+    """Add a server: who may change rules, with the admin's permission to add a server."""
+    return may_change_rules(user, visibility) and user.has_perm(ADD_SERVERS)
+
+
+def may_add_agents(user, visibility: Visibility) -> bool:
+    """Create a server's agent (and its token): who may change rules, with the admin's permission to add an agent."""
+    return may_change_rules(user, visibility) and user.has_perm(ADD_AGENTS)
+
+
+def may_change_agents(user, visibility: Visibility) -> bool:
+    """Rotate an agent's token, enable or disable it: who may change rules, with the admin's permission to change an agent."""
+    return may_change_rules(user, visibility) and user.has_perm(CHANGE_AGENTS)
+
+
+def may_manage_servers(user, visibility: Visibility) -> bool:
+    """Every write on monitored hosts: what the session announces as ``manageServers``."""
+    return may_add_servers(user, visibility) and may_add_agents(user, visibility) and may_change_agents(user, visibility)
+
+
 def require(allowed: bool, message: str) -> None:
     if not allowed:
         raise ApiError(403, "forbidden", message)
@@ -80,4 +113,5 @@ def capabilities(user, visibility: Visibility) -> dict[str, bool]:
         "viewDomains": may_view_domains(user, visibility),
         "addDomains": may_add_domains(user, visibility),
         "verifyDomains": may_verify_domains(user, visibility),
+        "manageServers": may_manage_servers(user, visibility),
     }

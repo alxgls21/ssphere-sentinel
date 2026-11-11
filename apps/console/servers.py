@@ -1,10 +1,16 @@
-"""Servers: ``GET /servers/`` (list) and ``GET /servers/<id>/`` (detail with its containers).
+"""Servers: ``GET /servers/`` (list) and ``GET /servers/<id>/`` (detail with its agent and its containers).
 
 Response bodies are the UI's ``ServerList`` and ``ServerDetail`` (``api/types.ts``),
 with the list's pagination added next to ``items``:
 
     {"generatedAt", "items": [ServerListItem], "page": {number, size, total, pages},
      "counts": StatusCounts, "scopeTotal": int}
+
+The detail is ``{"generatedAt", "item": ServerListItem, "agent": Agent | null, "containers": [...]}``.
+``agent`` describes the server's agent (``{"id", "name", "enabled", "lastSeenAt", "agentVersion",
+"createdAt", "updatedAt"}``), never its token or the token's hash; it is null for a server that has
+none yet. Adding a server or an agent, and rotating a token, is ``apps.console.enrollment``
+(``POST /servers/``).
 
 ``counts`` is per health status over the requested scope and search (not the
 status filter), so the UI's status chips stay true; ``scopeTotal`` is the size
@@ -42,7 +48,8 @@ Access: every query starts from ``request.visibility.filter(...)`` (a server
 without a site is visible only to users who may see all customers). The
 queries read an explicit list of columns (``.values``), never model instances,
 so nothing that is not in the response body, an agent's token hash above
-all, is even loaded.
+all, is even loaded (the list reads the agent's version only; the detail adds
+the agent's identity, ``AGENT_FIELDS``).
 """
 
 from __future__ import annotations
@@ -65,7 +72,7 @@ from apps.console.health import (
 from apps.console.http import console_api
 from apps.console.listing import filter_list, name_order, page_envelope
 from apps.console.params import PAGE_PARAMS, SCOPE_PARAMS, PageRequest, QueryParams
-from apps.console.serializers import iso
+from apps.console.serializers import iso, iso_or_none
 from apps.infrastructure.models import Server
 
 STATUS_FILTERS = ("all", "critical", "warning", "unknown", "healthy")
@@ -113,6 +120,16 @@ FIELDS = (
     "telemetry__collected_at",
     "telemetry__received_at",
     "telemetry_fresh",
+)
+# The agent's identity, read by the detail only (and by apps.console.enrollment after a write): never its token hash.
+AGENT_FIELDS = (
+    "agent__id",
+    "agent__name",
+    "agent__enabled",
+    "agent__last_seen_at",
+    "agent__agent_version",
+    "agent__created_at",
+    "agent__updated_at",
 )
 LOAD_COLUMNS = {
     "cpu": "cpu_percent",
@@ -187,8 +204,29 @@ def serialize(row: dict, container_counts: dict[str, int]) -> dict:
     return item
 
 
-@console_api()
+def agent_payload(row: dict) -> dict | None:
+    """The ``agent`` of a detail from a row of ``AGENT_FIELDS``: null for a server without one."""
+    if row["agent__id"] is None:
+        return None
+    return {
+        "id": str(row["agent__id"]),
+        "name": row["agent__name"],
+        "enabled": row["agent__enabled"],
+        "lastSeenAt": iso_or_none(row["agent__last_seen_at"]),
+        "agentVersion": row["agent__agent_version"] or "",
+        "createdAt": iso(row["agent__created_at"]),
+        "updatedAt": iso(row["agent__updated_at"]),
+    }
+
+
+def agent_of(server_id: UUID) -> dict | None:
+    """The ``agent`` of one server, as the detail serves it (for the answers of ``apps.console.enrollment``)."""
+    row = Server.objects.filter(pk=server_id).values(*AGENT_FIELDS).first()
+    return agent_payload(row) if row is not None else None
+
+
 def server_list(request):
+    """``GET /servers/``: the body of ``apps.console.enrollment.server_collection`` (which also takes the POST)."""
     now = timezone.now()
     params = QueryParams(request, LIST_PARAMS)
     scope = params.scope(request.visibility)
@@ -214,16 +252,20 @@ def server_list(request):
     return JsonResponse(page_envelope(now, items, page, total=total, counts=counts, scope_total=scope_total))
 
 
+def detail_payload(visibility: Visibility, server_id: UUID, now: datetime) -> dict:
+    """``GET /servers/<id>/`` (``NotVisible`` for an unknown or hidden id), also the answer to a creation."""
+    row = visibility.get(visible_servers(visibility, now).values(*FIELDS, *AGENT_FIELDS), server_id)
+    counts = container_counts_by_server(visibility, [server_id], now).get(server_id, empty_counts())
+    return {
+        "generatedAt": iso(now),
+        "item": serialize(row, counts),
+        "agent": agent_payload(row),
+        "containers": containers_of_server(visibility, server_id, now),
+    }
+
+
 @console_api()
 def server_detail(request, server_id: UUID):
     now = timezone.now()
     QueryParams(request, ())  # no parameters: a stray one is a mistake, not ignored
-    row = request.visibility.get(visible_servers(request.visibility, now).values(*FIELDS), server_id)
-    counts = container_counts_by_server(request.visibility, [server_id], now).get(server_id, empty_counts())
-    return JsonResponse(
-        {
-            "generatedAt": iso(now),
-            "item": serialize(row, counts),
-            "containers": containers_of_server(request.visibility, server_id, now),
-        }
-    )
+    return JsonResponse(detail_payload(request.visibility, server_id, now))
