@@ -61,9 +61,11 @@ belong to one origin.
 1. Run Django (default `http://127.0.0.1:8000`; set `SENTINEL_BACKEND_URL` for
    another address when you start `npm run dev`).
 2. Allow cookies over plain HTTP for local work. Django marks the session and
-   CSRF cookies `Secure` unless `DJANGO_DEBUG=true`, and a browser does not keep
-   a `Secure` cookie from `http://`. Either run the backend with
-   `DJANGO_DEBUG=true`, or set both of these (testing only, never in production):
+   CSRF cookies `Secure` when `SENTINEL_URL` is an `https://` address, or, with
+   no `SENTINEL_URL`, unless `DJANGO_DEBUG=true`; a browser does not keep a
+   `Secure` cookie from `http://`. Either run the backend with
+   `DJANGO_DEBUG=true` and no `https://` `SENTINEL_URL`, or set both of these
+   (testing only, never in production):
 
    ```
    DJANGO_SESSION_COOKIE_SECURE=false

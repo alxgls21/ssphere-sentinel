@@ -190,7 +190,12 @@ def probe_icmp(host: str, *, timeout_seconds: float) -> ProbeAttempt:
     if "permission denied" in lowered or "operation not permitted" in lowered:
         _warn_icmp_not_permitted(output)
         return ProbeAttempt(False, None, FAILURE_PERMISSION_DENIED)
-    if "unknown host" in lowered or "name or service not known" in lowered:
+    if (
+        "unknown host" in lowered
+        or "name or service not known" in lowered
+        or "failure in name resolution" in lowered  # the resolver did not answer
+        or "bad address" in lowered  # busybox
+    ):
         return ProbeAttempt(False, None, FAILURE_DNS_FAILURE)
     # "unreachable" is checked first: Linux prints it together with a
     # "100% packet loss" summary.

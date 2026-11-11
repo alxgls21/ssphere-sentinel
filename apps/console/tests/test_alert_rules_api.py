@@ -259,6 +259,8 @@ class CreateTests(TestCase):
         self.assertEqual((response.status_code, response.json()["error"]["code"]), (415, "unsupported_media_type"))
         response = self.client_.post(RULES, "[1]", content_type="application/json")
         self.assertEqual((response.status_code, response.json()["error"]["code"]), (400, "invalid_request"))
+        response = self.client_.post(RULES, "[" * 16384, content_type="application/json")  # as deep as the limit allows
+        self.assertEqual((response.status_code, response.json()["error"]["code"]), (400, "invalid_request"))
         response = post(self.client_, RULES, {**VALID, "description": "x" * 17000})
         self.assertEqual((response.status_code, response.json()["error"]["code"]), (413, "payload_too_large"))
         self.assertEqual(post(self.client_, RULES + "?dry=1", VALID).status_code, 400)

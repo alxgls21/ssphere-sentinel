@@ -179,6 +179,9 @@ describe('interfaces', () => {
 
   it('writes the speed, or a dash when the device reports none', () => {
     expect(speedText(iface(1))).toBe('1 Gbps')
+    // A speed that is not a whole number of its unit keeps its decimal: a 2.5 GbE port is not "3 Gbps".
+    expect(speedText(iface(1, 'up', { speedBps: 2_500_000_000 }))).toBe('2.5 Gbps')
+    expect(speedText(iface(1, 'up', { speedBps: 100_000_000 }))).toBe('100 Mbps')
     expect(speedText(iface(1, 'up', { speedBps: null }))).toBe('—')
   })
 })

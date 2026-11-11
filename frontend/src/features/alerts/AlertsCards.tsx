@@ -2,7 +2,7 @@ import { Link, useLocation } from 'react-router'
 import type { IncidentItem } from '@/api/types'
 import { useViewTo } from '@/app/viewSearch'
 import { cn } from '@/lib/cn'
-import { formatAge } from '@/lib/format'
+import { formatAge, withAgo } from '@/lib/format'
 import { KIND_LABEL, conditionText, incidentPath } from '@/lib/incidents'
 import { PlaceName } from '@/ui/PlaceName'
 import { IncidentStatusTag, SeverityTag } from '@/ui/incidents'
@@ -41,7 +41,7 @@ export function AlertsCards({ rows, nowMs, busy, onAcknowledge }: AlertsCardsPro
               <SeverityTag severity={item.severity} />
               <IncidentStatusTag status={item.status} />
               <span className="type-data tnum ml-auto shrink-0 text-fg-faint">
-                opened {formatAge(item.openedAt, nowMs)} ago
+                opened {withAgo(formatAge(item.openedAt, nowMs))}
               </span>
             </span>
             <span className="type-data-strong min-w-0 truncate">{item.entity.label}</span>

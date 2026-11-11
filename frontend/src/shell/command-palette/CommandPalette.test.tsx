@@ -685,6 +685,17 @@ describe('keyboard', () => {
     expect(probe()).toMatch(/^\/servers\?range=6h&customer=acme\|/)
   })
 
+  it('a jump leaves behind what belongs to the screen it came from: its search, filter, page and focused row', async () => {
+    const { user } = setup({
+      route: '/servers?q=web&status=critical&page=2&focus=c1&customer=acme',
+    })
+    await openLoaded(user)
+    await user.type(combobox(), 'network')
+    await user.keyboard('{Enter}')
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    expect(probe()).toMatch(/^\/network\?customer=acme\|/)
+  })
+
   it.each([
     // A server has a page of its own.
     ['edge-gw-02', '/servers/s2'],

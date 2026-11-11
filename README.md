@@ -254,15 +254,16 @@ starting point for network and SNMP configuration.
 ## Console API contract
 
 The browser console uses Django sessions and CSRF protection, never agent
-tokens. Besides sign-in and sign-out it writes only what an account is
-permitted to administer (acknowledging incidents, alert rules, its own email
-preferences, test emails), every change checked on the server. Access is
+tokens. Besides the first-run setup, sign-in and sign-out it writes only what
+an account is permitted to administer (acknowledging incidents, alert rules,
+its own email preferences, test emails), every change checked on the server. Access is
 deny-by-default and filtered by customer/site grants; see
 [console access control](docs/security.md#console-authentication-and-access-control).
 
 | Endpoint | Purpose |
 | --- | --- |
 | `GET /api/v1/console/session/` | Current session, CSRF token, and UI thresholds |
+| `GET`, `POST /api/v1/console/setup/` | First-run setup: whether it is still required, and doing it with the setup code |
 | `POST /api/v1/console/auth/login/` | Session sign-in |
 | `POST /api/v1/console/auth/logout/` | Session sign-out |
 | `GET /api/v1/console/scope/` | Visible customers and sites |
@@ -270,6 +271,12 @@ deny-by-default and filtered by customer/site grants; see
 | `GET /api/v1/console/servers/<id>/` | One visible server and its containers |
 | `GET /api/v1/console/servers/<id>/series/` | CPU, memory, and disk series for `15m`, `1h`, `6h`, or `24h` |
 | `GET /api/v1/console/containers/` | Filtered, sorted, paginated containers |
+| `GET /api/v1/console/targets/`; `GET .../targets/<id>/`; `GET .../targets/<id>/series/` | Network targets: the list, one visible target, and its measurement series for a `range` |
+| `GET /api/v1/console/devices/`; `GET .../devices/<id>/`; `GET .../devices/<id>/series/`; `GET .../devices/<id>/interfaces/<ifIndex>/series/` | SNMP devices: the list, one visible device, its series, and one interface's series for a `range` |
+| `GET /api/v1/console/topology/` | Topology of what the session may see |
+| `GET /api/v1/console/incidents/`; `GET .../incidents/<id>/` | Incidents: the list and one visible incident |
+| `POST /api/v1/console/incidents/<id>/acknowledge/` | Acknowledge an incident |
+| `GET /api/v1/console/alerts/engine-status/` | The alert engine's state |
 | `GET`, `POST /api/v1/console/alert-rules/`; `GET`, `PATCH /api/v1/console/alert-rules/<id>/`; `GET /api/v1/console/alert-rules/options/` | Alert rules: list, create, change (with the `version` read), and the valid conditions |
 | `GET`, `PUT /api/v1/console/settings/notifications/me/` | The signed-in user's own email preferences |
 | `POST /api/v1/console/settings/notifications/test-email/`; `GET .../test-email/<id>/` | A test email to the user's own address, sent by the notifier |

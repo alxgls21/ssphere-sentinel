@@ -118,6 +118,24 @@ describe('buildInterfaceOption', () => {
     const quiet = list(iface(['inBpsMax', 'outBpsMax', 'inBps']).yAxis)
     expect(quiet[0]?.max).toBeLessThan(axes[0]?.max as number)
   })
+
+  it('labels every traffic gridline with its own value: 1.5 Mbps is never rounded to "2 Mbps"', () => {
+    const rates = [400e3, 1.2e6, null, null, 410e3, 420e3]
+    const series = interfaceSeries({
+      inBps: rates,
+      outBps: rates,
+      inBpsMax: rates,
+      outBpsMax: rates,
+    })
+    const traffic = list(iface([], series).yAxis)[0]
+    if (!traffic) throw new Error('no traffic axis')
+    const max = traffic.max as number
+    const interval = traffic.interval as number
+    const format = (traffic.axisLabel as { formatter: (value: number) => string }).formatter
+    const labels: string[] = []
+    for (let tick = 0; tick <= max; tick += interval) labels.push(format(tick))
+    expect(labels).toEqual(['0 bps', '500 Kbps', '1 Mbps', '1.5 Mbps'])
+  })
 })
 
 describe('the plot grows with its panel', () => {

@@ -65,7 +65,12 @@ def load_config(
             f"{ENV_AGENT_TOKEN} must not contain spaces, line breaks or control characters"
         )
 
-    parsed = urlparse(raw_url)
+    try:
+        parsed = urlparse(raw_url)
+    except ValueError:
+        # urlparse refuses some addresses by itself (an IPv6 address with a bracket missing, say), and
+        # its message can repeat the address: not chained.
+        raise ConfigError(f"{ENV_SENTINEL_URL} must be an absolute http(s) URL") from None
     if parsed.scheme not in {"http", "https"} or not parsed.netloc:
         raise ConfigError(
             f"{ENV_SENTINEL_URL} must be an absolute http(s) URL"

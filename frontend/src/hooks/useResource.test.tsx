@@ -285,6 +285,32 @@ describe('useResource', () => {
       })
       expect(fetcher).toHaveBeenCalledTimes(2)
     })
+
+    it('goes back to the normal interval when the tab comes back before the data is old', async () => {
+      vi.useFakeTimers()
+      setHidden(true)
+      const fetcher = vi.fn(async () => 1)
+      renderHook(() => useResource('k', fetcher, { refreshMs: 1000, hiddenRefreshMs: 60_000 }))
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(500)
+      })
+      expect(fetcher).toHaveBeenCalledTimes(1)
+      // Back in view half an interval after the load: nothing is overdue, so nothing loads at once...
+      await act(async () => {
+        setHidden(false)
+        await vi.advanceTimersByTimeAsync(0)
+      })
+      expect(fetcher).toHaveBeenCalledTimes(1)
+      // ...and the next poll comes a normal interval after the last, not after the minute a hidden tab waits.
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(600)
+      })
+      expect(fetcher).toHaveBeenCalledTimes(2)
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(1000)
+      })
+      expect(fetcher).toHaveBeenCalledTimes(3)
+    })
   })
 
   describe('overlapping requests', () => {

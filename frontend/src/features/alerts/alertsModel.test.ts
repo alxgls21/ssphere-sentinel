@@ -77,8 +77,10 @@ describe('the query in the URL', () => {
     }
     const written = writeQuery(new URLSearchParams('site=s1'), query)
     expect(written.get('site')).toBe('s1')
-    expect(written.get('q')).toBe('core')
-    expect(parseQuery(written)).toEqual({ ...query, q: 'core' })
+    // As typed: the search box shows the parameter back, so its spaces are not trimmed away.
+    expect(written.get('q')).toBe(' core ')
+    expect(parseQuery(written)).toEqual(query)
+    expect(writeQuery(written, { ...query, q: '  ' }).has('q')).toBe(false)
   })
 
   it('does not write the default direction of a sort', () => {
@@ -169,5 +171,13 @@ describe('the latest change of an incident', () => {
       'utc',
     )
     expect(change.title).toBe('Acknowledged by maria at Sep 27 10:01:00Z. Still open.')
+  })
+
+  it('says a change of this moment as just now, never "now ago"', () => {
+    const acknowledged = {
+      ...incident({ status: 'acknowledged' }),
+      acknowledgedAt: new Date(NOW - 2000).toISOString(),
+    }
+    expect(lastChange(acknowledged, NOW, 'utc').text).toBe('maria · just now')
   })
 })

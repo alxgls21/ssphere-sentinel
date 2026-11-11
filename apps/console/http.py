@@ -192,7 +192,7 @@ def json_object(request: HttpRequest, *, max_bytes: int = 8192, empty: bool = Fa
         raise ApiError(413, "payload_too_large", "The request is too large.")
     try:
         data = json.loads(request.body)
-    except ValueError:
+    except (ValueError, RecursionError):  # RecursionError: nested deeper than the parser can follow
         data = None
     if not isinstance(data, dict):
         raise ApiError(400, "invalid_request", "The body must be a JSON object.")

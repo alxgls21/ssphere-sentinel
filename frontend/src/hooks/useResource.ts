@@ -138,16 +138,23 @@ export function useResource<T>(
   useEffect(() => {
     let cancelled = false
     let waiting = false
+    // The timer that is set waits the slow interval of a hidden tab.
+    let slow = false
     let lastLoadAt = 0
     let timer: ReturnType<typeof setTimeout> | undefined
     let controller = new AbortController()
     const keepsPollingHidden = hiddenRefreshMs !== undefined
 
-    const schedule = () => {
+    // `inView`: what a visible tab waits, when that is not the whole interval.
+    const schedule = (inView?: number) => {
       if (refreshMs == null || cancelled) return
+      slow = document.hidden && keepsPollingHidden && hiddenRefreshMs > refreshMs
       const delay =
-        document.hidden && keepsPollingHidden ? Math.max(refreshMs, hiddenRefreshMs) : refreshMs
+        document.hidden && keepsPollingHidden
+          ? Math.max(refreshMs, hiddenRefreshMs)
+          : (inView ?? refreshMs)
       timer = setTimeout(() => {
+        slow = false
         if (pausedRef.current || (document.hidden && !keepsPollingHidden)) waiting = true
         else void load()
       }, delay)
@@ -161,6 +168,7 @@ export function useResource<T>(
       const mine = ++latest
       controller.abort()
       clearTimeout(timer)
+      slow = false
       lastLoadAt = Date.now()
       controller = new AbortController()
       const { signal } = controller
@@ -186,6 +194,11 @@ export function useResource<T>(
         waiting = false
         clearTimeout(timer)
         void load()
+      } else if (slow && refreshMs != null) {
+        // Back in view before the data is old, with the timer still set for the hidden cadence: the next
+        // poll is due a normal interval after the last one, not up to `hiddenRefreshMs` later.
+        clearTimeout(timer)
+        schedule(refreshMs - (Date.now() - lastLoadAt))
       }
     }
     resumeRef.current = resume

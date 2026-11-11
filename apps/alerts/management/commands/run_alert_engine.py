@@ -117,7 +117,7 @@ class Command(BaseCommand):
         parser.add_argument(
             "--once",
             action="store_true",
-            help="Evaluate once and exit. Scheduled this way, run it at least as often as the offline threshold.",
+            help="Evaluate once and exit. Scheduled this way, run it more often than the offline threshold.",
         )
         parser.add_argument(
             "--interval",

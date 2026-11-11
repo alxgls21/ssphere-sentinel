@@ -12,8 +12,8 @@
 #                     after the migrations; the web container waits for the
 #                     database and verifies the same.
 #
-# SENTINEL_PROCESS=worker (the alert engine, the notifier, the domain verifier): the
-# runtime login, like web, but never the migrations, in either arrangement: in the
+# SENTINEL_PROCESS=worker (the alert engine, the notifier, the domain verifier, the
+# maintenance service): the runtime login, like web, but never the migrations, in either arrangement: in the
 # legacy one the web service applies them, and the worker waits until it has.
 set -eu
 

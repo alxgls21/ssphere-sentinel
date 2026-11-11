@@ -342,7 +342,20 @@ def _require_string(raw: dict[str, Any], field: str, *, max_length: int) -> str:
     value = value.strip()
     if len(value) > max_length:
         raise DockerValidationError(f"{field} is too long")
+    if not _storable(value):
+        raise DockerValidationError(f"{field} is not valid text")
     return value
+
+
+def _storable(value: str) -> bool:
+    """Text PostgreSQL can hold: no NUL and no lone surrogate (JSON carries both as escapes)."""
+    if "\x00" in value:
+        return False
+    try:
+        value.encode("utf-8")
+    except UnicodeEncodeError:
+        return False
+    return True
 
 
 def _parse_timestamp(value: Any, *, field: str) -> datetime:

@@ -114,6 +114,25 @@ class PayloadHardeningTests(TestCase):
         self.assertEqual(response.json()["detail"], "invalid JSON body")
         self._assert_liveness_recorded()
 
+    def test_docker_text_the_database_cannot_store_is_rejected(self):
+        # PostgreSQL text holds neither a NUL nor a lone surrogate, and JSON can carry both as escapes.
+        cases = (("name", "web\x00"), ("image", "nginx\x00:latest"), ("name", "web\udcff"))
+        for field, value in cases:
+            with self.subTest(field=field, value=ascii(value)):
+                containers = [valid_container(**{field: value})]
+                response = self._post({"docker": valid_docker(containers=containers)})
+                self.assertEqual(response.status_code, 200)
+                self.assertEqual(response.json()["docker"], "rejected")
+        self.assertFalse(DockerContainer.objects.exists())
+        self._assert_liveness_recorded()
+
+    def test_a_body_nested_too_deep_to_parse_is_treated_as_invalid_json(self):
+        # json.loads raises RecursionError (not ValueError) for nesting deeper than the interpreter allows.
+        response = self._post_raw(b"[" * 200_000)
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["detail"], "invalid JSON body")
+        self._assert_liveness_recorded()
+
     def test_invalid_utf8_body_is_treated_as_invalid_json(self):
         response = self._post_raw(b'{"telemetry": "\xff\xfe"}')
         self.assertEqual(response.status_code, 200)

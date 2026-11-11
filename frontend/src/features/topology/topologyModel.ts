@@ -188,8 +188,10 @@ export const entityCount = (topology: Topology): number =>
   topology.nodes.filter((node) => node.health !== null).length
 
 /**
- * Same nodes and edges (by id and parent), in any order: the graph can be updated in place, not
- * laid out again. The console API orders nodes worst first, so a status change reorders them.
+ * Same nodes (by id and parent) and edges (by id and both ends), in any order: the graph can be
+ * updated in place, not laid out again. The console API orders nodes worst first, so a status
+ * change reorders them. An edge id names only what is measured, so a target or device given to
+ * the agent of another server keeps its id and changes its source: that is another shape.
  */
 export function sameShape(a: Topology | undefined, b: Topology): boolean {
   if (!a || a.nodes.length !== b.nodes.length || a.edges.length !== b.edges.length) return false
@@ -197,8 +199,11 @@ export function sameShape(a: Topology | undefined, b: Topology): boolean {
   for (const node of b.nodes) {
     if (!parents.has(node.id) || parents.get(node.id) !== node.parent) return false
   }
-  const edges = new Set(a.edges.map((edge) => edge.id))
-  return b.edges.every((edge) => edges.has(edge.id))
+  const edges = new Map(a.edges.map((edge) => [edge.id, edge]))
+  return b.edges.every((edge) => {
+    const shown = edges.get(edge.id)
+    return shown !== undefined && shown.source === edge.source && shown.target === edge.target
+  })
 }
 
 /**

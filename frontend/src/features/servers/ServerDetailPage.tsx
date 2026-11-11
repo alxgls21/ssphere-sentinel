@@ -10,7 +10,7 @@ import { useLiveResource } from '@/hooks/useLiveResource'
 import type { Resource } from '@/hooks/useResource'
 import { useStale } from '@/hooks/useStale'
 import { cn } from '@/lib/cn'
-import { formatAge, formatClock } from '@/lib/format'
+import { formatAge, formatClock, withAgo } from '@/lib/format'
 import { PlaceName } from '@/ui/PlaceName'
 import { PanelBoundary } from '@/ui/PanelBoundary'
 import { EmptyState, Skeleton } from '@/ui/states'
@@ -80,9 +80,9 @@ function ReportingNotice({ item, nowMs }: { item: ServerListItem; nowMs: number 
         <StatusTag status="unknown" word="STALE" />
         <span>
           The agent still sends heartbeats, but its newest resource reading arrived at{' '}
-          {formatClock(Date.parse(received), tz)} ({formatAge(received, nowMs)} ago), older than the
-          offline window. Readings below are the last received, not the present values, and they
-          take no part in this server's health.
+          {formatClock(Date.parse(received), tz)} ({withAgo(formatAge(received, nowMs))}), older
+          than the offline window. Readings below are the last received, not the present values, and
+          they take no part in this server's health.
         </span>
       </output>
     )

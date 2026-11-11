@@ -70,14 +70,26 @@ const timedOut = () => new ApiError('The server took too long to answer.', null,
 
 function withTimeout(signal: AbortSignal | undefined, ms: number): AbortSignal {
   const timeout = AbortSignal.timeout(ms)
-  return signal ? AbortSignal.any([signal, timeout]) : timeout
+  if (!signal) return timeout
+  // AbortSignal.any is newer (Chrome 116, Firefox 124, Safari 17.4) than the oldest browsers the build
+  // targets: without it the two signals are joined by hand, or every request with a signal would fail.
+  if (typeof AbortSignal.any === 'function') return AbortSignal.any([signal, timeout])
+  const joined = new AbortController()
+  for (const source of [signal, timeout]) {
+    if (source.aborted) joined.abort(source.reason)
+    else source.addEventListener('abort', () => joined.abort(source.reason), { once: true })
+  }
+  return joined.signal
 }
 
-async function readError(response: Response): Promise<ApiError> {
+async function readError(response: Response, signal: AbortSignal | undefined): Promise<ApiError> {
   let body: ErrorBody | null = null
   try {
     body = (await response.json()) as ErrorBody
-  } catch {
+  } catch (error) {
+    // Cut while the refusal was still arriving: a caller's own cancel stays one, and the timeout is a timeout.
+    if (signal?.aborted) throw error
+    if (isAbort(error)) throw timedOut()
     // A proxy's HTML page, a gateway timeout, an empty body: not an API answer.
   }
   const code = typeof body?.error?.code === 'string' ? body.error.code : null
@@ -141,7 +153,7 @@ export function createTransport({
     }
 
     if (!response.ok) {
-      const error = await readError(response)
+      const error = await readError(response, init?.signal)
       if (error.code === 'csrf_failed' && method !== 'GET' && !retriedCsrf) {
         // The token went stale (the cookie was rotated or cleared): fetch a fresh one and send once more.
         csrfToken = null

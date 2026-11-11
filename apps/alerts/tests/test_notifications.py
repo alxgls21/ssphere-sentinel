@@ -930,6 +930,26 @@ class NotifierServingTests(TransactionTestCase):
         self.assertEqual(waits, [])  # no wait after a full run; after the last, the stop came first
         self.assertEqual(Notification.objects.filter(status="sent").count(), 6)
 
+    def test_after_a_failed_run_the_next_starts_on_a_new_connection(self):
+        notifier = Notifier(interval=0)
+        outcomes = iter(["failed", "done"])
+        closed = []
+
+        def cycle():
+            closed.append(connection.connection is None)
+            connection.ensure_connection()  # a run works on the database: it leaves the connection open
+            outcome = next(outcomes)
+            if outcome == "done":
+                notifier.stop.set()
+            return outcome
+
+        notifier.cycle = cycle
+        # Without the loop's housekeeping: with CONN_MAX_AGE unset it closes the connection before every
+        # run, whatever the last one said, and would hide what the loop does after a failure.
+        with patch(f"{NOTIFIER}.close_old_connections"), self.assertLogs("apps.alerts.notifier", "INFO"):
+            notifier.serve()
+        self.assertEqual(closed[1:], [True])
+
     def test_sigterm_stops_it_after_the_email_in_progress(self):
         enqueue(self.estate.incident(self.estate.hq), OPENED, at=timezone.now())
         notifier = Notifier(interval=5)

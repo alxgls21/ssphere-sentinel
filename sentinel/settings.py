@@ -6,6 +6,7 @@ session and CSRF cookies are Secure, and proxy headers are never trusted by
 Django itself (see "HTTPS and reverse proxies" below).
 """
 
+import ipaddress
 import os
 import re
 from pathlib import Path
@@ -101,14 +102,29 @@ def site_address(value: str) -> tuple[str, str]:
     )
     try:
         parts = urlsplit(value)
-        host = parts.hostname or ""
+        host = (parts.hostname or "").rstrip(".")
         parts.port  # noqa: B018 - a port that is not a number raises ValueError here
     except ValueError:
         raise problem from None
     if parts.scheme not in ("https", "http") or not host or "*" in host or parts.username is not None \
             or parts.path or parts.query or parts.fragment:
         raise problem
-    return f"{parts.scheme}://{parts.netloc.lower()}", host
+    # The host in the one form a browser sends in the Host and Origin headers, whatever the spelling typed:
+    # an IP address canonical (an IPv6 address compressed and in lower case, RFC 5952), a name in its IDNA
+    # (ASCII) form. Django compares the headers with ALLOWED_HOSTS and CSRF_TRUSTED_ORIGINS as text.
+    try:
+        host = ipaddress.ip_address(host).compressed
+    except ValueError:
+        try:
+            host = host.encode("idna").decode()
+        except UnicodeError:  # a label empty or too long, or a character IDNA cannot encode
+            raise problem from None
+    # As a browser names the site. An IPv6 address keeps its brackets: that is how Django compares a Host header
+    # with ALLOWED_HOSTS. A dot after the name is dropped, as Django drops it from a Host header. The default
+    # port of the scheme is left out, as it is from the Origin header that CSRF_TRUSTED_ORIGINS must match.
+    name = f"[{host}]" if ":" in host else host
+    port = "" if parts.port in (None, {"https": 443, "http": 80}[parts.scheme]) else f":{parts.port}"
+    return f"{parts.scheme}://{name}{port}", name
 
 
 # The installation's address (https://sentinel.example.com): the one setting a new installation needs. It adds
@@ -223,7 +239,8 @@ SENTINEL_CONSOLE_LOGIN_LOCKOUT_SECONDS = env_int("SENTINEL_CONSOLE_LOGIN_LOCKOUT
 if not 60 <= SENTINEL_CONSOLE_LOGIN_LOCKOUT_SECONDS <= 86400:
     raise RuntimeError("SENTINEL_CONSOLE_LOGIN_LOCKOUT_SECONDS must be between 60 and 86400")
 
-# Health thresholds the console reports (display defaults, not alert rules).
+# Health thresholds the console reports. Not alert rules, but a rule fires on the health they decide
+# (apps.alerts.observations): a changed limit also changes which incidents open.
 SENTINEL_THRESHOLD_RESOURCE_WARN_PERCENT = env_int("SENTINEL_THRESHOLD_RESOURCE_WARN_PERCENT", default=80)
 SENTINEL_THRESHOLD_RESOURCE_CRIT_PERCENT = env_int("SENTINEL_THRESHOLD_RESOURCE_CRIT_PERCENT", default=95)
 if not (

@@ -6,8 +6,6 @@ exercised through the snmpsim integration tests, which are skipped when snmpsim
 is not installed. These tests use small fakes that mimic the pysnmp objects by
 class name (the fetcher dispatches on ``type(value).__name__``), so they need no
 SNMP library.
-
-NOT EXECUTED when written: expect to fix small details (names, imports).
 """
 
 import asyncio

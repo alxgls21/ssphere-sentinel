@@ -11,15 +11,13 @@ handling, the C locale and a partial packet loss. Not covered:
 * aggregation in ``probe_target`` (rounding of the loss, the priority of failure
   reasons, cancellation).
 
-``test_RAW_*`` tests assert what the agent should report and EXPECT TO FAIL
-against the current code:
+``test_RAW_*`` tests assert what the agent should report. They were written against
+two defects, before the fixes; they pass against the current code and guard it:
   - Linux prints "100% packet loss" in the summary of an unreachable host as well,
-    and the branch for "100% packet loss" comes before "unreachable", so
-    "Destination Host Unreachable" is reported as a timeout;
+    and the branch for "100% packet loss" came before "unreachable", so
+    "Destination Host Unreachable" was reported as a timeout;
   - macOS prints "100.0% packet loss" and "Request timeout for icmp_seq 0", which
-    match none of the patterns, so a timed out probe is reported as "unknown".
-
-NOT EXECUTED when written: expect to fix small details.
+    matched none of the patterns, so a timed out probe was reported as "unknown".
 """
 
 import threading
@@ -128,6 +126,9 @@ class FailureMappingTests(IcmpTestCase):
         cases = (
             ("ping: unknown host nosuch.example", FAILURE_DNS_FAILURE),
             ("ping: nosuch.example: Name or service not known", FAILURE_DNS_FAILURE),
+            # The resolver did not answer (iputils), and what busybox says for a name it cannot resolve.
+            ("ping: nosuch.example: Temporary failure in name resolution", FAILURE_DNS_FAILURE),
+            ("ping: bad address 'nosuch.example'", FAILURE_DNS_FAILURE),
             ("ping: connect: Network is unreachable", FAILURE_HOST_UNREACHABLE),
             ("Request timed out.", FAILURE_TIMEOUT),
             ("1 packets transmitted, 0 received, 100% packet loss, time 0ms", FAILURE_TIMEOUT),

@@ -6,7 +6,7 @@ import type {
   HealthStatus,
   Server,
 } from '@/api/types'
-import { formatAge, formatPercent } from '@/lib/format'
+import { formatAge, formatPercent, withAgo } from '@/lib/format'
 import { compareSeverity } from '@/lib/status'
 import { RESOURCE_CRIT_PERCENT, RESOURCE_WARN_PERCENT, resourceLevel } from '@/lib/thresholds'
 import type { Fleet } from './fixtures'
@@ -52,7 +52,7 @@ const limitLabel = (percent: number): string =>
     : `warn at ${RESOURCE_WARN_PERCENT}`
 
 const lastHeartbeat = (server: Server, now: number) =>
-  `last heartbeat ${formatAge(server.lastSeenAt, now)} ago`
+  `last heartbeat ${withAgo(formatAge(server.lastSeenAt, now))}`
 
 function describeServer(server: Server, now: number): Described {
   if (server.status === 'unknown' || server.lastSeenAt === null) {

@@ -54,11 +54,25 @@ class UnlockLoginTests(TestCase):
         run("ａｄｍｉｎ")  # the same name in full-width letters (Unicode NFKC)
         self.assertFalse(LoginThrottle.objects.filter(key=f"u:{user.pk}").exists())
 
+    def test_spaces_around_the_name_are_ignored_as_the_sign_in_forms_ignore_them(self):
+        user = make_user("heidi")
+        self.lock(f"u:{user.pk}", user.pk)
+        run(" heidi ")
+        self.assertFalse(LoginThrottle.objects.filter(key=f"u:{user.pk}").exists())
+
     def test_an_unknown_name_is_an_error_and_changes_nothing(self):
         other = make_user("dave")
         self.lock(f"u:{other.pk}", other.pk)
         with self.assertRaisesMessage(CommandError, "There is no account"):
             run("nobody")
+        self.assertTrue(LoginThrottle.objects.filter(key=f"u:{other.pk}").exists())
+
+    def test_a_name_the_database_cannot_hold_is_an_unknown_name_not_a_traceback(self):
+        # Bytes on the command line that are not UTF-8 reach the command as lone surrogates.
+        other = make_user("grace")
+        self.lock(f"u:{other.pk}", other.pk)
+        with self.assertRaisesMessage(CommandError, "There is no account"):
+            run("gr\udcffce")
         self.assertTrue(LoginThrottle.objects.filter(key=f"u:{other.pk}").exists())
 
     def test_all_clears_every_row_including_the_shared_buckets(self):

@@ -251,6 +251,8 @@ class MeasurementQueue:
         self._wall_fn = wall_fn
         self._snmp_drop_logged_at = float("-inf")
         self._snmp_dropped_unreported = 0
+        self._network_drop_logged_at = float("-inf")
+        self._network_dropped_unreported = 0
         self._lock = threading.Lock()
         self._conn = self._connect()
 
@@ -412,12 +414,28 @@ class MeasurementQueue:
                     (overflow,),
                 ).rowcount
         if dropped:
-            logger.warning(
-                "Network queue full (limit %d); dropped %d oldest measurement(s)",
-                self.max_measurements,
-                dropped,
-            )
+            self._report_network_drops(dropped, now)
         return inserted
+
+    def _report_network_drops(self, dropped: int, now: float) -> None:
+        """Log dropped measurements, but at most once a minute, as for SNMP polls: a full queue
+        drops on every enqueue, for as long as the server cannot be reached.
+
+        The probe threads (one per target) enqueue concurrently, so the counters are read and
+        written under the queue lock: no drop is lost between two threads, and the minute is
+        judged once. The line itself is logged outside the lock, where nothing waits on it.
+        """
+        with self._lock:
+            self._network_dropped_unreported += dropped
+            if now - self._network_drop_logged_at < SNMP_DROP_LOG_INTERVAL_SECONDS:
+                return
+            unreported, self._network_dropped_unreported = self._network_dropped_unreported, 0
+            self._network_drop_logged_at = now
+        logger.warning(
+            "Network queue full (limit %d); dropped %d oldest measurement(s)",
+            self.max_measurements,
+            unreported,
+        )
 
     def pending_batch(self, limit: int) -> list[dict[str, Any]]:
         """Due measurements in insertion order (``next_attempt_at`` <= now).

@@ -197,8 +197,9 @@ class PollRejection(Rejection):
 
     poll_id: str | None
     reason: str
-    # True only for server-side storage failures that may succeed on resend.
-    # Validation failures are permanent: resending the same data cannot pass.
+    # True when resending the same poll later can succeed: a server-side storage
+    # failure, or a rejection that depends on server state or on the clock
+    # (SnmpValidationError.retryable). Other validation failures are permanent.
     retryable: bool = False
 
 

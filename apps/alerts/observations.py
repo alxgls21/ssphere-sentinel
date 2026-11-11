@@ -267,7 +267,9 @@ def observe_interfaces(
     polled = {row["id"]: row for row in device_rows}
     observed = {}
     for row in rows:
-        device = polled[row["device_id"]]
+        device = polled.get(row["device_id"])
+        if device is None:  # deleted since its interfaces were read, and they with it
+            continue
         health, reason = interface_health(
             device_healthy=device["severity"] == HEALTHY,
             present=True,

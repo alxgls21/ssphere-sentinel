@@ -124,7 +124,8 @@ export function writeQuery(params: URLSearchParams, query: RulesQuery): URLSearc
   const next = new URLSearchParams(params)
   const set = (name: string, value: string, isDefault: boolean) =>
     setQueryParam(next, name, value, isDefault)
-  set('q', query.q.trim(), query.q.trim() === '')
+  // As typed (the search box shows it back; see writeBasicListQuery). A blank search is no search.
+  set('q', query.q, query.q.trim() === '')
   set('enabled', query.enabled, query.enabled === DEFAULT_QUERY.enabled)
   set('kind', query.kind, query.kind === DEFAULT_QUERY.kind)
   set('severity', query.severity, query.severity === DEFAULT_QUERY.severity)

@@ -9,7 +9,7 @@ import type {
 import { usePrefs } from '@/app/prefs'
 import { useViewTo } from '@/app/viewSearch'
 import { cn } from '@/lib/cn'
-import { EMPTY, formatAge, formatClock, formatLatency } from '@/lib/format'
+import { EMPTY, formatAge, formatClock, formatLatency, withAgo } from '@/lib/format'
 import {
   LOSS_LABEL,
   coverageText,
@@ -23,6 +23,7 @@ import {
   reasonSentence,
   reasonWord,
   scheduleText,
+  successRateText,
   type TargetLimits,
 } from '@/lib/targets'
 import { PlaceName } from '@/ui/PlaceName'
@@ -146,7 +147,7 @@ export function TargetSummaryPanel({ item, nowMs, limits, className, ...data }: 
             <Fact label="Agent last seen">
               {agent?.lastSeenAt ? (
                 <span title={formatClock(Date.parse(agent.lastSeenAt), tz)}>
-                  {formatAge(agent.lastSeenAt, nowMs)} ago
+                  {withAgo(formatAge(agent.lastSeenAt, nowMs))}
                 </span>
               ) : (
                 EMPTY
@@ -188,11 +189,7 @@ export function AvailabilityPanel({ availability, className, ...data }: Availabi
       {availability ? (
         <div className="flex flex-col gap-2">
           <p className="flex items-baseline gap-2">
-            <span className="type-kpi tnum">
-              {availability.percent === null
-                ? EMPTY
-                : `${availability.percent.toFixed(availability.percent === 100 ? 0 : 1)}%`}
-            </span>
+            <span className="type-kpi tnum">{successRateText(availability)}</span>
             <span className="type-data text-fg-muted">observed success rate</span>
           </p>
           <dl className="grid grid-cols-1 gap-y-2 @lg:grid-cols-2 @lg:gap-x-6">

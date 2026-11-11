@@ -3,19 +3,18 @@
 ``ConfigTests`` in test_config.py cover the happy path, credentials in the URL,
 and a few bad intervals. Not covered:
 
-* ``UrlTests`` / ``NetworkTargetsFileTests`` pin behaviour that already holds.
-* ``SuspectedBugTests`` assert what the configuration should do and EXPECT TO FAIL
-  against the current code:
-    - a URL with a query string or fragment builds a broken ``heartbeat_url``;
-    - a URL with a non-numeric or out-of-range port is accepted, and fails later
+* ``UrlTests`` / ``NetworkTargetsFileTests`` pin behaviour that already held.
+* ``SuspectedBugTests`` assert what the configuration should do. They were written
+  against these defects, before the fixes; they pass against the current code and
+  guard it:
+    - a URL with a query string or fragment built a broken ``heartbeat_url``;
+    - a URL with a non-numeric or out-of-range port was accepted, and failed later
       inside ``urllib`` with ``http.client.InvalidURL`` (not an ``OSError``);
-    - a heartbeat interval above ``threading.TIMEOUT_MAX`` is accepted, and then
-      ``Event.wait`` raises ``OverflowError`` in ``run_continuous`` after the first
-      heartbeat, which stops the agent;
-    - a targets file that is not UTF-8 or cannot be read raises
+    - a heartbeat interval above ``threading.TIMEOUT_MAX`` was accepted, and then
+      ``Event.wait`` raised ``OverflowError`` in ``run_continuous`` after the first
+      heartbeat, which stopped the agent;
+    - a targets file that is not UTF-8 or cannot be read raised
       ``UnicodeDecodeError`` / ``OSError`` instead of ``ConfigError``.
-
-NOT EXECUTED when written: expect to fix small details.
 """
 
 import json

@@ -7,7 +7,8 @@ Limits are per account, not per client address: Django never trusts
 ``X-Forwarded-For`` here (see docs/security.md), so behind a proxy every
 client has the same address. The price is that someone who knows a user name
 can lock that account for ``SENTINEL_CONSOLE_LOGIN_LOCKOUT_SECONDS``; an
-administrator can unlock it (Login throttles, in the admin).
+administrator can unlock it (Login throttles, in the admin, or
+``manage.py unlock_login`` on the server when no administrator can sign in).
 
 An attempt is counted *before* the password is checked and the counter is
 cleared by a successful login. That makes the limit exact under concurrency:

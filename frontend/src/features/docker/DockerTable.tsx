@@ -4,7 +4,7 @@ import type { ContainerListItem } from '@/api/types'
 import { useViewTo } from '@/app/viewSearch'
 import { cn } from '@/lib/cn'
 import { containerWord, startedText } from '@/lib/containers'
-import { EMPTY, formatStamp, type Timezone } from '@/lib/format'
+import { EMPTY, formatStamp, withAgo, type Timezone } from '@/lib/format'
 import { PlaceName } from '@/ui/PlaceName'
 import { Tooltip } from '@/ui/controls'
 import { STATUS_EDGE, StatusTag } from '@/ui/status'
@@ -146,7 +146,7 @@ export function DockerTable({ rows, query, onSort, nowMs, tz }: DockerTableProps
                     <span aria-label="not known">{EMPTY}</span>
                   ) : (
                     <Tooltip content={formatStamp(started, tz, nowMs)}>
-                      <span>{age} ago</span>
+                      <span>{withAgo(age)}</span>
                     </Tooltip>
                   )}
                 </td>

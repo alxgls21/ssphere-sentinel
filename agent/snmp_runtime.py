@@ -21,7 +21,7 @@ from typing import Any
 
 from agent.errors import ConfigError
 from agent.measurement_queue import MeasurementQueue, QueueError
-from agent.network_runtime import bounded_int, load_runtime_config
+from agent.network_runtime import bounded_int, load_runtime_config, queue_file_exists
 from agent.snmp_collector import DevicePoller
 from agent.snmp_config import (
     VERSION_2C,
@@ -91,7 +91,7 @@ class SnmpRuntime:
         owns_queue = False
         if queue is None:
             runtime_config = load_runtime_config(env)
-            has_backlog = runtime_config.queue_path is not None and runtime_config.queue_path.exists()
+            has_backlog = queue_file_exists(runtime_config.queue_path)
             if not pollers and not has_backlog:
                 return None
             queue = MeasurementQueue.open(

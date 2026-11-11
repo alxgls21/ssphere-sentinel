@@ -13,7 +13,7 @@ import {
   RefreshCw,
 } from 'lucide-react'
 import { useMemo } from 'react'
-import { useLocation, useNavigate } from 'react-router'
+import { useNavigate } from 'react-router'
 import { useApi } from '@/api/context'
 import { useAuth } from '@/app/auth/auth'
 import { useApiMode } from '@/app/mode'
@@ -27,6 +27,7 @@ import {
   useSetMockScenario,
 } from '@/app/scenario'
 import { useShell } from '@/app/shell'
+import { useViewSearch } from '@/app/viewSearch'
 import { useRange } from '@/app/viewState'
 import { stepRange } from '@/lib/range'
 import { copyText } from './clipboard'
@@ -54,7 +55,8 @@ export function usePaletteSource({
   retry: (() => void) | null
 }): PaletteSource {
   const navigate = useNavigate()
-  const { search } = useLocation()
+  // Only the view (scope, range, mock scenario): a list's search, filter, page or focused row stays behind.
+  const search = useViewSearch()
   const { source: dataSource } = useApi()
   const apiMode = useApiMode()
   const { capabilities } = useAuth()

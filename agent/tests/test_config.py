@@ -1,5 +1,10 @@
+import contextlib
+import io
+import os
 import unittest
+from unittest import mock
 
+from agent.cli import run_agent
 from agent.config import Config, load_config
 from agent.errors import ConfigError
 
@@ -28,6 +33,21 @@ class ConfigTests(unittest.TestCase):
                     load_config({"SENTINEL_URL": url, "SENTINEL_AGENT_TOKEN": "secret-token"})
                 self.assertIn("must not contain credentials", str(ctx.exception))
                 self.assertNotIn("pass", str(ctx.exception))
+
+    def test_an_address_that_urlparse_refuses_is_a_config_error(self):
+        # urlparse raises ValueError by itself for a bracket without its pair. `sentinel-agent run` catches
+        # only ConfigError, so the agent ended in a traceback, not in one line that names the setting.
+        for url in ("https://[2001:db8::1", "https://2001:db8::1]:8443"):
+            with self.subTest(url=url):
+                env = {"SENTINEL_URL": url, "SENTINEL_AGENT_TOKEN": "secret-token"}
+                with self.assertRaises(ConfigError) as ctx:
+                    load_config(env)
+                self.assertIn("SENTINEL_URL must be an absolute http(s) URL", str(ctx.exception))
+                stderr = io.StringIO()
+                with mock.patch.dict(os.environ, env), contextlib.redirect_stderr(stderr):
+                    self.assertEqual(run_agent(), 1)
+                self.assertIn("Agent failed: SENTINEL_URL", stderr.getvalue())
+                self.assertNotIn("secret-token", stderr.getvalue())
 
     def test_configurable_heartbeat_interval(self):
         config = load_config(

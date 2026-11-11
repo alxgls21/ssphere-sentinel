@@ -406,6 +406,20 @@ class NetworkBatchValidationTests(TestCase):
         self.assertEqual(entry["reason"], "measurement could not be stored")
         self.assertTrue(entry["retryable"])
 
+    def test_a_measurement_ahead_of_the_server_clock_is_marked_retryable(self):
+        ahead = self._valid(measured_at=(timezone.now() + timedelta(minutes=6)).isoformat())
+        too_old = self._valid(measured_at=(timezone.now() - timedelta(days=400)).isoformat())
+        response = self._post_measurements([ahead, too_old])
+        results = {entry["measurement_id"]: entry for entry in response.json()["network_results"]}
+        self.assertEqual(results[ahead["measurement_id"]], {
+            "measurement_id": ahead["measurement_id"],
+            "result": "rejected",
+            "reason": "measured_at is too far in the future",
+            "retryable": True,
+        })
+        self.assertFalse(results[too_old["measurement_id"]]["retryable"])  # this one can never pass
+        self.assertFalse(NetworkMeasurement.objects.exists())
+
     def test_results_empty_list_for_empty_report(self):
         response = self._post_measurements([])
         body = response.json()

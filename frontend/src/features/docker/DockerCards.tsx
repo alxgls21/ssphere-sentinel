@@ -3,7 +3,7 @@ import type { ContainerListItem } from '@/api/types'
 import { useViewTo } from '@/app/viewSearch'
 import { cn } from '@/lib/cn'
 import { containerWord, startedText } from '@/lib/containers'
-import { EMPTY } from '@/lib/format'
+import { EMPTY, withAgo } from '@/lib/format'
 import { PlaceName } from '@/ui/PlaceName'
 import { STATUS_EDGE, StatusTag } from '@/ui/status'
 import { NO_CURRENT_STATE, hasNoState, healthText, hostPath } from './dockerModel'
@@ -44,7 +44,7 @@ export function DockerCards({
               <StatusTag status={item.status} word={containerWord(item)} variant="tag" />
               <span className="type-data-strong min-w-0 flex-1 truncate">{container.name}</span>
               <span className="type-data tnum shrink-0 text-fg-faint">
-                {age === EMPTY ? EMPTY : `${age} ago`}
+                {age === EMPTY ? EMPTY : withAgo(age)}
               </span>
             </span>
             <span className="type-data truncate text-fg-muted" title={container.image}>

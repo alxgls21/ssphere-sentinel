@@ -3,7 +3,7 @@ import { Link } from 'react-router'
 import type { IncidentDetail } from '@/api/types'
 import { usePrefs } from '@/app/prefs'
 import { useViewTo } from '@/app/viewSearch'
-import { EMPTY, formatAge, formatClock, formatDuration } from '@/lib/format'
+import { EMPTY, formatAge, formatClock, formatDuration, withAgo } from '@/lib/format'
 import {
   CLOSE_REASON_TEXT,
   KIND_LABEL,
@@ -43,7 +43,7 @@ function Moment({ iso, nowMs }: { iso: string | null; nowMs: number }) {
   return (
     <span>
       <time dateTime={iso}>{formatClock(Date.parse(iso), tz)}</time>
-      <span className="text-fg-muted"> · {formatAge(iso, nowMs)} ago</span>
+      <span className="text-fg-muted"> · {withAgo(formatAge(iso, nowMs))}</span>
     </span>
   )
 }

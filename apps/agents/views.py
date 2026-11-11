@@ -116,9 +116,10 @@ def _parse_body(request) -> tuple[dict, str | None]:
         return {}, None
     try:
         loaded = json.loads(raw_body)
-    except ValueError:
-        # JSONDecodeError, invalid UTF-8, or an integer literal over Python's
-        # digit limit: all are malformed bodies, never a server error.
+    except (ValueError, RecursionError):
+        # JSONDecodeError, invalid UTF-8, an integer literal over Python's digit
+        # limit, or nesting deeper than the parser can follow (RecursionError, which
+        # is not a ValueError): all are malformed bodies, never a server error.
         return {}, INVALID_JSON
     if loaded is None:
         return {}, None

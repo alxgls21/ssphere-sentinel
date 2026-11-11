@@ -73,7 +73,9 @@ export function writeBasicListQuery<Status extends string, Key extends string>(
   const next = new URLSearchParams(params)
   const set = (name: string, value: string, isDefault: boolean) =>
     setQueryParam(next, name, value, isDefault)
-  set('q', query.q.trim(), query.q.trim() === '')
+  // As typed: the search box shows this parameter back, so trimming it here would swallow the
+  // space typed between two words. A blank search is no search.
+  set('q', query.q, query.q.trim() === '')
   set('status', query.status, query.status === defaults.status)
   set('sort', query.sort, query.sort === defaults.sort)
   set('dir', query.dir, query.dir === firstDir[query.sort])
