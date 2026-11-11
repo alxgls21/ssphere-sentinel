@@ -312,4 +312,33 @@ describe('the test email panel in the page', () => {
     expect(document.body.textContent).not.toMatch(/password|smtp user|username/i)
     expect(screen.queryByLabelText(/password|smtp/i)).not.toBeInTheDocument()
   })
+
+  it('keeps what was saved in the form while and after a refused test email reads the settings again', async () => {
+    const user = userEvent.setup()
+    const served = setup()
+    served.requestTestEmail.mockRejectedValueOnce(
+      new ApiError('A test email is already waiting.', 409, 'test_email_pending'),
+    )
+    await loaded()
+    await user.click(enabledBox())
+    await user.click(saveButton())
+    await screen.findByText('Your preferences are saved.')
+    let answer: (settings: NotificationSettings) => void = () => {}
+    served.getNotificationSettings.mockReturnValueOnce(
+      new Promise((resolve) => {
+        answer = resolve
+      }),
+    )
+    await user.click(screen.getByRole('button', { name: 'Send test email' }))
+    await waitFor(() => expect(served.getNotificationSettings).toHaveBeenCalledTimes(2))
+    // Until the new reading arrives the form still shows what the save answered…
+    expect(enabledBox()).toBeChecked()
+    expect(saveButton()).toBeDisabled()
+    answer(notificationSettings({ enabled: true, updatedAt: iso(0), latest: testEmail('sent') }))
+    // …and then it starts again from that reading: the old preferences are not offered as a change.
+    const latest = await screen.findByRole('region', { name: 'Latest test email' })
+    expect(within(latest).getByText('SENT')).toBeInTheDocument()
+    expect(enabledBox()).toBeChecked()
+    expect(saveButton()).toBeDisabled()
+  })
 })

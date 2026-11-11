@@ -53,8 +53,8 @@ import type {
  *
  * Each Overview panel has its own method so each panel loads, refreshes and
  * fails independently. The port holds only what the console API can answer:
- * there is no method for probe latency, alerts or events, so no screen can show
- * them. A new capability adds its method here, with its endpoint, together.
+ * what has no method here, no screen can show. A new capability adds its
+ * method here, with its endpoint, together.
  * The console API is the implementation (src/app/consoleApi.ts); the sample
  * fleet in ./mock exists for tests and for design work, and never ships.
  */

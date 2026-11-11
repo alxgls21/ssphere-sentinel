@@ -6,7 +6,7 @@ import { Link, useLocation, useNavigate } from 'react-router'
 import type { AlertRule, RuleSortKey } from '@/api/types'
 import { useViewTo } from '@/app/viewSearch'
 import { cn } from '@/lib/cn'
-import { EMPTY, formatAge, formatStamp, type Timezone } from '@/lib/format'
+import { EMPTY, formatAge, formatStamp, withAgo, type Timezone } from '@/lib/format'
 import { KIND_SHORT } from '@/lib/incidents'
 import { Button, Tooltip } from '@/ui/controls'
 import { SeverityTag } from '@/ui/incidents'
@@ -183,7 +183,7 @@ export function RulesTable({
                   >
                     <span
                       tabIndex={0}
-                      aria-label={`Updated ${formatAge(rule.updatedAt, nowMs)} ago`}
+                      aria-label={`Updated ${withAgo(formatAge(rule.updatedAt, nowMs))}`}
                     >
                       {formatAge(rule.updatedAt, nowMs)}
                     </span>

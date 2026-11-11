@@ -122,10 +122,16 @@ DEPENDENT = {
     (EntityKind.INTERFACE, "device_unavailable"): EntityKind.DEVICE,
 }
 #   for a rule narrowed to a reason: observations that say nothing about it (an
-#   offline server has no current resource reading, whatever its status says)
+#   offline server has no current resource reading, whatever its status says; a
+#   target has one reason, the worst of failing, failed, latency and loss, so a
+#   worse one hides the others: a target that stopped answering has not stopped
+#   being slow)
 UNINFORMATIVE = {
     (EntityKind.SERVER, "resources"): frozenset({"never_seen", "offline", "no_telemetry"}),
     (EntityKind.SERVER, "status_warning"): frozenset({"never_seen", "offline"}),
+    (EntityKind.TARGET, "failed"): frozenset({"failing"}),
+    (EntityKind.TARGET, "latency"): frozenset({"failing", "failed"}),
+    (EntityKind.TARGET, "loss"): frozenset({"failing", "failed", "latency"}),
 }
 
 

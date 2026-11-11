@@ -25,7 +25,7 @@ import {
   speedText,
   type RateCell,
 } from '@/lib/devices'
-import { EMPTY, formatAge, formatClock, formatDuration, formatLatency } from '@/lib/format'
+import { EMPTY, formatAge, formatClock, formatDuration, formatLatency, withAgo } from '@/lib/format'
 import { Tooltip } from '@/ui/controls'
 import { PlaceName } from '@/ui/PlaceName'
 import { Panel, type PanelProps } from '@/ui/Panel'
@@ -105,7 +105,9 @@ export function DeviceSummaryPanel({ item, nowMs, className, ...data }: SummaryP
             <Fact label="Agent status">{agent ? agent.status : EMPTY}</Fact>
             <Fact label="Agent last seen">
               {agent?.lastSeenAt ? (
-                <span title={at(agent.lastSeenAt)}>{formatAge(agent.lastSeenAt, nowMs)} ago</span>
+                <span title={at(agent.lastSeenAt)}>
+                  {withAgo(formatAge(agent.lastSeenAt, nowMs))}
+                </span>
               ) : (
                 EMPTY
               )}
@@ -135,7 +137,7 @@ export function DeviceSummaryPanel({ item, nowMs, className, ...data }: SummaryP
                 <Fact label="Last successful poll">
                   {state.lastSuccessAt ? (
                     <span title={at(state.lastSuccessAt)}>
-                      {formatAge(state.lastSuccessAt, nowMs)} ago
+                      {withAgo(formatAge(state.lastSuccessAt, nowMs))}
                     </span>
                   ) : (
                     'never'
@@ -158,7 +160,7 @@ export function DeviceSummaryPanel({ item, nowMs, className, ...data }: SummaryP
                 <Fact label="Last discovery">
                   {state.lastDiscoveryAt ? (
                     <span title={at(state.lastDiscoveryAt)}>
-                      {formatAge(state.lastDiscoveryAt, nowMs)} ago
+                      {withAgo(formatAge(state.lastDiscoveryAt, nowMs))}
                     </span>
                   ) : (
                     EMPTY
@@ -460,7 +462,7 @@ export function InterfacesPanel({
                       <span className="text-fg-muted">never</span>
                     ) : (
                       <span title={formatClock(Date.parse(sampled), tz)}>
-                        {formatAge(sampled, nowMs)} ago
+                        {withAgo(formatAge(sampled, nowMs))}
                       </span>
                     )}
                   </td>

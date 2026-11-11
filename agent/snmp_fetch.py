@@ -184,7 +184,7 @@ def check_snmp_available(credentials: list[SnmpCredential]) -> None:
             # pysnmp swallows this import error and then fails obscurely on the
             # first encrypted request, so say it here.
             raise SnmpUnavailableError(
-                "SNMPv3 privacy (AES) needs the 'cryptography' package (version 43 or newer); "
+                "SNMPv3 privacy (AES) needs the 'cryptography' package (version 47 or newer); "
                 "install the agent with the 'snmp' extra"
             ) from exc
 

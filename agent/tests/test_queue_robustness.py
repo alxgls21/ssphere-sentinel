@@ -1,21 +1,18 @@
 """Queue robustness: unreadable rows, a failed COMMIT, and quarantine name collisions.
 
-Three classes of problem the existing queue tests do not reach:
+Three classes of problem the other queue tests do not reach. The tests were written
+against the defects described here, before the fixes; they pass against the current
+code and guard it:
 
-* ``UnreadableRowTests`` - a row whose payload is not JSON is skipped, but it is
-  never removed and it still counts against the batch ``LIMIT``, so enough of
-  them at the head of the queue starve every good row behind them.
-  ``test_unreadable_rows_do_not_starve_good_rows_*`` EXPECT TO FAIL against the
-  current code (``measurement_queue.py`` ``pending_batch`` / ``pending_snmp_batch``).
-* ``FailedCommitTests`` - ``_write`` does not roll back when ``COMMIT`` itself
-  fails. SQLite usually rolls back by itself in that case, so this simulates the
-  worst case (the transaction stays open). It EXPECTS TO FAIL against the current
-  code if that worst case is possible.
-* ``QuarantineTests`` - the quarantine name has one-second resolution, so a
-  second corruption in the same second overwrites the first quarantined file.
-  EXPECTS TO FAIL against the current code.
-
-NOT EXECUTED when written: expect to fix small details.
+* ``UnreadableRowTests`` - a row whose payload is not JSON was skipped, but it was
+  never removed and it still counted against the batch ``LIMIT``, so enough of
+  them at the head of the queue starved every good row behind them
+  (``measurement_queue.py`` ``pending_batch`` / ``pending_snmp_batch``).
+* ``FailedCommitTests`` - ``_write`` did not roll back when ``COMMIT`` itself
+  failed. SQLite usually rolls back by itself in that case, so this simulates the
+  worst case (the transaction stays open).
+* ``QuarantineTests`` - the quarantine name had one-second resolution, so a
+  second corruption in the same second overwrote the first quarantined file.
 """
 
 import sqlite3

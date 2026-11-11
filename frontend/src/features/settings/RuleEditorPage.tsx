@@ -263,8 +263,18 @@ export default function RuleEditorPage() {
     mayOpen && id !== undefined ? api.getAlertRule(id, { signal }) : null,
   )
 
-  // What the server answered to a save replaces what was read, until the rule is read again.
-  const [saved, setSaved] = useState<{ rule: AlertRule; flash: RuleEffects | null } | null>(null)
+  // What the server answered to a save replaces what was read, until the rule is read again. It is kept
+  // with the address it was saved at and forgotten as soon as the address changes: this page stays mounted
+  // when the address becomes a new rule's (or another rule's), must not show, or change, the rule saved
+  // before under that address, and shows the fresh reading, not the answer, when the address is the rule's
+  // again (Back after a jump to a new rule: the rule may have changed elsewhere meanwhile).
+  const [answer, setSaved] = useState<{
+    at: string | undefined
+    rule: AlertRule
+    flash: RuleEffects | null
+  } | null>(null)
+  if (answer !== null && answer.at !== id) setSaved(null)
+  const saved = answer !== null && answer.at === id ? answer : null
   const back = (location.state as { list?: string } | null)?.list
   const created = (location.state as { created?: boolean } | null)?.created === true
   const rule: AlertRule | undefined = saved?.rule ?? detail.data?.item
@@ -384,7 +394,7 @@ export default function RuleEditorPage() {
               mayWrite={mayWrite}
               reloading={detail.isRefreshing}
               onSaved={(change: AlertRuleChange) =>
-                setSaved({ rule: change.item, flash: change.effects })
+                setSaved({ at: id, rule: change.item, flash: change.effects })
               }
               onCreated={(newId) =>
                 void navigate(viewTo(rulePath(newId)), { state: { created: true, list: back } })

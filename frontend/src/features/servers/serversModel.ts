@@ -1,7 +1,7 @@
 import { nextListSort, parseBasicListQuery, writeBasicListQuery } from '@/lib/listQuery'
 export { MAX_PAGE } from '@/lib/listQuery'
 import type { ServerListItem, ServerSortKey, ServerStatusFilter, SortDirection } from '@/api/types'
-import { EMPTY, formatAge, formatDuration } from '@/lib/format'
+import { EMPTY, formatAge, formatDuration, withAgo } from '@/lib/format'
 import { readingOf, reportsLoad, uptimeOf } from '@/lib/serverList'
 import { displayStatus, type DisplayStatus } from '@/lib/status'
 import { DEFAULT_RESOURCE_LIMITS, resourceLevel, type ResourceLimits } from '@/lib/thresholds'
@@ -162,7 +162,7 @@ export function noLoadSentence(item: ServerListItem): string {
 
 export function heartbeatText(item: ServerListItem, nowMs: number): string {
   const seen = item.server.lastSeenAt
-  return seen === null ? 'never' : `${formatAge(seen, nowMs)} ago`
+  return seen === null ? 'never' : withAgo(formatAge(seen, nowMs))
 }
 
 export const uptimeText = (item: ServerListItem): string => {

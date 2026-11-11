@@ -202,7 +202,8 @@ export function buildInterfaceOption({
     values,
     axes,
     formats: [
-      (value) => formatBitsPerSecond(value, 0),
+      // One decimal where a tick has one: the 1.5 Mbps gridline of a 0-1.5 Mbps axis must not read "2 Mbps".
+      (value) => formatBitsPerSecond(value, 1).replace('.0 ', ' '),
       (value) => `${value}/s`,
       (value) => `${value}/s`,
     ],

@@ -82,7 +82,8 @@ describe('writeQuery', () => {
       page: 2,
       server: 'srv-1',
     })
-    expect(next.toString()).toBe('range=6h&q=pg&status=critical&sort=name&page=2&server=srv-1')
+    // The search is written as typed (the search box shows it back): its spaces stay.
+    expect(next.toString()).toBe('range=6h&q=+pg+&status=critical&sort=name&page=2&server=srv-1')
   })
 
   it('round-trips through parseQuery', () => {

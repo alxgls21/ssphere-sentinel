@@ -60,9 +60,9 @@ export interface ConsoleHttp extends Pick<
 }
 
 /**
- * What the Django console API serves today: the session, the scope, the servers (list,
- * detail with its containers, history) and the container list. The rest is added here as the
- * backend gains it.
+ * What the Django console API serves: the session and the scope; the servers, containers, network
+ * targets and SNMP devices with their history; the topology; the incidents and the alert engine;
+ * the notification settings, the alert rules and the system status. A new endpoint is added here.
  */
 export function createConsoleHttp(options: TransportOptions = {}): ConsoleHttp {
   const transport = createTransport(options)

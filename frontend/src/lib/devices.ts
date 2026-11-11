@@ -7,7 +7,14 @@ import type {
   InterfaceReason,
   SnmpVersion,
 } from '@/api/types'
-import { EMPTY, formatAge, formatBitsPerSecond, formatLatency, formatPercent } from './format'
+import {
+  EMPTY,
+  formatAge,
+  formatBitsPerSecond,
+  formatLatency,
+  formatPercent,
+  withAgo,
+} from './format'
 
 /**
  * What an SNMP device and its interfaces say in words. The health and its reason are the console
@@ -108,7 +115,7 @@ export function deviceDetail(item: DeviceListItem, nowMs: number): string {
     case 'no_poll':
       return `${what} · never polled`
     case 'stale':
-      return `${what} · last polled ${state ? formatAge(state.lastPollAt, nowMs) : EMPTY} ago, not current`
+      return `${what} · last polled ${withAgo(state ? formatAge(state.lastPollAt, nowMs) : EMPTY)}, not current`
     case 'unreachable': {
       const why = pollErrorText(state?.error ?? null)
       return `${what} · no response${why ? `: ${why}` : ''}`
@@ -120,7 +127,7 @@ export function deviceDetail(item: DeviceListItem, nowMs: number): string {
 
 /** One short line for a card or a notice: how long ago the device was last polled. */
 export const polledAgo = (item: DeviceListItem, nowMs: number): string =>
-  item.state === null ? 'never' : `${formatAge(item.state.lastPollAt, nowMs)} ago`
+  item.state === null ? 'never' : withAgo(formatAge(item.state.lastPollAt, nowMs))
 
 /** "SNMPv2c port 161". */
 export const snmpText = (item: DeviceListItem): string =>
@@ -267,6 +274,9 @@ export function rateText(
   }
 }
 
-/** The interface speed, or why there is none to quote. */
+/**
+ * The interface speed, or why there is none to quote. One decimal, so a 2.5 GbE port is not "3 Gbps";
+ * a whole number of the unit is written without its ".0".
+ */
 export const speedText = (iface: DeviceInterface): string =>
-  iface.speedBps === null ? EMPTY : formatBitsPerSecond(iface.speedBps, 0)
+  iface.speedBps === null ? EMPTY : formatBitsPerSecond(iface.speedBps, 1).replace('.0 ', ' ')

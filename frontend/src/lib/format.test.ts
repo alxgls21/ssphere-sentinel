@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   EMPTY,
   formatAge,
+  formatAgo,
   formatBitsPerSecond,
   formatBytes,
   formatClock,
@@ -11,6 +12,7 @@ import {
   formatPercent,
   formatQuantity,
   formatStamp,
+  withAgo,
 } from './format'
 
 describe('format', () => {
@@ -66,6 +68,15 @@ describe('format', () => {
     expect(formatAge('2026-10-12T09:00:00Z', now)).toBe('3h')
     expect(formatAge('2026-10-10T12:00:00Z', now)).toBe('2d')
     expect(formatAge('2026-10-12T12:05:00Z', now)).toBe('now')
+  })
+
+  it('says an age with ago, and a moment as just now, never "now ago"', () => {
+    const now = Date.parse('2026-10-12T12:00:00Z')
+    expect(formatAgo('2026-10-12T11:59:58Z', now)).toBe('just now')
+    expect(formatAgo('2026-10-12T11:59:18Z', now)).toBe('42s ago')
+    expect(formatAgo(null, now)).toBe('never')
+    expect(withAgo('now')).toBe('just now')
+    expect(withAgo('14m')).toBe('14m ago')
   })
 
   it('writes clock times with the Z of UTC, seconds by default', () => {

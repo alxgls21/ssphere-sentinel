@@ -89,13 +89,15 @@ class BoundsTests(QueueTestCase):
             ids.append(item["measurement_id"])
             queue.enqueue(item)
             self.clock.now += 1
+        self.clock.now += 61  # a full queue says so once a minute, not for every drop
         with self.assertLogs("sentinel_agent", level="WARNING") as logs:
             extra = measurement()
             queue.enqueue(extra)
         self.assertEqual(queue.count(), 3)
         remaining = [m["measurement_id"] for m in queue.pending_batch(10)]
         self.assertEqual(remaining, ids[3:] + [extra["measurement_id"]])
-        self.assertIn("dropped 1 oldest", "\n".join(logs.output))
+        # The fourth enqueue reported its drop, the fifth kept quiet: this report counts it too.
+        self.assertIn("dropped 2 oldest", "\n".join(logs.output))
 
     def test_expired_measurements_are_purged_with_warning(self):
         queue = self.open_queue(max_age_seconds=3600)

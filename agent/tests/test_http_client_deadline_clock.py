@@ -8,11 +8,13 @@ the whole request is never reported as "request timed out" because the request w
 """
 
 import ast
+import io
 import json
 import pathlib
 import socket
 import threading
 import time
+import tokenize
 import unittest
 from unittest.mock import patch
 
@@ -132,18 +134,92 @@ class DeeplyNestedAnswerTests(unittest.TestCase):
         self.assertTrue(any("not valid JSON" in line for line in logs.output))
 
 
+def _newer_f_string_uses(source: str) -> list[str]:
+    """What ``source`` does inside f-strings that only Python 3.12 and later accept (PEP 701).
+
+    ``ast.parse(feature_version=(3, 11))`` does not refuse these, so they are looked for in the tokens:
+    inside a ``{...}`` field, a quote of the f-string used again, a backslash, a comment and, in an
+    f-string that is not triple-quoted, a line break.
+    """
+    found: list[str] = []
+    quotes: list[str] = []  # the quotes of the f-strings being read, the innermost last
+    for token in tokenize.generate_tokens(io.StringIO(source).readline):
+        kind = tokenize.tok_name[token.type]
+        if kind == "FSTRING_END":
+            quotes.pop()
+            continue
+        literal = token.string.lstrip("rRbBuUfF")
+        quote = literal[:3] if literal[:3] in ('"""', "'''") else literal[:1]
+        # FSTRING_MIDDLE is the text (or the format) of an f-string; one level down it is in a field too.
+        if quotes and (kind != "FSTRING_MIDDLE" or len(quotes) > 1):
+            where = f"line {token.start[0]}"
+            if kind in ("STRING", "FSTRING_START"):
+                for outer in quotes:
+                    if quote[0] == outer[0] and (len(outer) == 1 or len(quote) == 3):
+                        found.append(f"{where}: the quote {outer} of an f-string is used again inside it")
+            if "\\" in token.string:
+                found.append(f"{where}: a backslash inside a field of an f-string")
+            if kind == "COMMENT":
+                found.append(f"{where}: a comment inside a field of an f-string")
+            if kind == "NL" and any(len(outer) == 1 for outer in quotes):
+                found.append(f"{where}: a line break inside a field of an f-string")
+        if kind == "FSTRING_START":
+            quotes.append(quote)
+    return found
+
+
 class Python311GrammarTests(unittest.TestCase):
-    def test_every_agent_module_parses_with_the_3_11_grammar(self):
-        # Best effort: ast.parse(feature_version=(3, 11)) refuses PEP 695 generics, ``type`` statements and the
-        # PEP 701 f-strings that 3.12 added. Differences in the libraries are not covered.
-        root = pathlib.Path(__file__).resolve().parents[1]
-        files = [p for p in root.rglob("*.py") if "build" not in p.parts]
+    root = pathlib.Path(__file__).resolve().parents[1]
+
+    def files(self) -> list[pathlib.Path]:
+        # Only a build directory inside the package is skipped, not a checkout that lives under one.
+        files = [p for p in self.root.rglob("*.py") if "build" not in p.relative_to(self.root).parts]
         self.assertGreater(len(files), 40)
-        for path in files:
-            with self.subTest(path=str(path.relative_to(root))):
+        return files
+
+    def test_every_agent_module_parses_with_the_3_11_grammar(self):
+        # Best effort: ast.parse(feature_version=(3, 11)) refuses PEP 695 generics and ``type`` statements.
+        # It accepts the PEP 701 f-strings that 3.12 added (the next test looks for those). Differences in
+        # the libraries are not covered.
+        for path in self.files():
+            with self.subTest(path=str(path.relative_to(self.root))):
                 ast.parse(path.read_text(encoding="utf-8"), filename=str(path), feature_version=(3, 11))
         with self.assertRaises(SyntaxError):  # the check does bite on 3.12 grammar
             ast.parse("type X = int", feature_version=(3, 11))
+
+    @unittest.skipUnless(
+        hasattr(tokenize, "FSTRING_START"), "Python 3.11 itself refuses these f-strings when it runs the tests"
+    )
+    def test_no_agent_module_uses_what_f_strings_accept_only_since_3_12(self):
+        for path in self.files():
+            with self.subTest(path=str(path.relative_to(self.root))):
+                self.assertEqual(_newer_f_string_uses(path.read_text(encoding="utf-8")), [])
+        newer = (
+            'f"{"a"}"',  # the quote again
+            "f'{d['k']}'",
+            'f"{f"{x}"}"',
+            'f"""{"""a"""}"""',
+            "f\"{f'{\"a\"}'}\"",  # the quote of the outer one, two levels down
+            "f\"{'\\n'.join(x)}\"",  # a backslash
+            "f\"{f'a\\n'}\"",
+            'f"""{x  # a comment\n}"""',
+            'f"{x +\n 1}"',  # a line break
+        )
+        for source in newer:  # the check does bite
+            with self.subTest(source=source):
+                self.assertNotEqual(_newer_f_string_uses(source), [])
+        accepted_by_3_11 = (
+            "f\"{'a'}\"",
+            "f'{d[\"k\"]!r:>{width}}'",
+            'f"""{"a"} {\'b\'}"""',
+            "f'''{x +\n 1}'''",
+            'f"{x}\\n" "\\t"',
+            "f\"{f'{x}'}\"",
+            "'{\"a\"}' + \"{'\\n'}\"",  # not f-strings
+        )
+        for source in accepted_by_3_11:
+            with self.subTest(source=source):
+                self.assertEqual(_newer_f_string_uses(source), [])
 
 
 if __name__ == "__main__":

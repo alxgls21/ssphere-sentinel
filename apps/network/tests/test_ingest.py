@@ -235,7 +235,36 @@ class TimestampWindowTests(IngestTestCase):
         result = self.ingest([self._at(timedelta(minutes=6))])
         self.assertEqual(result.created, 0)
         self.assertEqual(result.rejections[0].reason, "measured_at is too far in the future")
-        self.assertFalse(result.rejections[0].retryable)
+        # Not permanent: the same measurement passes once the server clock has caught up, so the agent
+        # keeps it (a server clock running behind would otherwise cost every agent its measurements).
+        self.assertTrue(result.rejections[0].retryable)
+
+    def test_the_future_bound_is_exact_to_the_second(self):
+        # +4 min 50 s is stored, +5 min 10 s is refused (and retryable): the bound itself is unchanged.
+        result = self.ingest([
+            self._at(timedelta(minutes=4, seconds=50)),
+            self._at(timedelta(minutes=5, seconds=10)),
+        ])
+        self.assertEqual(result.created, 1)
+        self.assertEqual(len(result.rejections), 1)
+        self.assertEqual(result.rejections[0].reason, "measured_at is too far in the future")
+        self.assertTrue(result.rejections[0].retryable)
+
+    def test_a_future_timestamp_does_not_make_a_measurement_that_can_never_pass_retryable(self):
+        # Retryable is for a measurement that only needs the server clock to catch up. One with another
+        # field invalid can never pass, so it is refused for good: the agent drops it instead of keeping
+        # it and resending it ten times over an hour.
+        ahead = (timezone.now() + timedelta(minutes=6)).isoformat()
+        result = self.ingest([
+            measurement(self.target, measured_at=ahead, success="yes"),
+            measurement(self.target, measured_at=ahead, probe_count=0),
+            measurement(self.target, measured_at=ahead, latency_ms=None),
+        ])
+        self.assertEqual(result.created, 0)
+        self.assertEqual([r.retryable for r in result.rejections], [False, False, False])
+        reasons = [r.reason for r in result.rejections]
+        self.assertEqual(reasons[0], "success must be a boolean")
+        self.assertNotIn("measured_at is too far in the future", reasons)
 
 
 class AgentDeletionTests(IngestTestCase):

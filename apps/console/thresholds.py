@@ -1,8 +1,10 @@
 """Health thresholds the console applies, from settings (``SENTINEL_THRESHOLD_*``).
 
-These are display defaults, not alert rules (the alert engine is a later
-phase). They live in one place on the server, and ``/session/`` publishes them
-so the UI can label what a status means without keeping its own copy.
+These are the limits health is judged by, not alert rules; the alert engine
+observes that same health (``apps.alerts.observations``), so a changed limit
+also changes when a rule fires. They live in one place on the server, and
+``/session/`` publishes them so the UI can label what a status means without
+keeping its own copy.
 """
 
 from __future__ import annotations

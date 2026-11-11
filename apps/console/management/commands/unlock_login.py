@@ -12,6 +12,7 @@ from django.contrib.auth import get_user_model
 from django.core.management.base import BaseCommand, CommandError
 
 from apps.console import throttle
+from apps.console.http import storable_text
 from apps.console.models import LoginThrottle
 
 
@@ -30,7 +31,8 @@ class Command(BaseCommand):
         )
 
     def handle(self, *args, **options):
-        username, everything = options["username"], options["all"]
+        # The sign-in forms drop the spaces around a name before they look it up; so does this.
+        username, everything = (options["username"] or "").strip(), options["all"]
         if bool(username) == everything:  # neither, or both
             raise CommandError("Give a user name, or --all (not both).")
         if everything:
@@ -41,11 +43,12 @@ class Command(BaseCommand):
         User = get_user_model()
         field = User.USERNAME_FIELD
         # The sign-in forms look the name up as typed after Unicode NFKC normalisation; accept either spelling.
-        account = (
+        # A name the database cannot be asked for (bytes on the command line that are not UTF-8) is nobody's.
+        account = storable_text(username) and (
             User.objects.filter(**{field: username}).first()
             or User.objects.filter(**{field: unicodedata.normalize("NFKC", username)}).first()
         )
-        if account is None:
+        if not account:
             raise CommandError(f"There is no account with the user name {username!r}.")
         deleted, _ = LoginThrottle.objects.filter(key=throttle.throttle_key(username, account.pk)).delete()
         if deleted:

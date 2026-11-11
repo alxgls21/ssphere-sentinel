@@ -142,6 +142,7 @@ class FactoryTests(SnmpEnvironmentTestCase):
             with self.assertRaises(SnmpUnavailableError) as caught:
                 check_snmp_available([v3()])
             self.assertIn("cryptography", str(caught.exception))
+            self.assertIn("version 47 or newer", str(caught.exception))  # what pyproject.toml requires
             check_snmp_available([v3(priv_protocol="", priv_password="")])  # auth-only needs no cipher
 
     def test_queued_polls_are_still_delivered_when_snmp_is_off(self):

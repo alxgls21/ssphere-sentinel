@@ -1,11 +1,12 @@
 """The alert engine, cycle by cycle, against real monitoring data at explicit moments."""
 
 from datetime import timedelta
+from unittest.mock import patch
 
 from django.db import connection
 from django.test.utils import CaptureQueriesContext
 
-from apps.alerts import engine
+from apps.alerts import engine, observations
 from apps.alerts.engine import Verdict, verdict
 from apps.alerts.models import AlertEngineHeartbeat, AlertEvaluationState, AlertRule, Incident
 from apps.alerts.observations import Observation
@@ -523,6 +524,25 @@ class ResourceAndInterfaceTests(EngineTestCase):
         evaluate(600)
         self.assertEqual(Incident.objects.get(pk=incident.pk).status, "recovered")
 
+    def test_a_target_that_stops_answering_says_nothing_about_its_latency(self):
+        slow = AlertRule.objects.create(
+            name="Slow", entity_kind="target", health="warning", reason="latency", severity="warning", activation_seconds=0, recovery_seconds=0
+        )
+        probe = self.fleet.server("probe-1", seen=0)
+        target = self.fleet.target("gateway", probe)
+        self.fleet.measure(target, 0, latency=5000.0)
+        evaluate(10)
+        incident = Incident.objects.get(rule=slow)
+        self.fleet.measure(target, 60, success=False)  # no answer, so no latency: it got worse, it did not recover
+        self.fleet.heartbeat(probe, 60)
+        evaluate(70)
+        self.assertEqual(Incident.objects.get(pk=incident.pk).status, "active")
+        self.assertEqual(state(rule=slow).phase, "firing")
+        self.fleet.measure(target, 120)
+        self.fleet.heartbeat(probe, 120)
+        evaluate(130)
+        self.assertEqual(Incident.objects.get(pk=incident.pk).status, "recovered")
+
     def test_an_interface_down_on_a_reachable_device(self):
         down = AlertRule.objects.create(
             name="Ports down", entity_kind="interface", health="warning", reason="down", severity="warning", activation_seconds=0, recovery_seconds=0
@@ -540,6 +560,21 @@ class ResourceAndInterfaceTests(EngineTestCase):
         self.fleet.heartbeat(probe, 60)
         evaluate(60)
         self.assertEqual(Incident.objects.get(pk=incident.pk).status, "recovered")
+
+    def test_a_device_deleted_while_its_interfaces_are_read_is_left_out(self):
+        probe = self.fleet.server("probe-1", seen=0)
+        device = self.fleet.device("core-sw", probe)
+        self.fleet.interface(device, 7, oper=2)
+        self.fleet.poll(device, 0)
+        annotate_devices = observations.annotate_devices
+
+        def deleted_meanwhile(queryset, now):
+            # Between the query for the interfaces and the one for their devices: the device is deleted.
+            type(device).objects.filter(pk=device.pk).delete()
+            return annotate_devices(queryset, now)
+
+        with patch.object(observations, "annotate_devices", deleted_meanwhile):
+            self.assertEqual(observations.observe_interfaces(t(10), down=True, unknown=False, refs=()), {})
 
 
 class VerdictTests(EngineTestCase):
@@ -568,6 +603,29 @@ class VerdictTests(EngineTestCase):
         for rule, obs, expected in cases:
             with self.subTest(rule=(rule.entity_kind, rule.health, rule.reason), obs=(obs.health, obs.reason)):
                 self.assertEqual(verdict(rule, obs), expected)
+
+    def test_a_worse_reason_that_hides_the_rules_own_is_not_a_recovery(self):
+        # The console gives a target one reason, the worst of failing, failed, latency, loss (in that
+        # order). While a worse one shows, nothing says that the one a rule is narrowed to has ended.
+        slow = AlertRule(entity_kind="target", health="warning", reason="latency")
+        lossy = AlertRule(entity_kind="target", health="warning", reason="loss")
+        failed = AlertRule(entity_kind="target", health="warning", reason="failed")
+        cases = (
+            (slow, ("warning", "latency"), Verdict.MATCH),
+            (slow, ("warning", "failed"), Verdict.INDETERMINATE),
+            (slow, ("critical", "failing"), Verdict.INDETERMINATE),
+            (slow, ("warning", "loss"), Verdict.CLEAR),  # it answered, and not slowly
+            (slow, ("healthy", "ok"), Verdict.CLEAR),
+            (lossy, ("warning", "latency"), Verdict.INDETERMINATE),
+            (lossy, ("warning", "failed"), Verdict.INDETERMINATE),
+            (lossy, ("critical", "failing"), Verdict.INDETERMINATE),
+            (lossy, ("healthy", "ok"), Verdict.CLEAR),
+            (failed, ("critical", "failing"), Verdict.INDETERMINATE),
+            (failed, ("warning", "latency"), Verdict.CLEAR),  # the latest measurement succeeded
+        )
+        for rule, (health, reason), expected in cases:
+            with self.subTest(rule=rule.reason, obs=(health, reason)):
+                self.assertEqual(verdict(rule, self.obs(kind="target", health=health, reason=reason)), expected)
 
 
 class CostTests(EngineTestCase):

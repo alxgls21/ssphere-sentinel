@@ -319,6 +319,40 @@ class SeriesTests(DeviceTestCase):
         self.assertEqual([self.at(body, 4, k) for k in ("inBps", "validSamples", "invalidSamples")], [None, 0, 0])
         self.assertEqual(self.at(body, 1, "inErrorsPerSec"), 0.05)
 
+    def test_a_rate_too_large_for_a_number_gives_no_rates_and_never_reaches_a_browser(self):
+        # The agent API accepts any positive interval. One this short makes the division overflow to infinity,
+        # which JSON cannot carry: a browser refuses the whole answer (Python's own parser, which the other
+        # tests read the answers with, does not).
+        device = self.device(interval=60)
+        no_speed = self.interface(device, 3, speed=None)
+        only_errors = self.interface(device, 4)
+        ago = self.put_time(60, 1, 5)
+        self.sample(no_speed, ago, interval=1e-300, in_octets=2**62, speed=None)
+        self.sample(only_errors, ago, interval=1e-300, in_octets=0, out_octets=0, errors=2**31)
+        detail = self.get(self.admin, f"devices/{device.pk}/")
+        self.assertEqual(detail.content.count(b"Infinity"), 0)
+        for interface in detail.json()["interfaces"]:
+            rates = interface["rates"]
+            self.assertEqual((rates["valid"], rates["invalidReason"], rates["inBps"], rates["inErrorsPerSec"]),
+                             (False, "implausible", None, None))
+        for if_index in (3, 4):
+            series = self.get(self.admin, f"devices/{device.pk}/interfaces/{if_index}/series/", range="1h")
+            self.assertEqual(series.content.count(b"Infinity"), 0)
+            self.assertEqual([self.at(series.json(), 1, k) for k in ("inBps", "inErrorsPerSec", "validSamples", "invalidSamples")],
+                             [None, None, 0, 1])
+
+    def test_rates_that_add_up_to_more_than_a_number_holds_still_have_a_mean(self):
+        device = self.device(interval=60)
+        self.interface(device, 3, speed=None)
+        iface = device.interfaces.get()
+        for offset in (5, 35):  # two rates of about 1.5e308 bit/s in one bucket: their sum is infinite
+            self.sample(iface, self.put_time(60, 1, offset), interval=4.9e-289, in_octets=2**63 - 1, out_octets=0, speed=None)
+        series = self.get(self.admin, f"devices/{device.pk}/interfaces/3/series/", range="1h")
+        self.assertEqual(series.content.count(b"Infinity"), 0)
+        body = series.json()
+        self.assertEqual((self.at(body, 1, "validSamples"), self.at(body, 1, "inBps")), (2, self.at(body, 1, "inBpsMax")))
+        self.assertGreater(self.at(body, 1, "inBps"), 1e308)
+
     def test_the_bucket_is_never_shorter_than_the_poll_interval_and_never_polled_is_empty(self):
         device = self.device(interval=300)
         iface = self.interface(device, 1)

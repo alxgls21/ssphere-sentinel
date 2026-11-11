@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { ApiError } from '../errors'
 import { createTransport } from './transport'
 
@@ -281,11 +281,87 @@ describe('errors', () => {
     await expect(pending).rejects.toMatchObject({ name: 'AbortError' })
   })
 
+  /** The same when the answer is a refusal: its status has arrived, the body that explains it has not. */
+  const slowRefusal = (async (url: string, init: RequestInit) => ({
+    ...(await slowBody(url, init)),
+    ok: false,
+    status: 401,
+  })) as unknown as typeof fetch
+
+  it('reports a timeout while a refusal is still arriving as a timeout, not as a server that is down', async () => {
+    await expect(
+      createTransport({ fetchImpl: slowRefusal, timeoutMs: 20 }).get('x/'),
+    ).rejects.toMatchObject({ name: 'ApiError', code: 'timeout' })
+  })
+
+  it('lets a caller cancel its own request while a refusal is arriving, without it becoming an error to show', async () => {
+    const controller = new AbortController()
+    const pending = createTransport({ fetchImpl: slowRefusal }).get('x/', {
+      signal: controller.signal,
+    })
+    controller.abort()
+    await expect(pending).rejects.toMatchObject({ name: 'AbortError' })
+  })
+
   it('rejects an answer that is not JSON', async () => {
     const { fetchImpl } = fakeFetch(new Response('ok', { status: 200 }))
     await expect(createTransport({ fetchImpl }).get('x/')).rejects.toMatchObject({
       code: 'bad_response',
     })
+  })
+})
+
+/**
+ * AbortSignal.any is newer (Chrome 116, Firefox 124, Safari 17.4) than the oldest browsers the build
+ * targets. There a request that carries the caller's signal, as every load of a page does, must still
+ * be sent, still time out and still be cancelled by its caller.
+ */
+describe('a browser without AbortSignal.any', () => {
+  const any = AbortSignal.any
+  beforeEach(() => {
+    Reflect.set(AbortSignal, 'any', undefined)
+  })
+  afterEach(() => {
+    Reflect.set(AbortSignal, 'any', any)
+  })
+
+  const neverAnswers = ((_url: string, init: RequestInit) =>
+    new Promise((_resolve, reject) => {
+      init.signal?.addEventListener('abort', () => reject(init.signal?.reason))
+    })) as unknown as typeof fetch
+
+  it('still sends a request that carries the caller’s signal', async () => {
+    const { fetchImpl, calls } = fakeFetch(json({ ok: true }))
+    const answer = await createTransport({ fetchImpl }).get('x/', {
+      signal: new AbortController().signal,
+    })
+    expect(answer).toEqual({ ok: true })
+    expect(calls[0]?.[1].signal?.aborted).toBe(false)
+  })
+
+  it('still gives up on a server that never answers', async () => {
+    await expect(
+      createTransport({ fetchImpl: neverAnswers, timeoutMs: 20 }).get('x/', {
+        signal: new AbortController().signal,
+      }),
+    ).rejects.toMatchObject({ name: 'ApiError', code: 'timeout' })
+  })
+
+  it('still lets a caller cancel its own request', async () => {
+    const controller = new AbortController()
+    const pending = createTransport({ fetchImpl: neverAnswers }).get('x/', {
+      signal: controller.signal,
+    })
+    controller.abort()
+    await expect(pending).rejects.toMatchObject({ name: 'AbortError' })
+  })
+
+  it('hands on a request its caller had already cancelled as a cancelled one', async () => {
+    const controller = new AbortController()
+    controller.abort()
+    const { fetchImpl, calls } = fakeFetch(json({ ok: true }))
+    await createTransport({ fetchImpl }).get('x/', { signal: controller.signal })
+    expect(calls[0]?.[1].signal?.aborted).toBe(true)
   })
 })
 

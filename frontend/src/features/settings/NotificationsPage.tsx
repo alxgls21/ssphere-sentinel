@@ -22,10 +22,15 @@ export default function NotificationsPage() {
     `notification-settings:${permitted}`,
     async (signal) => (permitted ? api.getNotificationSettings({ signal }) : null),
   )
-  // What a save answered replaces what was read, until the settings are read again. `epoch` counts
-  // those readings: the form starts again from one, never from a save (it has just shown it).
+  // What a save answered replaces what was read, until the settings are read again. `seen.epoch`
+  // counts those readings as they arrive: the form starts again from one, never from a save (it
+  // has just shown it) and never from the reading a save has replaced, which is the older one.
   const [saved, setSaved] = useState<NotificationSettings | null>(null)
-  const [epoch, setEpoch] = useState(0)
+  const [seen, setSeen] = useState({ read: resource.data, epoch: 0 })
+  if (seen.read !== resource.data) {
+    setSeen({ read: resource.data, epoch: seen.epoch + 1 })
+    setSaved(null)
+  }
   const settings = saved ?? resource.data ?? null
 
   if (!permitted) {
@@ -39,11 +44,7 @@ export default function NotificationsPage() {
     )
   }
 
-  const reload = () => {
-    setSaved(null)
-    setEpoch((count) => count + 1)
-    resource.refetch()
-  }
+  const reload = () => resource.refetch()
 
   if (settings === null) {
     if (resource.error instanceof ApiError && resource.error.status === 403) {
@@ -74,7 +75,7 @@ export default function NotificationsPage() {
   return (
     <div className="grid gap-3 xl:grid-cols-2">
       <NotificationForm
-        key={epoch}
+        key={seen.epoch}
         settings={settings}
         onSaved={setSaved}
         className="xl:col-span-1"

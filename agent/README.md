@@ -51,7 +51,7 @@ sentinel-agent run         # continuous foreground loop (stops on SIGINT/SIGTERM
 | `SENTINEL_AGENT_TOKEN` | required | Agent token printed once by `manage.py create_agent` |
 | `SENTINEL_HEARTBEAT_INTERVAL` | `30` | Seconds between heartbeats |
 | `SENTINEL_NETWORK_TARGETS_FILE` | unset | JSON file with network targets (see `network_targets.example.json`) |
-| `SENTINEL_QUEUE_PATH` | `$XDG_STATE_HOME/ssphere-sentinel/network-queue.sqlite3` | Absolute path of the persistent measurement queue |
+| `SENTINEL_QUEUE_PATH` | `$XDG_STATE_HOME/ssphere-sentinel/network-queue.sqlite3` (`~/.local/state/...` when `XDG_STATE_HOME` is unset) | Absolute path of the persistent measurement queue |
 | `SENTINEL_QUEUE_MAX_MEASUREMENTS` | `10000` | Queue size limit (oldest dropped first) |
 | `SENTINEL_QUEUE_MAX_AGE_SECONDS` | `604800` | Unsent measurements older than this are discarded |
 | `SENTINEL_NETWORK_MAX_CONCURRENT_PROBES` | `4` | Probe worker threads (1–16) |

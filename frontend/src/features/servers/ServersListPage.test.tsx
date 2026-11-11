@@ -100,6 +100,15 @@ describe('ServersListPage', () => {
     expect(screen.getByLabelText('location')).toHaveTextContent('/servers?q=piraeus')
   })
 
+  it('keeps the space typed between two words of a search', async () => {
+    const user = userEvent.setup()
+    page()
+    await table()
+    const box = screen.getByRole('searchbox', { name: 'Search servers' })
+    await user.type(box, 'pir fs')
+    expect(box).toHaveValue('pir fs')
+  })
+
   it('restores the search and filter from the URL', async () => {
     page('/servers?q=ath&status=warning')
     const t = await table()

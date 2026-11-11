@@ -125,7 +125,8 @@ the CSRF token.
   exactly like one that does not exist (404), so ids cannot be probed. Grants
   are read at every request, so revoking one applies immediately.
 - **Sessions.** Server-side Django sessions in an HttpOnly, `SameSite=Lax`
-  cookie (Secure unless `DJANGO_DEBUG`). Only a session created by the
+  cookie (Secure when `SENTINEL_URL` is an `https://` address; without
+  `SENTINEL_URL`, unless `DJANGO_DEBUG`). Only a session created by the
   console's own sign-in is a console session: it carries a marker with the
   sign-in time, and a session from anywhere else (the admin login, with its
   14-day default lifetime) is anonymous to the console. The
@@ -133,8 +134,9 @@ the CSRF token.
   `SENTINEL_CONSOLE_SESSION_SECONDS` (12 hours by default, no sliding renewal;
   the console also checks the marker's age, so a longer-lived cookie cannot
   extend it); changing the password ends every session of that user. Expired
-  sessions stay in the database until `manage.py clearsessions` runs (schedule
-  it with the other cleanup jobs, see the README). `POST`s require the CSRF
+  sessions stay in the database until `manage.py clearsessions` runs: the
+  `maintenance` service runs it once a day with the other cleanups
+  ([Retention](server-deployment.md#retention)). `POST`s require the CSRF
   token that `/session/` returns. Responses are `Cache-Control: no-store` and
   `Vary: Cookie`. Errors raised in a console view, including unexpected
   exceptions, are JSON without internal details (a hidden or unknown object is
@@ -288,7 +290,7 @@ it is exposed to the internet.
   holds no setting and no secret.
 - The console's files are served with a Content Security Policy that allows
   scripts, styles, images, fonts and connections from the same origin only
-  (`style-src` also allows inline styles),
+  (`style-src` also allows inline styles, `img-src` also `data:` images),
   forbids framing (`frame-ancestors 'none'`, `X-Frame-Options: DENY`), plus
   `X-Content-Type-Options: nosniff`, `Referrer-Policy: same-origin`,
   `Cross-Origin-Opener-Policy: same-origin`,
@@ -304,10 +306,13 @@ it is exposed to the internet.
   of a credential profile kept in the agent's local files, no model or form has
   a field for a community string or key, and unknown payload fields are
   ignored ([snmp.md](snmp.md#credentials-are-never-stored)).
-- With `DJANGO_DEBUG=false` (the default), session and CSRF cookies are
-  Secure and HttpOnly (session), the example secret key is refused, and
+- With an `https://` `SENTINEL_URL` (without `SENTINEL_URL`: with
+  `DJANGO_DEBUG=false`, the default), session and CSRF cookies are
+  Secure and HttpOnly (session). With `DJANGO_DEBUG=false` the example secret
+  key is refused, and
   `manage.py check --deploy` flags a placeholder `AGENT_TOKEN_PEPPER`
-  (`sentinel.W001`) or `DJANGO_ALLOWED_HOSTS=*` (`sentinel.W002`), and an
+  (`sentinel.W001`) or `DJANGO_ALLOWED_HOSTS=*` (`sentinel.W002`), an
+  `http://` `SENTINEL_URL`, whose cookies are not Secure (`sentinel.W003`), and an
   `https://` `SENTINEL_URL` while `SENTINEL_HTTP_BIND` (as the `web`
   container sees it in `.env`) is unset or not a loopback address
   (`sentinel.W005`): the plain-HTTP port of the `proxy` service would be
@@ -423,4 +428,6 @@ account to the `docker` group.
   per-agent credentials, so that one leak does not expose every device.
 - Database backups contain password and token hashes and all monitoring
   data; protect and encrypt them.
-- The container image is not signed and no SBOM is published.
+- The released images carry an SBOM and a provenance attestation of the
+  workflow that built them (see [server-deployment.md](server-deployment.md));
+  they are not signed in any other way.

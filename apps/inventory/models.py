@@ -1,7 +1,7 @@
 """Customers, sites and network devices.
 
 This app is the organizational backbone for the monitoring features: devices
-are polled by agents (SNMP, in a later phase) and will be referenced by
+are polled by agents (SNMP: ``apps.snmp``) and will be referenced by
 circuits, services, SLA reports and the network topology. Everything is
 identified by UUID so other apps can reference it, and nothing here is
 deleted implicitly: a customer with sites and a site with devices are
@@ -135,8 +135,8 @@ class Device(ValidatedNameMixin):
         db_index=False,
     )
     enabled = models.BooleanField(default=True)
-    # The agent that can reach the device. SET_NULL keeps the device (and, in
-    # later phases, its history) when the agent is deleted; assign a new agent
+    # The agent that can reach the device. SET_NULL keeps the device (and its
+    # SNMP history) when the agent is deleted; assign a new agent
     # to resume monitoring.
     assigned_agent = models.ForeignKey(
         Agent,

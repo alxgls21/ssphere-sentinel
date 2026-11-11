@@ -27,6 +27,10 @@ class NetworkValidationError(Exception):
     """Raised when a network payload is invalid."""
 
 
+class _FutureTimestampError(NetworkValidationError):
+    """A timestamp the server clock will catch up with: resending it later can pass."""
+
+
 def measurement_acceptance_window() -> timedelta:
     """How old a delayed measurement may be and still be stored (``acceptance_window``)."""
     return acceptance_window(
@@ -56,8 +60,9 @@ class MeasurementRejection(Rejection):
 
     measurement_id: str | None
     reason: str
-    # True only for server-side storage failures that may succeed on resend.
-    # Validation failures are permanent: resending the same data cannot pass.
+    # True for server-side storage failures and for a timestamp ahead of the
+    # server clock: both may succeed on resend. Other validation failures are
+    # permanent: resending the same data cannot pass.
     retryable: bool = False
 
 
@@ -129,7 +134,9 @@ def validate_network_payload(
                 item, agent=agent, targets=targets, oldest_allowed=oldest_allowed
             )
         except NetworkValidationError as exc:
-            rejections.append(MeasurementRejection(safe_id, str(exc)))
+            rejections.append(
+                MeasurementRejection(safe_id, str(exc), retryable=isinstance(exc, _FutureTimestampError))
+            )
             continue
         if measurement.measurement_id in seen_ids:
             rejections.append(
@@ -311,14 +318,6 @@ def _validate_measurement(
     if not target.enabled:
         raise NetworkValidationError("target is disabled")
 
-    measured_at = parse_timestamp(
-        raw.get("measured_at"), field="measured_at", error=NetworkValidationError
-    )
-    if measured_at < oldest_allowed:
-        raise NetworkValidationError(
-            "measured_at is older than the accepted history window"
-        )
-
     success = raw.get("success")
     if not isinstance(success, bool):
         raise NetworkValidationError("success must be a boolean")
@@ -372,6 +371,20 @@ def _validate_measurement(
     if abs(expected_loss - round(packet_loss, 2)) > 0.51:
         raise NetworkValidationError(
             "packet_loss_percentage does not match probe counts"
+        )
+
+    # Last, once every other field has passed: a timestamp ahead of the server clock is the one
+    # refusal that is retryable, and a measurement that can never pass must not get it (the agent
+    # would keep it and resend it until it gives it up).
+    measured_at = parse_timestamp(
+        raw.get("measured_at"),
+        field="measured_at",
+        error=NetworkValidationError,
+        future_error=_FutureTimestampError,
+    )
+    if measured_at < oldest_allowed:
+        raise NetworkValidationError(
+            "measured_at is older than the accepted history window"
         )
 
     return ValidatedMeasurement(

@@ -68,7 +68,8 @@ describe('the list query in the URL', () => {
     })
     expect(Object.fromEntries(next)).toEqual({
       keep: '1',
-      q: 'core',
+      q: ' core ', // as typed: the search box shows the parameter back
+
       enabled: 'enabled',
       page: '2',
     })

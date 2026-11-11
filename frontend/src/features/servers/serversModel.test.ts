@@ -4,6 +4,7 @@ import {
   DEFAULT_QUERY,
   countByHealth,
   filterServers,
+  heartbeatText,
   loadOf,
   matchesSearch,
   nextSort,
@@ -83,7 +84,8 @@ describe('query in the URL', () => {
     const written = writeQuery(new URLSearchParams('range=6h&customer=acme'), query)
     expect(written.get('range')).toBe('6h')
     expect(written.get('customer')).toBe('acme')
-    expect(parseQuery(written)).toEqual({ ...query, q: 'db' })
+    // The search is written as typed (the search box shows it back), so its spaces survive.
+    expect(parseQuery(written)).toEqual(query)
   })
 
   it('omits defaults, so a link to the plain list stays plain', () => {
@@ -212,6 +214,13 @@ describe('what a row says', () => {
     expect(stateWord(item('a', { health: 'warning', cpu: 83 }))).toBe('HIGH CPU')
     expect(stateWord(item('a', { health: 'critical', cpu: 83, mem: 97 }))).toBe('HIGH MEM')
     expect(stateWord(item('a', { health: 'warning', disk: 91 }))).toBe('DISK')
+  })
+
+  it('says a heartbeat of this moment as just now, never "now ago"', () => {
+    const at = Date.parse('2026-10-12T14:00:00Z')
+    expect(heartbeatText(item('a', { seen: '2026-10-12T13:59:58Z' }), at)).toBe('just now')
+    expect(heartbeatText(item('a', { seen: '2026-10-12T13:59:18Z' }), at)).toBe('42s ago')
+    expect(heartbeatText(item('a', { seen: null }), at)).toBe('never')
   })
 })
 

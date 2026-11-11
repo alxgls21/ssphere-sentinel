@@ -1,6 +1,6 @@
 import { screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { Route, Routes, useLocation } from 'react-router'
+import { Route, Routes, useLocation, useNavigate } from 'react-router'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { SentinelApi } from '@/api/client'
 import { ApiError } from '@/api/errors'
@@ -32,6 +32,30 @@ const detailOf = (item: AlertRule): AlertRuleDetail => ({
 function Where() {
   const { pathname, search } = useLocation()
   return <span data-testid="where">{pathname + search}</span>
+}
+
+/** A jump inside the app, as the command palette's "New alert rule" makes: the page stays mounted. */
+function ToNewRule() {
+  const navigate = useNavigate()
+  return (
+    <button
+      type="button"
+      data-testid="to-new"
+      onClick={() => void navigate('/settings/alert-rules/new')}
+    >
+      jump to a new rule
+    </button>
+  )
+}
+
+/** The browser's Back after such a jump: the page stays mounted and the address is the rule's again. */
+function Back() {
+  const navigate = useNavigate()
+  return (
+    <button type="button" data-testid="back" onClick={() => void navigate(-1)}>
+      back
+    </button>
+  )
 }
 
 interface Served {
@@ -85,6 +109,8 @@ function setup(
         <Route path="/settings/alert-rules" element={<p>the list</p>} />
       </Routes>
       <Where />
+      <ToNewRule />
+      <Back />
     </>,
     { api, route, withShell: shell, auth: createFakeAuth({ capabilities }) },
   )
@@ -538,6 +564,51 @@ describe('a rule that exists', () => {
     await user.click(save())
     await waitFor(() => expect(served.updateAlertRule).toHaveBeenCalledTimes(2))
     expect(served.updateAlertRule.mock.calls[1]?.[1]).toMatchObject({ version: 8 })
+  })
+
+  it('starts a new rule empty after a save: the rule saved before is neither shown nor changed there', async () => {
+    // Both addresses are served by one page, which stays mounted across a jump inside the app (the
+    // command palette's "New alert rule", or Back after a creation) and still holds what the save answered.
+    const user = userEvent.setup()
+    const served = setup('/settings/alert-rules/r1', undefined, {
+      rule: rule({ id: 'r1', version: 7 }),
+    })
+    await nameField()
+    await user.type(field('Name'), ' 2')
+    await user.click(save())
+    expect(await screen.findByText('SAVED')).toBeInTheDocument()
+    await user.click(screen.getByTestId('to-new'))
+    expect(where()).toBe('/settings/alert-rules/new')
+    expect(screen.getByRole('heading', { name: 'New alert rule' })).toBeInTheDocument()
+    expect(screen.queryByText('SAVED')).not.toBeInTheDocument()
+    expect(screen.queryByText(/open incidents?$/)).not.toBeInTheDocument()
+    expect(await nameField()).toHaveValue('')
+    await fillValid(user)
+    expect(save()).toHaveAccessibleName('Create rule')
+    await user.click(save())
+    await waitFor(() => expect(served.createAlertRule).toHaveBeenCalledTimes(1))
+    expect(served.updateAlertRule).toHaveBeenCalledTimes(1)
+  })
+
+  it('shows the fresh reading, not the answer kept from a save, when Back returns to the rule', async () => {
+    // Save, jump to a new rule, Back: the address is the rule's again and the page, still mounted, reads
+    // the rule again. What it shows is that reading: a rule changed elsewhere meanwhile is not shown as saved.
+    const user = userEvent.setup()
+    const served = setup('/settings/alert-rules/r1', undefined, {
+      rule: rule({ id: 'r1', version: 7 }),
+    })
+    await nameField()
+    await user.type(field('Name'), ' 2')
+    await user.click(save())
+    expect(await screen.findByText('SAVED')).toBeInTheDocument()
+    served.current.rule = rule({ id: 'r1', name: 'Changed elsewhere', version: 9 })
+    await user.click(screen.getByTestId('to-new'))
+    expect(screen.getByRole('heading', { name: 'New alert rule' })).toBeInTheDocument()
+    await user.click(screen.getByTestId('back'))
+    expect(where()).toBe('/settings/alert-rules/r1')
+    expect(await screen.findByRole('heading', { name: 'Changed elsewhere' })).toBeInTheDocument()
+    expect(screen.queryByText('SAVED')).not.toBeInTheDocument()
+    expect(await nameField()).toHaveValue('Changed elsewhere')
   })
 
   it('shows the server’s words under the field, and does not close anything on a refusal', async () => {

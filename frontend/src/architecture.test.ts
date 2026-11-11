@@ -139,3 +139,26 @@ describe('charts', () => {
     expect(names(callers).sort()).toEqual(['charts/ChartFrame.tsx', 'charts/useECharts.ts'])
   })
 })
+
+describe('wording', () => {
+  const lines = sourceFiles(SRC).flatMap((file) => {
+    const rel = relative(SRC, file).split('\\').join('/')
+    return readFileSync(file, 'utf8')
+      .split('\n')
+      .map((line, index) => ({ rel, at: `${rel}:${index + 1}`, line }))
+  })
+
+  it('never writes "ago" after an age by hand: withAgo() says a moment as "just now", never "now ago"', () => {
+    // An "ago" that follows an interpolation, in a template or in JSX.
+    const written = lines.filter(({ line }) => /\} ago/.test(line))
+    // The helpers word it themselves, a moment included.
+    const helpers = written.filter(({ line }) => line.includes("'just now'"))
+    // The chip of the top bar counts whole seconds ("updated 0s ago"): it has no "now" to get wrong.
+    const byHand = written.filter(
+      (found) => !helpers.includes(found) && found.rel !== 'shell/topbar/freshness.ts',
+    )
+    expect(byHand.map(({ at }) => at)).toEqual([])
+    // A scan that saw no helper would pass for the wrong reason.
+    expect(helpers.map(({ rel }) => rel)).toContain('lib/format.ts')
+  })
+})

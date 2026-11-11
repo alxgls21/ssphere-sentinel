@@ -16,6 +16,7 @@ import {
   reasonSentence,
   reasonWord,
   scheduleText,
+  successRateText,
   type TargetLimits,
 } from './targets'
 
@@ -190,6 +191,60 @@ describe('observed availability', () => {
     expect(coverageText(availability)).toBe('97% of the window measured (1,400 of 1,440 expected)')
   })
 
+  it('never rounds a rate with a failed measurement in it up to 100%', () => {
+    const almost = {
+      ...availability,
+      measurements: 2880,
+      successful: 2879,
+      percent: 99.97,
+      expectedMeasurements: 2880,
+      coveragePercent: 100,
+    }
+    expect(observedText(almost)).toBe('99.9% of 2,880 measurements succeeded')
+    expect(observedText({ ...almost, successful: 2880, percent: 100 })).toBe(
+      '100% of 2,880 measurements succeeded',
+    )
+  })
+
+  it('never rounds a window that was not measured all along up to 100% coverage', () => {
+    const short = { ...availability, measurements: 1433, coveragePercent: 99.5 }
+    expect(coverageText(short)).toBe('99% of the window measured (1,433 of 1,440 expected)')
+    expect(coverageText({ ...short, measurements: 1440, coveragePercent: 100 })).toBe(
+      '100% of the window measured (1,440 of 1,440 expected)',
+    )
+  })
+
+  it('decides coverage by the counts: one measurement short of the window is never 100%, whatever the API rounded', () => {
+    // 2,879 of 2,880 (a 30 s target missing one measurement in a day): the API rounds coverage to one
+    // decimal and sends 100, as it does for one missing measurement at every interval of 43 s or less.
+    const oneShort = {
+      ...availability,
+      measurements: 2879,
+      successful: 2879,
+      percent: 100,
+      expectedMeasurements: 2880,
+      coveragePercent: 100,
+    }
+    expect(coverageText(oneShort)).toBe('99% of the window measured (2,879 of 2,880 expected)')
+    expect(observedText(oneShort)).toBe('100% of 2,879 measurements succeeded')
+    expect(successRateText(oneShort)).toBe('100%')
+  })
+
+  it('decides the rate by the counts: one failed measurement is never 100%, whatever the API rounded', () => {
+    // The API rounds the rate to two decimals: beyond 20,000 measurements one failure sends 100.
+    const oneFailed = {
+      ...availability,
+      measurements: 25_000,
+      successful: 24_999,
+      percent: 100,
+      expectedMeasurements: 25_000,
+      coveragePercent: 100,
+    }
+    expect(successRateText(oneFailed)).toBe('99.9%')
+    expect(observedText(oneFailed)).toBe('99.9% of 25,000 measurements succeeded')
+    expect(coverageText(oneFailed)).toBe('100% of the window measured (25,000 of 25,000 expected)')
+  })
+
   it('says there are no measurements instead of 0% or 100%', () => {
     const none = {
       ...availability,
@@ -199,6 +254,7 @@ describe('observed availability', () => {
       coveragePercent: 0,
     }
     expect(observedText(none)).toBe('No measurements in the last 24 hours')
+    expect(successRateText(none)).toBe('—')
     expect(coverageText(none)).toBe('0% of the window measured (0 of 1,440 expected)')
   })
 

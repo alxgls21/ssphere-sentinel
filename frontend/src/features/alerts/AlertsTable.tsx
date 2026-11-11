@@ -6,7 +6,7 @@ import { Link, useLocation, useNavigate } from 'react-router'
 import type { IncidentItem, IncidentSortKey } from '@/api/types'
 import { useViewTo } from '@/app/viewSearch'
 import { cn } from '@/lib/cn'
-import { EMPTY, formatAge, formatClock, type Timezone } from '@/lib/format'
+import { EMPTY, formatAge, formatClock, withAgo, type Timezone } from '@/lib/format'
 import {
   KIND_LABEL,
   KIND_SHORT,
@@ -162,7 +162,10 @@ export function AlertsTable({
                 </td>
                 <td className={cn(CELL, 'type-data tnum hidden px-3 text-right @xl:table-cell')}>
                   <Tooltip content={`Opened ${formatClock(Date.parse(item.openedAt), tz)}`}>
-                    <span tabIndex={0} aria-label={`Opened ${formatAge(item.openedAt, nowMs)} ago`}>
+                    <span
+                      tabIndex={0}
+                      aria-label={`Opened ${withAgo(formatAge(item.openedAt, nowMs))}`}
+                    >
                       {formatAge(item.openedAt, nowMs)}
                     </span>
                   </Tooltip>
@@ -171,7 +174,7 @@ export function AlertsTable({
                   <Tooltip content={`Started ${formatClock(Date.parse(item.startedAt), tz)}`}>
                     <span
                       tabIndex={0}
-                      aria-label={`Started ${formatAge(item.startedAt, nowMs)} ago`}
+                      aria-label={`Started ${withAgo(formatAge(item.startedAt, nowMs))}`}
                     >
                       {formatAge(item.startedAt, nowMs)}
                     </span>

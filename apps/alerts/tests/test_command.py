@@ -127,13 +127,16 @@ class ServingTests(TransactionTestCase):
 
         def cycle():
             calls.append(connection.connection is None)
+            connection.ensure_connection()  # a cycle works on the database: it leaves the connection open
             outcome = next(outcomes)
             if outcome == "done":
                 engine_.stop.set()
             return outcome
 
         engine_.cycle = cycle
-        with self.assertLogs("apps.alerts.engine", "INFO"):
+        # Without the loop's housekeeping: with CONN_MAX_AGE unset it closes the connection before every
+        # cycle, whatever the last one said, and would hide what the loop does after a failure.
+        with patch(f"{COMMAND}.close_old_connections"), self.assertLogs("apps.alerts.engine", "INFO"):
             engine_.serve()
         # After the failed cycle the connection was closed: the next one starts on a new connection.
         self.assertEqual(len(calls), 2)

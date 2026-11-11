@@ -53,7 +53,8 @@ them (``valid`` false, every rate null, never 0) and says why in
 
     delta_state   its deltas are not valid (``first``, ``reboot``, ``reset``, ``gap``)
     interval      no positive ``interval_seconds``
-    implausible   the interface speed is known and a direction exceeds 1.5 times it
+    implausible   the interface speed is known and a direction exceeds 1.5 times it,
+                  or a rate is too large to be a number (an interval of next to nothing)
     stale         (latest sample only) taken before the device's stale cutoff
 
 A valid sample without one counter (the device lacks it) has that rate null.
@@ -78,6 +79,7 @@ or unknown device, or an unknown interface of it, is a 404.
 
 from __future__ import annotations
 
+import math
 from datetime import datetime
 from uuid import UUID
 
@@ -253,8 +255,10 @@ def sample_rates(sample: dict, *, stale_before: datetime | None = None) -> dict:
             for counter, key in (("errors", "ErrorsPerSec"), ("discards", "DiscardsPerSec")):
                 delta = sample[f"{direction}_{counter}_delta"]
                 rates[f"{direction}{key}"] = delta / interval if delta is not None else None
-        if speed is not None and any(
-            rates[key] is not None and rates[key] > PLAUSIBLE_SPEED_FACTOR * speed for key in ("inBps", "outBps")
+        # An interval short enough makes a division overflow to infinity, which JSON cannot carry.
+        if any(rate is not None and not math.isfinite(rate) for rate in rates.values()) or (
+            speed is not None
+            and any(rates[key] is not None and rates[key] > PLAUSIBLE_SPEED_FACTOR * speed for key in ("inBps", "outBps"))
         ):
             reason = "implausible"
         elif stale_before is not None and sample["measured_at"] < stale_before:
@@ -466,7 +470,12 @@ def visible_device(visibility: Visibility, device_id: UUID):
 
 
 def mean(values: list[float]) -> float | None:
-    return round(sum(values) / len(values), 3) if values else None
+    if not values:
+        return None
+    result = sum(values) / len(values)
+    if not math.isfinite(result):  # finite values that add up to more than a float holds: divide each first
+        result = sum(value / len(values) for value in values)
+    return round(result, 3)
 
 
 @console_api()

@@ -5,7 +5,7 @@ import type {
   TargetProtocol,
   TargetReason,
 } from '@/api/types'
-import { EMPTY, formatAge, formatLatency, formatPercent } from './format'
+import { EMPTY, formatAge, formatLatency, formatPercent, withAgo } from './format'
 import { LATENCY_WARN_MS, LOSS_WARN_PERCENT } from './thresholds'
 
 /**
@@ -148,11 +148,24 @@ export const scheduleText = (item: TargetListItem): string =>
 
 /** How long ago the newest measurement was taken, or "never". */
 export const measuredAgo = (latest: TargetMeasurement | null, nowMs: number): string =>
-  latest === null ? 'never' : `${formatAge(latest.measuredAt, nowMs)} ago`
+  latest === null ? 'never' : withAgo(formatAge(latest.measuredAt, nowMs))
 
 /** How many of the probes of a round were answered: "3 of 4 probe packets answered". */
 export function probesText(measurement: TargetMeasurement, protocol: TargetProtocol): string {
   return `${measurement.successfulProbes} of ${measurement.probeCount} ${PROBE_NOUN[protocol]} answered`
+}
+
+/**
+ * A success rate as text, decided by the counts and not by the rounded percent the API sends (two
+ * decimals: beyond 20,000 measurements one failure rounds to 100). Only a rate without a failed
+ * measurement reads "100%": with one it is at most "99.9%", never "100.0%". Empty without a rate.
+ */
+export function successRateText(availability: TargetAvailability): string {
+  const { percent, successful, measurements } = availability
+  if (percent === null) return EMPTY
+  return successful < measurements
+    ? formatPercent(Math.min(percent, 99.9), 1)
+    : formatPercent(percent, 0)
 }
 
 /** The observed success rate: "99.5% of 1,420 measurements succeeded". Never an SLA or an uptime. */
@@ -160,13 +173,20 @@ export function observedText(availability: TargetAvailability): string {
   if (availability.percent === null || availability.measurements === 0) {
     return 'No measurements in the last 24 hours'
   }
-  return `${formatPercent(availability.percent, availability.percent === 100 ? 0 : 1)} of ${availability.measurements.toLocaleString('en-US')} measurements succeeded`
+  return `${successRateText(availability)} of ${availability.measurements.toLocaleString('en-US')} measurements succeeded`
 }
 
-/** How much of the window was measured at all. */
+/**
+ * How much of the window was measured at all, decided by the counts and not by the rounded percent
+ * the API sends (one decimal: 2,879 of 2,880 rounds to 100). Anything short of the whole window
+ * reads at most "99%".
+ */
 export function coverageText(availability: TargetAvailability): string {
-  if (availability.coveragePercent === null) return EMPTY
-  return `${formatPercent(availability.coveragePercent, 0)} of the window measured (${availability.measurements.toLocaleString('en-US')} of ${availability.expectedMeasurements.toLocaleString('en-US')} expected)`
+  const { coveragePercent, measurements, expectedMeasurements } = availability
+  if (coveragePercent === null) return EMPTY
+  const coverage =
+    measurements < expectedMeasurements ? Math.min(coveragePercent, 99) : coveragePercent
+  return `${formatPercent(coverage, 0)} of the window measured (${measurements.toLocaleString('en-US')} of ${expectedMeasurements.toLocaleString('en-US')} expected)`
 }
 
 /**
@@ -187,7 +207,7 @@ export function reasonDetail(item: TargetListItem, nowMs: number): string {
     case 'no_measurement':
       return `${what} · never measured`
     case 'stale':
-      return `${what} · last measured ${latest ? formatAge(latest.measuredAt, nowMs) : EMPTY} ago, not current`
+      return `${what} · last measured ${withAgo(latest ? formatAge(latest.measuredAt, nowMs) : EMPTY)}, not current`
     case 'failing':
       return `${what} · latest measurements all failed${latest?.failureReason ? `: ${latest.failureReason}` : ''}`
     case 'failed':

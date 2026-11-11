@@ -266,6 +266,25 @@ describe('observed availability', () => {
     expect(within(panel).getByText('24h')).toBeInTheDocument()
   })
 
+  it('never shows a rounded 100% for a day in which a measurement failed', async () => {
+    const { api } = showing(item(), {
+      availability24h: {
+        from: iso(86_400),
+        to: iso(0),
+        measurements: 2880,
+        successful: 2879,
+        percent: 99.97,
+        expectedMeasurements: 2880,
+        coveragePercent: 100,
+      },
+    })
+    page(api)
+    const panel = await screen.findByRole('region', { name: 'Observed availability' })
+    expect(within(panel).getByText('99.9%')).toBeInTheDocument()
+    expect(within(panel).getByText('99.9% of 2,880 measurements succeeded')).toBeInTheDocument()
+    expect(panel).not.toHaveTextContent('100.0%')
+  })
+
   it('says it is an observation and never an SLA, an uptime or a guarantee of one', async () => {
     const { api } = showing(item())
     page(api)

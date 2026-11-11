@@ -62,7 +62,9 @@ class ServerLivenessTests(TestCase):
         )
         self.assertEqual(server.effective_status, Server.Status.OFFLINE)
 
-        server.last_seen_at = self.now - timedelta(seconds=59)
+        # effective_status reads the real clock, not self.now: 59 seconds would leave this test a single
+        # second from setUp to the assertion before a slow machine made it fail.
+        server.last_seen_at = self.now - timedelta(seconds=30)
         server.save(update_fields=["last_seen_at", "updated_at"])
         self.assertEqual(server.effective_status, Server.Status.ONLINE)
 

@@ -19,7 +19,7 @@ import type {
   TargetListItem,
 } from '@/api/types'
 import { deviceDetail, deviceReasonWord } from './devices'
-import { EMPTY, formatAge, formatPercent } from './format'
+import { EMPTY, formatAge, formatPercent, withAgo } from './format'
 import { readingOf } from './serverList'
 import { reasonDetail, reasonWord } from './targets'
 import { compareSeverity } from './status'
@@ -108,7 +108,7 @@ function serverItem(item: ServerListItem, nowMs: number): AttentionItem {
       return {
         ...base,
         stateLabel: 'OFFLINE',
-        detail: `offline · last heartbeat ${formatAge(server.lastSeenAt, nowMs)} ago`,
+        detail: `offline · last heartbeat ${withAgo(formatAge(server.lastSeenAt, nowMs))}`,
         ageIso: server.lastSeenAt,
         ageBasis: server.lastSeenAt ? 'last-seen' : null,
         offline: true,
@@ -125,7 +125,7 @@ function serverItem(item: ServerListItem, nowMs: number): AttentionItem {
       return {
         ...base,
         stateLabel: 'NO READING',
-        detail: `reading is stale · last received ${formatAge(server.telemetry?.receivedAt ?? server.telemetry?.collectedAt, nowMs)} ago`,
+        detail: `reading is stale · last received ${withAgo(formatAge(server.telemetry?.receivedAt ?? server.telemetry?.collectedAt, nowMs))}`,
         ageIso: null,
         ageBasis: null,
       }

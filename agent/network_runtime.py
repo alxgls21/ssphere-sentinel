@@ -98,6 +98,21 @@ def load_runtime_config(environ: dict[str, str] | None = None) -> NetworkRuntime
     )
 
 
+def queue_file_exists(path: Path | None) -> bool:
+    """Whether there is a queue file that may hold a backlog.
+
+    ``Path.exists()`` raises ``PermissionError`` on Python 3.11 for a directory this
+    user may not search. A file there cannot be opened either, so it is no backlog,
+    and opening the queue (when there is work for it) falls back to memory.
+    """
+    if path is None:
+        return False
+    try:
+        return path.exists()
+    except OSError:
+        return False
+
+
 class NetworkRuntime:
     """Network monitoring for one agent process: probes -> queue -> heartbeat."""
 
@@ -135,7 +150,7 @@ class NetworkRuntime:
             targets = []
         config = load_runtime_config(env)
         has_targets = any(target.enabled for target in targets)
-        has_backlog = config.queue_path is not None and config.queue_path.exists()
+        has_backlog = queue_file_exists(config.queue_path)
         if not has_targets and not has_backlog:
             return None
         queue = MeasurementQueue.open(

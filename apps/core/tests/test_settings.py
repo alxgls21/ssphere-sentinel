@@ -234,6 +234,65 @@ class SiteAddressTests(SimpleTestCase):
         self.assertEqual(conf["ALLOWED_HOSTS"][-1], "192.168.1.10")
         self.assertFalse(conf["SESSION_COOKIE_SECURE"] or conf["CSRF_COOKIE_SECURE"])
 
+    def test_an_ipv6_address_is_allowed_the_way_a_host_header_spells_it(self):
+        from django.http.request import split_domain_port, validate_host
+
+        conf = self.settings_for(SENTINEL_URL="http://[FD00::10]:8000")
+        self.assertEqual(conf["CSRF_TRUSTED_ORIGINS"], ["http://[fd00::10]:8000"])
+        # Django compares the Host header of an IPv6 address with its brackets on.
+        domain, _port = split_domain_port("[fd00::10]:8000")
+        self.assertEqual(domain, "[fd00::10]")
+        self.assertTrue(validate_host(domain, conf["ALLOWED_HOSTS"]), conf["ALLOWED_HOSTS"])
+
+    def test_an_ipv6_address_is_allowed_in_the_one_form_a_browser_sends_whatever_its_spelling(self):
+        # A browser serializes an IPv6 address compressed and in lower case (RFC 5952) in Host and Origin,
+        # however the operator spelled it; Django compares both as text, so only that form matches.
+        from django.http.request import split_domain_port, validate_host
+
+        for address in (
+            "http://[fd00:0:0:0:0:0:0:10]:8000",
+            "http://[FD00::0010]:8000",
+            "http://[fd00:0000::10]:8000",
+        ):
+            with self.subTest(address=address):
+                conf = self.settings_for(SENTINEL_URL=address)
+                self.assertEqual(conf["SENTINEL_URL"], "http://[fd00::10]:8000")
+                self.assertEqual(conf["CSRF_TRUSTED_ORIGINS"], ["http://[fd00::10]:8000"])
+                domain, _port = split_domain_port("[fd00::10]:8000")
+                self.assertTrue(validate_host(domain, conf["ALLOWED_HOSTS"]), conf["ALLOWED_HOSTS"])
+
+    def test_a_name_with_a_letter_outside_ascii_is_allowed_in_the_form_a_browser_sends(self):
+        # A browser sends an internationalized name in its IDNA (ASCII) form in Host and Origin.
+        from django.http.request import split_domain_port, validate_host
+
+        conf = self.settings_for(SENTINEL_URL="https://sentinel.exämple.com")
+        self.assertEqual(conf["SENTINEL_URL"], "https://sentinel.xn--exmple-cua.com")
+        self.assertEqual(conf["CSRF_TRUSTED_ORIGINS"], ["https://sentinel.xn--exmple-cua.com"])
+        domain, _port = split_domain_port("sentinel.xn--exmple-cua.com")
+        self.assertTrue(validate_host(domain, conf["ALLOWED_HOSTS"]), conf["ALLOWED_HOSTS"])
+
+    def test_the_default_port_is_left_out_of_the_origin_as_a_browser_leaves_it_out(self):
+        # Django compares the Origin header with CSRF_TRUSTED_ORIGINS exactly; no browser sends ":443" for https.
+        for address, origin in (
+            ("https://sentinel.example.com:443", "https://sentinel.example.com"),
+            ("http://sentinel.example.com:80/", "http://sentinel.example.com"),
+            ("https://sentinel.example.com:80", "https://sentinel.example.com:80"),
+        ):
+            with self.subTest(address=address):
+                conf = self.settings_for(SENTINEL_URL=address)
+                self.assertEqual(conf["CSRF_TRUSTED_ORIGINS"], [origin])
+                self.assertEqual(conf["SENTINEL_URL"], origin)
+                self.assertEqual(conf["ALLOWED_HOSTS"][-1], "sentinel.example.com")
+
+    def test_a_dot_after_the_name_is_dropped_as_django_drops_it_from_a_host_header(self):
+        from django.http.request import split_domain_port, validate_host
+
+        conf = self.settings_for(SENTINEL_URL="https://sentinel.example.com.")
+        domain, _port = split_domain_port("sentinel.example.com.")
+        self.assertEqual(domain, "sentinel.example.com")
+        self.assertTrue(validate_host(domain, conf["ALLOWED_HOSTS"]), conf["ALLOWED_HOSTS"])
+        self.assertEqual(conf["CSRF_TRUSTED_ORIGINS"], ["https://sentinel.example.com"])
+
     def test_the_detailed_settings_still_apply(self):
         conf = self.settings_for(
             SENTINEL_URL="https://sentinel.example.com",

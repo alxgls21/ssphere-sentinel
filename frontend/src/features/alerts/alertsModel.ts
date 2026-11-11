@@ -10,7 +10,7 @@ import type {
   IncidentStatusFilter,
   SortDirection,
 } from '@/api/types'
-import { EMPTY, formatAge, formatStamp, type Timezone } from '@/lib/format'
+import { EMPTY, formatAge, formatStamp, withAgo, type Timezone } from '@/lib/format'
 import { CLOSE_REASON_TEXT, allCount, endedCount, openCount } from '@/lib/incidents'
 
 /**
@@ -164,7 +164,8 @@ export function writeQuery(params: URLSearchParams, query: AlertsQuery): URLSear
   const next = new URLSearchParams(params)
   const set = (name: string, value: string, isDefault: boolean) =>
     setQueryParam(next, name, value, isDefault)
-  set('q', query.q.trim(), query.q.trim() === '')
+  // As typed (the search box shows it back; see writeBasicListQuery). A blank search is no search.
+  set('q', query.q, query.q.trim() === '')
   set('status', query.status, query.status === DEFAULT_QUERY.status)
   set('severity', query.severity, query.severity === DEFAULT_QUERY.severity)
   set('kind', query.kind, query.kind === DEFAULT_QUERY.kind)
@@ -203,7 +204,7 @@ export const requestOf = (query: AlertsQuery, q: string): IncidentListOptions =>
 
 /** What happened last to an incident, in a few words and with its time: who saw it, how it ended. */
 export function lastChange(item: IncidentItem, nowMs: number, tz: Timezone) {
-  const ago = (iso: string | null) => (iso ? `${formatAge(iso, nowMs)} ago` : null)
+  const ago = (iso: string | null) => (iso ? withAgo(formatAge(iso, nowMs)) : null)
   const at = (iso: string | null) => (iso ? formatStamp(Date.parse(iso), tz, nowMs) : undefined)
   switch (item.status) {
     case 'active':

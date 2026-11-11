@@ -99,7 +99,7 @@ refuse() {
 if ! $have16 && ! $have18; then
     note="PostgreSQL $selected will create its database."
     if [ "$selected" = 18 ]; then
-        note="$note It needs SENTINEL_POSTGRES_INITIALIZE=true for that first start."
+        note="$note The init service authorizes that first start when it creates the secrets; with POSTGRES_PASSWORD in .env it needs SENTINEL_POSTGRES_INITIALIZE=true."
     else
         note="$note PostgreSQL 18 is the default for new installations (SENTINEL_POSTGRES=18)."
     fi

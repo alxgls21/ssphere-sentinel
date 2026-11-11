@@ -79,8 +79,11 @@ export function formatAge(iso: string | null | undefined, nowMs: number): string
   return `${Math.floor(seconds / 86_400)}d`
 }
 
+/** An age said with "ago", and a moment as "just now": never "now ago". */
+export const withAgo = (age: string): string => (age === 'now' ? 'just now' : `${age} ago`)
+
 export const formatAgo = (iso: string | null, nowMs: number): string =>
-  iso ? `${formatAge(iso, nowMs)} ago` : 'never'
+  iso ? withAgo(formatAge(iso, nowMs)) : 'never'
 
 const pad = (value: number) => String(value).padStart(2, '0')
 

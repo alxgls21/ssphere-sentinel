@@ -164,6 +164,8 @@ python3 -c 'import secrets; print(secrets.token_urlsafe(50))'
 Then set at least:
 
 ```dotenv
+# The address the console is opened at: the links in the incident emails come from it.
+SENTINEL_URL=https://sentinel.example.com
 DJANGO_DEBUG=false
 DJANGO_ALLOWED_HOSTS=sentinel.example.com
 DJANGO_CSRF_TRUSTED_ORIGINS=https://sentinel.example.com
@@ -622,15 +624,15 @@ no Sentinel process holds a superuser's password or connects as one:
 
 | Login | Used by | Can | Password in |
 | --- | --- | --- | --- |
-| `sentinel_app` | `web`, `alert-engine`, `notifier`, `domain-verifier` | read and write the application's rows | `.env` (`SENTINEL_DB_PASSWORD`) |
+| `sentinel_app` | `web`, `alert-engine`, `notifier`, `domain-verifier`, `maintenance` | read and write the application's rows | `.env` (`SENTINEL_DB_PASSWORD`) |
 | `sentinel_migrate` | `migrate` | change the schema, as `sentinel_owner` | `.env.migrate` (`SENTINEL_DB_MIGRATE_PASSWORD`) |
 | bootstrap superuser | `db`, and the operator through `docker compose exec db` | everything | `.env.bootstrap` (`POSTGRES_PASSWORD`) |
 
 Compose gives each password to its own service only. `.env` is the
-environment of `web`, `migrate` and the alert services, so it must not hold the other two:
+environment of `web`, `migrate` and the workers, so it must not hold the other two:
 `.env.migrate` is read by `migrate` alone, and `.env.bootstrap` by Compose
 alone, to configure `db`. `migrate` does not get `SENTINEL_DB_PASSWORD`, and
-`web` and the alert services do not get `SENTINEL_DB_MIGRATE_PASSWORD`, even
+`web` and the workers do not get `SENTINEL_DB_MIGRATE_PASSWORD`, even
 when `.env` has them.
 Every Sentinel process refuses to start with a password that is not its own,
 and with `SENTINEL_DB_ROLES` unset or `legacy` while a password of the
@@ -764,7 +766,12 @@ is safe in both cases.
 
 #### A new installation
 
-Follow [Configure](#1-configure), then give each login its own secret, with
+Follow [Configure](#1-configure) with the secrets in `.env`
+([Secrets in .env](#secrets-in-env), `SENTINEL_POSTGRES_INITIALIZE=true`
+included): once the database password is set, here in `.env.bootstrap`, the
+`init` service creates no secrets and does not authorize the new database, so
+`DJANGO_SECRET_KEY` and `AGENT_TOKEN_PEPPER` must be in `.env`. Then give each
+login its own secret, with
 the bootstrap password in its own file instead of `.env`:
 
 ```bash
@@ -799,7 +806,7 @@ Continue with [Start](#2-start) from `createsuperuser`.
 The tables of an existing installation belong to the bootstrap superuser;
 `apply` hands them to `sentinel_owner` in the same transaction that creates
 the logins. Plan a short maintenance window: the application (`web`,
-`alert-engine`, `notifier` and `domain-verifier`) stays stopped from step 1 to step 4. Nothing here touches the database volume: never add `--volumes`
+`alert-engine`, `notifier`, `domain-verifier` and `maintenance`) stays stopped from step 1 to step 4. Nothing here touches the database volume: never add `--volumes`
 to a Compose command, and leave `SENTINEL_POSTGRES` in `.env` as it is (an
 installation still on PostgreSQL 16 stays on it).
 
@@ -992,10 +999,12 @@ Remove `SENTINEL_POSTGRES_INITIALIZE` from `.env` once the database exists.
 
 Agents keep queueing network measurements while the application is stopped
 (see [operations.md](operations.md)). Stop the application in the old project,
-so that nothing writes to the old database, and read it into a private bundle:
+so that nothing writes to the old database (and its `proxy`, which holds the
+published port the new project takes), and read the database into a private
+bundle:
 
 ```bash
-docker compose --project-directory "$OLD" stop web alert-engine notifier domain-verifier maintenance
+docker compose --project-directory "$OLD" stop proxy web alert-engine notifier domain-verifier maintenance
 umask 077
 python3 -m sentinel.recovery export --compose-dir "$OLD" --bundle /var/backups/sentinel-recovery/bundle
 ```
@@ -1044,7 +1053,7 @@ login, trust, migrations, tables and schema, every row, the sequences and that
 no session of the application is connected), refuses anything but a verified
 work directory and the bundle that was imported, records `activating`, and
 then starts the stack; `recovery: ACTIVATED` is the last line. Point the TLS front
-end at the new project's port (the old `web` is stopped and its port free),
+end at the new project's port (the old `proxy` is stopped and its port free),
 sign in to the console and the admin, confirm that servers, their history and
 the network targets are there and that agents report again.
 

@@ -1,17 +1,15 @@
 """Transport failures of ``agent.http_client.post`` against a raw TCP server.
 
 ``post`` documents that it "raises HeartbeatError on transport failures and
-timeouts". The existing tests mock ``urlopen`` for that. ``http.client`` raises
+timeouts". The other tests mock ``urlopen`` for that. ``http.client`` raises
 errors that are not ``OSError`` (``BadStatusLine``, ``IncompleteRead``,
 ``InvalidURL``), and a body that stalls or is cut off while an *error* response
 is being read happens inside an ``except HTTPError`` handler, so none of those
-reach the ``HeartbeatError`` conversion.
+reached the ``HeartbeatError`` conversion when these tests were written.
 
-The ``test_RAW_*`` tests EXPECT TO FAIL against the current code (they assert the
-documented contract). The other tests describe behaviour that already holds and
-guard it.
-
-NOT EXECUTED when written: expect to fix small details.
+The ``test_RAW_*`` tests assert the documented contract: they were written against
+that defect, before the fix, and pass against the current code. The other tests
+describe behaviour that held already. All of them guard it now.
 """
 
 import socket
@@ -129,7 +127,7 @@ class TransportErrorTests(unittest.TestCase):
 
         self.assertIn("timed out", str(self.assertHeartbeatError(self.serve(script), timeout=0.5)))
 
-    # -- the documented contract, currently broken -----------------------------------
+    # -- the documented contract, broken when these were written ---------------------
 
     def test_RAW_a_reply_that_is_not_http_is_a_heartbeat_error(self):
         url = self.serve(lambda sock, _release: sock.sendall(b"NOT HTTP AT ALL\r\n\r\n"))

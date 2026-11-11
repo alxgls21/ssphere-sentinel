@@ -118,6 +118,16 @@ describe('the shape of an answer', () => {
     expect(sameShape(before, topology({ edges: EDGES.slice(1) }))).toBe(false)
   })
 
+  it('is not the same when an edge kept its id and now starts from another server', () => {
+    // A target given to the agent of another server: the answer keeps the edge id, `source` changes.
+    const reassigned = EDGES.map((entry) =>
+      entry.id === 'monitors:target:tgt-1' ? { ...entry, source: 'server:srv-lab' } : entry,
+    )
+    expect(sameShape(topology(), topology({ edges: reassigned }))).toBe(false)
+    const copied = EDGES.map((entry) => ({ ...entry }))
+    expect(sameShape(topology(), topology({ edges: copied }))).toBe(true)
+  })
+
   it('names the kinds that were left out, and only those', () => {
     const partial = topology({
       counts: {
