@@ -5,6 +5,7 @@ import type {
   ContainerList,
   ContainerListItem,
   ContainerListOptions,
+  MonitoringAgent,
   ServerDetail,
   ServerList,
   ServerListItem,
@@ -76,12 +77,29 @@ export function listContainers(
   return queryContainers(everyone, toIso(now), options)
 }
 
+/** A server's agent, as far as the sample fleet knows one: a server that has ever reported has one, enabled. */
+function agentOf(server: Server, now: number): MonitoringAgent | null {
+  if (server.lastSeenAt === null) return null
+  // Enrolled long before its first heartbeat: the fixtures hold no enrolment time, so a fixed age stands in.
+  const enrolledAt = toIso(Math.floor(now / DAY) * DAY - 30 * DAY)
+  return {
+    id: `agent-${server.id}`,
+    name: server.name,
+    enabled: true,
+    lastSeenAt: server.lastSeenAt,
+    agentVersion: server.agentVersion,
+    createdAt: enrolledAt,
+    updatedAt: server.lastSeenAt,
+  }
+}
+
 export function serverDetail(fleet: Fleet, id: string, now: number): ServerDetail {
   const server = fleet.servers.find((candidate) => candidate.id === id)
   if (!server) throw new ApiError(`Server ${id} not found`, 404)
   return {
     generatedAt: toIso(now),
     item: itemOf(server, fleet, makeLookup(fleet)),
+    agent: agentOf(server, now),
     containers: fleet.containers
       .filter((container) => container.serverId === id)
       .map((container) => ({ container, status: containerHealthOf(container) })),

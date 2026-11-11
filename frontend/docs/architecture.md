@@ -413,8 +413,8 @@ Ten methods of `SentinelApi` serve it: `getNotificationSettings`, `saveNotificat
 exactly its three preferences, a rule's change never carries its kind, and a test email names no address.
 
 **Capabilities.** The session carries `capabilities` (`viewAlertRules`, `createAlertRules`,
-`editAlertRules`, `manageOwnNotifications`, `sendTestEmail`, `viewSystemStatus`, and the incidents'
-`acknowledgeIncidents`). `AuthProvider` exposes them through `useAuth`; absent (an anonymous session, an
+`editAlertRules`, `manageOwnNotifications`, `sendTestEmail`, `viewSystemStatus`, the incidents'
+`acknowledgeIncidents`, and the servers' `manageServers`). `AuthProvider` exposes them through `useAuth`; absent (an anonymous session, an
 older server, the sample fleet) means none. They decide what is offered and when a request is made at
 all: a page whose capability is missing says so and asks the server for nothing. They never decide what is
 allowed: every answer, 403 included, is the server's, and a refused read is shown as a refusal even where
@@ -478,8 +478,9 @@ fleet larger than one page; until the API has it the Overview says what it can a
 ## Servers screen
 
 `SentinelApi` gains three methods: `listServers` (one page of the servers in scope that match
-a query: `q`, `status`, `sort`, `dir`, `page`, `pageSize`), `getServer` (one server and its
-containers, 404 for an unknown id) and `getServerSeries` (CPU, RAM and disk history). The
+a query: `q`, `status`, `sort`, `dir`, `page`, `pageSize`), `getServer` (one server, its agent and
+its containers, 404 for an unknown id) and `getServerSeries` (CPU, RAM and disk history), and four
+writes for adding a monitored host (below). The
 console API searches, filters, sorts and pages (50 a page, 200 at most); the list asks for a
 page and never treats it as the fleet: its `counts` (per status over the scope and the
 search) and `scopeTotal` are what the chips and the header say, a page past the last goes
@@ -511,6 +512,32 @@ a failed request is that panel's error, and no sample data stands in for it):
 shapes of those payloads. `lib/status.ts` holds the health rules, which the console
 API mirrors, so the console and the Overview agree. A server that has never
 reported has empty series arrays, and the panel says "No history".
+
+**Adding a monitored host.** `createServer` (POST `servers/`), `createAgent` (POST
+`servers/<id>/agents/`), `rotateAgentToken` (POST `agents/<id>/rotate-token/`) and
+`setAgentEnabled` (PATCH `agents/<id>/`) are offered only where the session's `manageServers`
+capability says so (the accounts that may change alert rules and hold the admin's permissions to
+add servers and to add and change agents, all of them); the server decides again on every
+request. `/servers/new` (`features/servers/AddServerPage`, reached from the Servers header, the
+Overview's "Nothing is monitored yet" and the palette) is the form (`serverDraft.ts`: the name,
+the hostname, the site from `/scope/`, the address, the OS, a description; the obvious checks are
+made here, every other one is the server's, by field), then creates the server and its agent in
+two requests (a failed second one is retried from the same page: the server exists). The answer
+to a creation or a rotation is the one that carries the token (`AgentEnrollment`), and the
+`AgentEnrollment` view shows it once: the token, the server's address, copy buttons, and the
+installation commands of docs/agent-deployment.md filled in (`enrollment.ts`: the token is read
+hidden into the root-only `agent.env` through a shell builtin and a pipe, never a command line).
+A rotated token gets the rotation commands instead (`rotationCommands`: they replace the token line
+of `agent.env` and restart the agent), and without a `SENTINEL_URL` on the server (`serverUrl`
+null) the view shows the token and says to set it, never a guessed address. The notice that the
+token is shown once takes the focus.
+The token lives in the page's or the panel's state only: _Done_ forgets it (the Add server page
+replaces itself in the history with the server's page), and nothing writes it to the URL, the
+history state, any storage or any cache. The server's page has an **Agent** panel (`AgentPanel`):
+its name, state, last heartbeat and version for everyone, and for an account that may, _Rotate
+token_ (confirmed first: the old token stops at once), _Disable agent_ / _Enable agent_, or
+_Create agent_ for a server that has none. The HTTP adapter names every field it reads of an
+agent, so a token or a hash in a detail could never reach a screen, and every field it writes.
 
 ## Authentication and API modes
 

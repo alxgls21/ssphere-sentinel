@@ -10,7 +10,7 @@ changed).
 | Secret | Effect of rotating | Procedure |
 | --- | --- | --- |
 | `DJANGO_SECRET_KEY` | Admin sessions end (log in again). Agent tokens are not affected: they use `AGENT_TOKEN_PEPPER`. | New value in `.env`, `docker compose up -d`. |
-| Agent token (one agent) | That agent is rejected until reconfigured; its measurements stay queued. | Admin action **Regenerate authentication token**, then update the agent ([agent-deployment.md](agent-deployment.md#token-rotation)). |
+| Agent token (one agent) | That agent is rejected until reconfigured; its measurements stay queued. | **Rotate token** on the server's page in the console (or the admin action **Regenerate authentication token**), then update the agent ([agent-deployment.md](agent-deployment.md#token-rotation)). |
 | `AGENT_TOKEN_PEPPER` | **Every** agent token stops working. | See below. |
 | `POSTGRES_PASSWORD` | The application loses database access until both sides match. | See below. |
 | Cloudflare Tunnel token | The tunnel reconnects with the new token. | Refresh the token in the Zero Trust dashboard, update `.env.tunnel`, `docker compose -f compose.yml -f compose.tunnel.yml up -d`. |
@@ -26,8 +26,9 @@ Only rotate it if it may have leaked together with the database (token hashes
 alone do not let anyone authenticate). Plan a window:
 
 1. Set the new `AGENT_TOKEN_PEPPER` in `.env` and run `docker compose up -d`.
-2. For every agent, run **Regenerate authentication token** in the admin and
-   update that host's `agent.env`, then restart its agent.
+2. For every agent, **Rotate token** on the server's page in the console (or
+   **Regenerate authentication token** in the admin) and update that host's
+   `agent.env`, then restart its agent.
 
 Agents keep queueing network measurements while they are rejected (up to
 7 days by default) and deliver them once updated.

@@ -366,10 +366,14 @@ describe('settings in the sample fleet', () => {
     ],
     ['updateAlertRule', (api) => api.updateAlertRule('r1', { enabled: false, version: 1 })],
     ['getSystemStatus', (api) => api.getSystemStatus()],
+    ['createServer', (api) => api.createServer({ name: 'web-9' })],
+    ['createAgent', (api) => api.createAgent('srv-ath-db-01', {})],
+    ['rotateAgentToken', (api) => api.rotateAgentToken('agent-1')],
+    ['setAgentEnabled', (api) => api.setAgentEnabled('agent-1', false)],
   ]
 
   it.each(asks)(
-    'refuses %s with a 403: the sample fleet has no accounts, rules or notifier',
+    'refuses %s with a 403: the sample fleet has no accounts, rules, notifier or way to add a host',
     async (_name, ask) => {
       await expect(ask(apiFor('normal'))).rejects.toMatchObject({ status: 403, code: 'forbidden' })
     },

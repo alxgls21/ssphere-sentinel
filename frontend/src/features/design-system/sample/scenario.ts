@@ -52,6 +52,10 @@ export const GALLERY_API: SentinelApi = {
   createAlertRule: refuse('createAlertRule'),
   updateAlertRule: refuse('updateAlertRule'),
   getSystemStatus: refuse('getSystemStatus'),
+  createServer: refuse('createServer'),
+  createAgent: refuse('createAgent'),
+  rotateAgentToken: refuse('rotateAgentToken'),
+  setAgentEnabled: refuse('setAgentEnabled'),
 }
 
 /** Used only when the page is mounted without the app's PrefsProvider. */

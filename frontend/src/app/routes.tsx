@@ -13,6 +13,7 @@ import { DESIGN_SYSTEM_PATH } from '@/shell/screen'
 // Screens load on demand so the shell paints before any screen code (or chart code) arrives.
 const OverviewPage = lazy(() => import('@/features/overview/OverviewPage'))
 const ServersListPage = lazy(() => import('@/features/servers/ServersListPage'))
+const AddServerPage = lazy(() => import('@/features/servers/AddServerPage'))
 const ServerDetailPage = lazy(() => import('@/features/servers/ServerDetailPage'))
 const DockerPage = lazy(() => import('@/features/docker/DockerPage'))
 const NetworkPage = lazy(() => import('@/features/network/NetworkPage'))
@@ -49,6 +50,7 @@ export function AppRoutes() {
           <Route index element={<OverviewPage />} />
           <Route path="servers">
             <Route index element={<ServersListPage />} />
+            <Route path="new" element={<AddServerPage />} />
             <Route path=":id" element={<ServerDetailPage />} />
           </Route>
           <Route path="docker" element={<DockerPage />} />

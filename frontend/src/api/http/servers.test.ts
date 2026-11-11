@@ -1,6 +1,16 @@
 import { describe, expect, it, vi } from 'vitest'
 import { ApiError } from '../errors'
-import { getFleetLoad, getServer, getServerSeries, listServers, parseServerList } from './servers'
+import {
+  createAgent,
+  createServer,
+  getFleetLoad,
+  getServer,
+  getServerSeries,
+  listServers,
+  parseServerList,
+  rotateAgentToken,
+  setAgentEnabled,
+} from './servers'
 import { createTransport, type Transport } from './transport'
 
 /** The shapes below are what apps/console serves (servers.py, containers.py, history.py). */
@@ -56,10 +66,27 @@ const container = {
   },
   status: 'healthy',
 }
+const agent = {
+  id: '9d2b1c4e-3f5a-4b6c-8d7e-0f1a2b3c4d5e',
+  name: 'ath-db-01',
+  enabled: true,
+  lastSeenAt: '2026-10-17T10:00:01.000Z',
+  agentVersion: '0.4.2',
+  createdAt: '2026-09-01T08:00:00.000Z',
+  updatedAt: '2026-10-17T10:00:01.000Z',
+}
 const detail = (over: Record<string, unknown> = {}) => ({
   generatedAt: '2026-10-17T10:00:05.000Z',
   item: item(),
+  agent,
   containers: [container],
+  ...over,
+})
+const enrollment = (over: Record<string, unknown> = {}) => ({
+  generatedAt: '2026-10-17T10:00:05.000Z',
+  item: { ...agent, lastSeenAt: null, agentVersion: '' },
+  token: 'Zm9yLXRlc3RzLW9ubHktbm90LWEtcmVhbC10b2tlbg',
+  serverUrl: 'https://sentinel.example.net',
   ...over,
 })
 const series = (over: Record<string, unknown> = {}) => ({
@@ -74,7 +101,13 @@ const series = (over: Record<string, unknown> = {}) => ({
 
 const transport = (answer: unknown) => {
   const get = vi.fn(async () => answer)
-  return { get, post: vi.fn() } as unknown as Transport & { get: typeof get }
+  const post = vi.fn(async () => answer)
+  const patch = vi.fn(async () => answer)
+  return { get, post, patch } as unknown as Transport & {
+    get: typeof get
+    post: typeof post
+    patch: typeof patch
+  }
 }
 
 describe('servers list', () => {
@@ -228,7 +261,27 @@ describe('one server', () => {
     expect(t.get).toHaveBeenCalledWith('servers/a%2Fb%20c/', { signal: undefined })
   })
 
+  it('carries the agent as the server describes it, and none for a server without one', async () => {
+    const result = await getServer(transport(detail()))(server.id)
+    expect(result.agent).toEqual(agent)
+    expect(result.agent).not.toHaveProperty('token')
+    expect((await getServer(transport(detail({ agent: null })))(server.id)).agent).toBeNull()
+  })
+
+  it('never carries a token or a hash the answer might hold next to the agent', async () => {
+    const leaky = detail({ agent: { ...agent, token: 'leak', tokenHash: 'leak' } })
+    const result = await getServer(transport(leaky))(server.id)
+    expect(JSON.stringify(result)).not.toContain('leak')
+  })
+
   it.each([
+    ['no agent key at all', detail({ agent: undefined })],
+    ['an agent without an id', detail({ agent: { ...agent, id: undefined } })],
+    ['an agent whose enabled flag is text', detail({ agent: { ...agent, enabled: 'yes' } })],
+    [
+      'an agent whose last heartbeat does not parse',
+      detail({ agent: { ...agent, lastSeenAt: 'yesterday' } }),
+    ],
     [
       'an unknown container state',
       detail({
@@ -258,6 +311,128 @@ describe('one server', () => {
     await expect(getServer(real)('00000000-0000-0000-0000-000000000000')).rejects.toMatchObject({
       status: 404,
       code: 'not_found',
+    })
+  })
+})
+
+describe('adding a server', () => {
+  it('posts the fields named, and nothing else the caller holds', async () => {
+    const t = transport(detail({ agent: null }))
+    const result = await createServer(t)({
+      name: 'web-9',
+      hostname: 'web-9.example.net',
+      ipAddress: null,
+      siteId: 's1',
+      ...({ token: 'never', status: 'online' } as object),
+    })
+    expect(t.post).toHaveBeenCalledWith(
+      'servers/',
+      { name: 'web-9', hostname: 'web-9.example.net', ipAddress: null, siteId: 's1' },
+      { signal: undefined },
+    )
+    expect(result.item.server.id).toBe(server.id)
+    expect(result.agent).toBeNull()
+  })
+
+  it('leaves out what was not given, so the server applies its defaults', async () => {
+    const t = transport(detail({ agent: null }))
+    await createServer(t)({ name: 'web-9' })
+    expect(t.post).toHaveBeenCalledWith('servers/', { name: 'web-9' }, { signal: undefined })
+  })
+
+  it('reports a name another server has as the server said it, a 409', async () => {
+    const fetchImpl = vi.fn(
+      async () =>
+        new Response(
+          JSON.stringify({
+            error: { code: 'server_exists', message: 'A server with this name already exists.' },
+          }),
+          { status: 409 },
+        ),
+    )
+    const real = createTransport({ fetchImpl })
+    await expect(createServer(real)({ name: 'web-1' })).rejects.toMatchObject({
+      status: 409,
+      code: 'server_exists',
+    })
+  })
+})
+
+describe('an agent and its token', () => {
+  it('asks for the agent of the server, by name or without one, and reads the token once', async () => {
+    const t = transport(enrollment())
+    const result = await createAgent(t)(server.id, { name: 'db agent' })
+    expect(t.post).toHaveBeenCalledWith(
+      `servers/${server.id}/agents/`,
+      { name: 'db agent' },
+      { signal: undefined },
+    )
+    expect(result.token).toBe('Zm9yLXRlc3RzLW9ubHktbm90LWEtcmVhbC10b2tlbg')
+    expect(result.serverUrl).toBe('https://sentinel.example.net')
+    expect(result.item).toMatchObject({ id: agent.id, enabled: true, lastSeenAt: null })
+    await createAgent(t)('a/b', {})
+    expect(t.post).toHaveBeenLastCalledWith('servers/a%2Fb/agents/', {}, { signal: undefined })
+  })
+
+  it('reads a server without an address (SENTINEL_URL unset) as null, never a guess', async () => {
+    const t = transport(enrollment({ serverUrl: null }))
+    expect((await createAgent(t)(server.id, {})).serverUrl).toBeNull()
+    expect((await rotateAgentToken(t)(agent.id)).serverUrl).toBeNull()
+  })
+
+  it('asks for a rotation with no options, and reads the new token once', async () => {
+    const t = transport(enrollment({ token: 'bmV3LXRva2Vu' }))
+    const result = await rotateAgentToken(t)(agent.id)
+    expect(t.post).toHaveBeenCalledWith(
+      `agents/${agent.id}/rotate-token/`,
+      {},
+      { signal: undefined },
+    )
+    expect(result.token).toBe('bmV3LXRva2Vu')
+  })
+
+  it('sends exactly the enabled flag', async () => {
+    const t = transport({
+      generatedAt: '2026-10-17T10:00:05.000Z',
+      item: { ...agent, enabled: false },
+    })
+    const result = await setAgentEnabled(t)(agent.id, false)
+    expect(t.patch).toHaveBeenCalledWith(
+      `agents/${agent.id}/`,
+      { enabled: false },
+      { signal: undefined },
+    )
+    expect(result.item.enabled).toBe(false)
+  })
+
+  it.each([
+    ['no token', enrollment({ token: undefined })],
+    ['an empty token', enrollment({ token: '' })],
+    ['a token that is not text', enrollment({ token: 42 })],
+    ['no server address', enrollment({ serverUrl: '' })],
+    ['no agent', enrollment({ item: undefined })],
+  ])('refuses an answer with %s', async (_what, answer) => {
+    await expect(createAgent(transport(answer))(server.id, {})).rejects.toMatchObject({
+      code: 'bad_response',
+    })
+    await expect(rotateAgentToken(transport(answer))(agent.id)).rejects.toMatchObject({
+      code: 'bad_response',
+    })
+  })
+
+  it('reports a server that has an agent already as the server said it, a 409', async () => {
+    const fetchImpl = vi.fn(
+      async () =>
+        new Response(
+          JSON.stringify({
+            error: { code: 'agent_exists', message: 'This server already has an agent.' },
+          }),
+          { status: 409 },
+        ),
+    )
+    await expect(createAgent(createTransport({ fetchImpl }))(server.id, {})).rejects.toMatchObject({
+      status: 409,
+      code: 'agent_exists',
     })
   })
 })

@@ -2,11 +2,12 @@ import { screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { Route, Routes, useLocation } from 'react-router'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { NO_CAPABILITIES } from '@/api/auth'
 import type { SentinelApi } from '@/api/client'
 import { ApiError } from '@/api/errors'
 import { createMockApi } from '@/api/mock/client'
 import type { ServerList } from '@/api/types'
-import { createTestApi, renderApp } from '@/test/render'
+import { createFakeAuth, createTestApi, renderApp } from '@/test/render'
 import ServersListPage from './ServersListPage'
 
 /** jsdom has no viewport: every media query answers the same, so a test picks "desktop" or "phone". */
@@ -33,17 +34,20 @@ function Where() {
   return <output aria-label="location">{location.pathname + location.search}</output>
 }
 
-const page = (route = '/servers', api = mock()) =>
+const page = (route = '/servers', api = mock(), auth = createFakeAuth()) =>
   renderApp(
     <>
       <Routes>
         <Route path="/servers" element={<ServersListPage />} />
+        <Route path="/servers/new" element={<p>add server form</p>} />
         <Route path="/servers/:id" element={<p>detail page</p>} />
       </Routes>
       <Where />
     </>,
-    { api, route },
+    { api, route, auth },
   )
+
+const mayAdd = () => createFakeAuth({ capabilities: { ...NO_CAPABILITIES, manageServers: true } })
 
 const table = () => screen.findByRole('table', { name: 'Servers' })
 const hostnames = (t: HTMLElement) =>
@@ -188,6 +192,28 @@ describe('ServersListPage', () => {
     page('/servers', mock({ scenario: 'empty' }))
     expect(await screen.findByText('No servers monitored')).toBeInTheDocument()
     expect(screen.getByText('0 of 0 shown')).toBeInTheDocument()
+    // An account that may not add hosts is told how one appears, and offered nothing.
+    expect(screen.queryByRole('link', { name: 'Add server' })).toBeNull()
+  })
+
+  it('offers to add a server, in the header and when nothing is monitored, to an account that may', async () => {
+    const user = userEvent.setup()
+    page('/servers?range=6h', mock({ scenario: 'empty' }), mayAdd())
+    expect(await screen.findByText('No servers monitored')).toBeInTheDocument()
+    const links = screen.getAllByRole('link', { name: 'Add server' })
+    expect(links).toHaveLength(2)
+    for (const link of links) expect(link).toHaveAttribute('href', '/servers/new?range=6h')
+    await user.click(links[1]!)
+    expect(await screen.findByText('add server form')).toBeInTheDocument()
+    expect(screen.getByLabelText('location')).toHaveTextContent('/servers/new?range=6h')
+  })
+
+  it('keeps the action in the header once servers are monitored, and only for an account that may', async () => {
+    page('/servers', mock(), mayAdd())
+    await table()
+    expect(screen.getByRole('link', { name: 'Add server' })).toHaveAttribute('href', '/servers/new')
+    page('/servers')
+    expect(screen.getAllByRole('link', { name: 'Add server' })).toHaveLength(1)
   })
 
   it('shows the loading state and then the table', async () => {

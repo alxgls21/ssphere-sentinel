@@ -1,4 +1,7 @@
 import type {
+  AgentChange,
+  AgentEnrollment,
+  AgentInput,
   AlertRuleChange,
   AlertRuleDetail,
   AlertRuleInput,
@@ -32,6 +35,7 @@ import type {
   RequestOptions,
   ScopeOptions,
   ServerDetail,
+  ServerInput,
   ServerList,
   ServerListOptions,
   ServerSeries,
@@ -190,4 +194,36 @@ export interface SentinelApi {
 
   /** The alert engine, the notifier, the email outbox and what the deployment sets. 403 without the capability. */
   getSystemStatus(options?: Pick<RequestOptions, 'signal'>): Promise<SystemStatus>
+
+  /**
+   * Adds a server (no agent yet) and answers with its detail. Rejects: 400 `validation_error` with
+   * `fields`, 409 `server_exists` for a name another server has, 403.
+   */
+  createServer(input: ServerInput, options?: Pick<RequestOptions, 'signal'>): Promise<ServerDetail>
+
+  /**
+   * Adds the agent of a server and answers with its token, once. Rejects: 409 `agent_exists` when the
+   * server has one, 404 for an unknown server, 400 `validation_error`, 403.
+   */
+  createAgent(
+    serverId: string,
+    input: AgentInput,
+    options?: Pick<RequestOptions, 'signal'>,
+  ): Promise<AgentEnrollment>
+
+  /**
+   * Gives an agent a new token, answered once; the old token stops working at once. Rejects: 404 for an
+   * unknown agent, 403.
+   */
+  rotateAgentToken(
+    agentId: string,
+    options?: Pick<RequestOptions, 'signal'>,
+  ): Promise<AgentEnrollment>
+
+  /** Enables or disables an agent (a disabled agent's heartbeats are refused). Rejects: 404, 403. */
+  setAgentEnabled(
+    agentId: string,
+    enabled: boolean,
+    options?: Pick<RequestOptions, 'signal'>,
+  ): Promise<AgentChange>
 }

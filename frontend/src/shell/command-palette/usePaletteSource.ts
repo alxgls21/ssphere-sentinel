@@ -11,6 +11,7 @@ import {
   Pause,
   Play,
   RefreshCw,
+  ServerCog,
 } from 'lucide-react'
 import { useMemo } from 'react'
 import { useNavigate } from 'react-router'
@@ -29,8 +30,9 @@ import {
 import { useShell } from '@/app/shell'
 import { useViewSearch } from '@/app/viewSearch'
 import { useRange } from '@/app/viewState'
+import { copyText } from '@/lib/clipboard'
+import { NEW_SERVER_PATH } from '@/lib/paths'
 import { stepRange } from '@/lib/range'
-import { copyText } from './clipboard'
 import {
   entityItem,
   helpItems,
@@ -61,6 +63,7 @@ export function usePaletteSource({
   const apiMode = useApiMode()
   const { capabilities } = useAuth()
   const mayCreateRules = capabilities.createAlertRules
+  const mayAddServers = capabilities.manageServers
   const { paused, togglePause, refresh } = useLive()
   const { tz, toggleTz, singleKeyShortcuts, setSingleKeyShortcuts, motion, setMotion } = usePrefs()
   const { sidebarCollapsed, toggleSidebar, openShortcuts, flashStatus } = useShell()
@@ -202,6 +205,20 @@ export function usePaletteSource({
             },
           ]
         : []),
+      // Offered to an account that may add hosts; the server decides again when one is added.
+      ...(mayAddServers
+        ? [
+            {
+              id: 'action:add-server',
+              group: 'actions' as const,
+              title: 'Add server',
+              subtitle: 'Enrols a host: its agent and the token to install',
+              icon: ServerCog,
+              keywords: ['create', 'new', 'host', 'agent', 'token', 'enrol', 'monitor'],
+              run: () => navigate({ pathname: NEW_SERVER_PATH }),
+            },
+          ]
+        : []),
     ]
 
     const scenarios: PaletteItem[] =
@@ -245,6 +262,7 @@ export function usePaletteSource({
     dataSource,
     apiMode,
     mayCreateRules,
+    mayAddServers,
     paused,
     togglePause,
     refresh,

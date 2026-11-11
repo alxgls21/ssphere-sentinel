@@ -148,6 +148,10 @@ describe('OverviewPage', () => {
         'requestTestEmail',
         'saveNotificationPreferences',
         'updateAlertRule',
+        'createServer',
+        'createAgent',
+        'rotateAgentToken',
+        'setAgentEnabled',
         'source',
       ].sort(),
     )

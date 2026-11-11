@@ -31,6 +31,15 @@
       "counts": {"critical": 1, "warning": 0, "unknown": 0, "idle": 1, "healthy": 1}
     }
   },
+  "agent": {
+    "id": "00000000-0000-0000-0000-00000000a9e1",
+    "name": "web-1-agent",
+    "enabled": true,
+    "lastSeenAt": null,
+    "agentVersion": "1.2.3",
+    "createdAt": "<iso-utc>",
+    "updatedAt": "<iso-utc>"
+  },
   "containers": [
     {
       "container": {

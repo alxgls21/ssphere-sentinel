@@ -351,9 +351,29 @@ the network unencrypted; the agent logs a warning for `http://` URLs.
 
 ## 4. Add monitored hosts
 
-In the admin: add a **Server**, then an **Agent** for it (the token is shown
-once), then optional **Network targets**. Install the agent on the host with
-[agent-deployment.md](agent-deployment.md).
+In the console, **Servers → Add server** (also offered on the Overview while
+nothing is monitored, and in the command palette): give the host a name, place
+it on a site (which decides who sees it; without one, only accounts that see
+every customer do), and the console creates the server and its agent. The
+agent's token is shown **once**, with the server's address and the commands
+that install the agent on a Linux host ([agent-deployment.md](agent-deployment.md));
+the commands read the token hidden from the terminal into the root-only
+environment file, so it is never on a command line. The server's page then
+shows its agent, where a token is rotated (the old one stops working at once)
+and the agent is disabled or enabled. This is offered to the accounts that may
+change alert rules and hold the admin's permissions for the same actions
+(`alerts.change_alertrule` with access to every customer, plus
+`infrastructure.add_server`, `agents.add_agent` and `agents.change_agent`: the
+first administrator, or whoever you grant them). The address in the answer and
+in the commands is `SENTINEL_URL`; while it is not set, the console shows the
+token without the commands and says to set it, rather than guessing an address
+from the request (which is `http://` behind a proxy that ends TLS). The server
+stores only a hash of each token, never logs one, and answers it in that one
+response only.
+
+The admin remains possible: add a **Server**, then an **Agent** for it (the
+token is shown once), or run `python manage.py create_agent`; all three make
+the token the same way. Optional **Network targets** are added in the admin.
 
 ## Operations
 

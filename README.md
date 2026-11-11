@@ -19,7 +19,7 @@ and lightweight host agents.
   counters (optional).
 
 The server stores current state and bounded history in PostgreSQL. Operators
-manage inventory and agents in Django admin; the web console, served on the
+add monitored hosts in the console (or manage inventory and agents in Django admin); the web console, served on the
 same address by the Compose deployment, reads the session-authenticated console
 API.
 
@@ -178,15 +178,17 @@ they must not appear in URLs, logs, or committed files. See the
 
 ## Running an agent locally
 
-Create a Server and Agent in Django admin, or create the agent from the command
-line:
+Add the server in the console (**Servers → Add server**: it creates the agent
+with it and shows the token once, with the commands that install the agent on a
+Linux host). The admin remains possible (a Server, then an Agent), and so does
+the command line:
 
 ```bash
 python manage.py create_agent --server SERVER_UUID --name server-agent
 ```
 
-The raw token is shown once. Configure the local process and send either one
-heartbeat or continuous heartbeats:
+Every way shows the raw token once. Configure the local process and send either
+one heartbeat or continuous heartbeats:
 
 ```bash
 export SENTINEL_URL=http://127.0.0.1:8000
@@ -256,7 +258,8 @@ starting point for network and SNMP configuration.
 The browser console uses Django sessions and CSRF protection, never agent
 tokens. Besides the first-run setup, sign-in and sign-out it writes only what
 an account is permitted to administer (acknowledging incidents, alert rules,
-its own email preferences, test emails), every change checked on the server. Access is
+its own email preferences, test emails, monitored domains, and adding servers
+with their agents), every change checked on the server. Access is
 deny-by-default and filtered by customer/site grants; see
 [console access control](docs/security.md#console-authentication-and-access-control).
 
@@ -267,8 +270,9 @@ deny-by-default and filtered by customer/site grants; see
 | `POST /api/v1/console/auth/login/` | Session sign-in |
 | `POST /api/v1/console/auth/logout/` | Session sign-out |
 | `GET /api/v1/console/scope/` | Visible customers and sites |
-| `GET /api/v1/console/servers/` | Filtered, sorted, paginated servers and status counts |
-| `GET /api/v1/console/servers/<id>/` | One visible server and its containers |
+| `GET`, `POST /api/v1/console/servers/` | Filtered, sorted, paginated servers and status counts; adding a server |
+| `GET /api/v1/console/servers/<id>/` | One visible server, its agent (never a token) and its containers |
+| `POST /api/v1/console/servers/<id>/agents/`; `POST .../agents/<id>/rotate-token/`; `PATCH .../agents/<id>/` | A server's agent: created (the token is answered once, with the server's address), its token rotated (the old one stops at once), and enabled or disabled |
 | `GET /api/v1/console/servers/<id>/series/` | CPU, memory, and disk series for `15m`, `1h`, `6h`, or `24h` |
 | `GET /api/v1/console/containers/` | Filtered, sorted, paginated containers |
 | `GET /api/v1/console/targets/`; `GET .../targets/<id>/`; `GET .../targets/<id>/series/` | Network targets: the list, one visible target, and its measurement series for a `range` |

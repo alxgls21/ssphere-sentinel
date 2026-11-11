@@ -77,7 +77,12 @@ class SeparationTests(TestCase):
         self.assertEqual(refused.status_code, 403)
 
     def test_neither_api_imports_the_others_authentication_code(self):
-        """Import graph: apps.console never imports apps.agents (or reads Authorization), and vice versa."""
+        """Import graph: apps.console never imports the agents' authentication (or reads Authorization), and vice versa.
+
+        The one console module that adds hosts (``apps.console.enrollment``) reaches the agents app for
+        the agents' lifecycle only: the model, and the service the admin and ``create_agent`` make and
+        rotate tokens with. Never their authentication, their token hashing or their views.
+        """
         import ast
         from pathlib import Path
 
@@ -97,8 +102,11 @@ class SeparationTests(TestCase):
 
         console_root = Path(apps.console.__file__).parent
         agents_root = Path(apps.agents.__file__).parent
+        lifecycle = {"apps.agents.models", "apps.agents.services"}
         for path, modules in imported_modules(console_root):
             for module in modules:
+                if path.name == "enrollment.py" and module in lifecycle:
+                    continue
                 self.assertFalse(module.startswith("apps.agents"), f"{path.name} imports {module}")
         for path, modules in imported_modules(agents_root):
             for module in modules:

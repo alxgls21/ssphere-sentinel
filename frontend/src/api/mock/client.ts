@@ -260,6 +260,12 @@ export function createMockApi(options: MockApiOptions = {}): SentinelApi {
     createAlertRule: (_input, request) => noSettings('createAlertRule', request?.signal),
     updateAlertRule: (_id, _patch, request) => noSettings('updateAlertRule', request?.signal),
     getSystemStatus: (request) => noSettings('getSystemStatus', request?.signal),
+    // Nor can a host be added to it: nothing would be monitored, and no token could be real.
+    createServer: (_input, request) => noSettings('createServer', request?.signal),
+    createAgent: (_serverId, _input, request) => noSettings('createAgent', request?.signal),
+    rotateAgentToken: (_agentId, request) => noSettings('rotateAgentToken', request?.signal),
+    setAgentEnabled: (_agentId, _enabled, request) =>
+      noSettings('setAgentEnabled', request?.signal),
 
     getTopology: (request) =>
       scoped('getTopology', request, ({ fleet }, { now }) => mockTopology(fleet, now, request)),

@@ -2,10 +2,11 @@ import { act, fireEvent, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { Route, Routes, useLocation, useNavigate } from 'react-router'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { NO_CAPABILITIES } from '@/api/auth'
 import type { SentinelApi } from '@/api/client'
 import { useLive } from '@/app/live'
 import { NEXT_PROBLEM_EVENT } from '@/config/events'
-import { createTestApi } from '@/test/render'
+import { createFakeAuth, createTestApi, renderApp } from '@/test/render'
 import { stubFocusVisible } from '@/ui/controls/testing'
 import { AttentionQueuePanel } from './AttentionQueuePanel'
 import { makeItem, minutesAgo, queueApi, referenceItems, renderQueue, resultOf } from './testing'
@@ -691,6 +692,43 @@ describe('states', () => {
     )
     expect(await screen.findByText('Nothing is monitored yet')).toBeInTheDocument()
     expect(screen.queryByText('Nothing needs attention')).not.toBeInTheDocument()
+    // An account that may not add hosts is offered nothing.
+    expect(screen.queryByRole('link', { name: 'Add server' })).toBeNull()
+  })
+
+  it('offers to add a server when nothing is monitored, to an account that may, keeping the view', async () => {
+    const zero = { healthy: 0, warning: 0, critical: 0, unknown: 0, idle: 0 }
+    const resource = {
+      status: 'success' as const,
+      data: {
+        generatedAt: '2026-10-12T14:05:12Z',
+        servers: { total: 0, online: 0, counts: zero },
+        containers: { total: 0, running: 0, counts: zero },
+        targets: { total: 0, up: 0, counts: zero, successTrend: [] },
+        devices: { total: 0, counts: zero },
+      },
+      error: null,
+      isRefreshing: false,
+      updatedAt: Date.now(),
+      refetch: vi.fn(),
+    }
+    const queue = queueApi(resultOf([], 0))
+    renderApp(
+      <SummaryContext.Provider value={resource}>
+        <Page />
+      </SummaryContext.Provider>,
+      {
+        api: queue.api,
+        route: '/?range=6h',
+        withShell: true,
+        auth: createFakeAuth({ capabilities: { ...NO_CAPABILITIES, manageServers: true } }),
+      },
+    )
+    expect(await screen.findByText('Nothing is monitored yet')).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'Add server' })).toHaveAttribute(
+      'href',
+      '/servers/new?range=6h',
+    )
   })
 
   it('shows skeleton rows at the real row height after a short delay', () => {

@@ -21,7 +21,16 @@ import { getSystemStatus } from './system'
 import { getTarget, getTargetSeries, listTargets } from './targets'
 import { getTopology } from './topology'
 import { createAuthClient, getScopeOptions } from './session'
-import { getFleetLoad, getServer, getServerSeries, listServers } from './servers'
+import {
+  createAgent,
+  createServer,
+  getFleetLoad,
+  getServer,
+  getServerSeries,
+  listServers,
+  rotateAgentToken,
+  setAgentEnabled,
+} from './servers'
 import { createTransport, type TransportOptions } from './transport'
 
 /** The console API, request by request. Every method validates its answer. */
@@ -31,6 +40,10 @@ export interface ConsoleHttp extends Pick<
   | 'getServer'
   | 'getServerSeries'
   | 'getFleetLoad'
+  | 'createServer'
+  | 'createAgent'
+  | 'rotateAgentToken'
+  | 'setAgentEnabled'
   | 'listTargets'
   | 'getTarget'
   | 'getTargetSeries'
@@ -60,9 +73,10 @@ export interface ConsoleHttp extends Pick<
 }
 
 /**
- * What the Django console API serves: the session and the scope; the servers, containers, network
- * targets and SNMP devices with their history; the topology; the incidents and the alert engine;
- * the notification settings, the alert rules and the system status. A new endpoint is added here.
+ * What the Django console API serves: the session and the scope; the servers (and adding one, with
+ * its agent and the agent's token), containers, network targets and SNMP devices with their history;
+ * the topology; the incidents and the alert engine; the notification settings, the alert rules and
+ * the system status. A new endpoint is added here.
  */
 export function createConsoleHttp(options: TransportOptions = {}): ConsoleHttp {
   const transport = createTransport(options)
@@ -73,6 +87,10 @@ export function createConsoleHttp(options: TransportOptions = {}): ConsoleHttp {
     getServer: getServer(transport),
     getServerSeries: getServerSeries(transport),
     getFleetLoad: getFleetLoad(transport),
+    createServer: createServer(transport),
+    createAgent: createAgent(transport),
+    rotateAgentToken: rotateAgentToken(transport),
+    setAgentEnabled: setAgentEnabled(transport),
     listContainers: listContainers(transport),
     listTargets: listTargets(transport),
     getTarget: getTarget(transport),

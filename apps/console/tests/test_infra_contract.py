@@ -37,6 +37,8 @@ class InfrastructureContractTests(ConsoleDataTestCase):
         agent, _token = create_agent(server=web, name="web-1-agent")
         agent.agent_version = "1.2.3"
         agent.save()
+        # The fixture names the agent by a fixed id (the detail carries it, never its token hash).
+        type(agent).objects.filter(pk=agent.pk).update(id=fixed("a9e1"))
         make_server("spare", now=self.now, id=SPARE, seen_ago=None, cpu=None)
         make_docker_host(web, now=self.now)
         make_container(web, "app", now=self.now, health="healthy", container_id="a" * 64, started_ago=60)

@@ -10,6 +10,7 @@ import {
 } from 'react'
 import { Link, useLocation, useNavigate } from 'react-router'
 import { useApi } from '@/api/context'
+import { useAuth } from '@/app/auth/auth'
 import { useLive } from '@/app/live'
 import { usePrefs } from '@/app/prefs'
 import { useShell } from '@/app/shell'
@@ -19,14 +20,16 @@ import { useViewTo } from '@/app/viewSearch'
 import { NEXT_PROBLEM_EVENT, type NextProblemDetail } from '@/config/events'
 import type { FeatureId } from '@/config/features'
 import { useLiveResource } from '@/hooks/useLiveResource'
+import { copyText } from '@/lib/clipboard'
 import { formatClock } from '@/lib/format'
+import { NEW_SERVER_PATH } from '@/lib/paths'
 import { computeVerdict } from '@/lib/verdict'
 import { Button, Chip } from '@/ui/controls'
+import { buttonStyle } from '@/ui/controls/buttonStyle'
 import { Panel } from '@/ui/Panel'
 import { limitsOrigin, useResourceLimits } from '@/ui/meters'
 import { EmptyState } from '@/ui/states'
 import { StatusGlyph } from '@/ui/status'
-import { copyText } from './clipboard'
 import { QueueSkeleton } from './QueueSkeleton'
 import { QueueTable } from './QueueTable'
 import {
@@ -66,6 +69,7 @@ export function AttentionQueuePanel({ className }: { className?: string }) {
   const limits = useResourceLimits()
   const { tz, singleKeyShortcuts } = usePrefs()
   const { announce, flashStatus } = useShell()
+  const { capabilities } = useAuth()
   const [scope] = useScope()
   // Optional: the queue must also work where no shared summary is provided.
   const summary = useContext(SummaryContext)?.data
@@ -273,7 +277,20 @@ export function AttentionQueuePanel({ className }: { className?: string }) {
         nothingMonitored ? (
           <EmptyState
             title="Nothing is monitored yet"
-            hint="No server or container reports to this scope."
+            hint={
+              <>
+                No server or container reports to this scope.
+                {/* Offered to an account that may add hosts; the server decides again when one is added. */}
+                {capabilities.manageServers ? (
+                  <Link
+                    to={viewTo(NEW_SERVER_PATH)}
+                    className={`${buttonStyle('primary', { size: 'sm' })} ml-2`}
+                  >
+                    Add server
+                  </Link>
+                ) : null}
+              </>
+            }
           />
         ) : (
           <EmptyState

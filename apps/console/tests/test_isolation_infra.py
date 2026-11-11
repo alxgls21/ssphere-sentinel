@@ -340,10 +340,16 @@ class AuthenticationTests(ConsoleDataTestCase):
     def test_only_get_and_head_are_allowed(self):
         client = signed_in_client(make_user("all", all_customers=True), enforce_csrf=False)
         for path in self.paths:
+            # servers/ also takes a POST (adding a server, apps.console.enrollment), refused to an account
+            # that may only read: the writes have their own tests (test_enrollment_api).
+            writes = ("post",) if path == "servers/" else ()
             for method in ("post", "put", "patch", "delete"):
                 response = getattr(client, method)(API + path)
+                if method in writes:
+                    self.assertEqual(response.status_code, 403, (method, path))
+                    continue
                 self.assertEqual(response.status_code, 405, (method, path))
-                self.assertEqual(response["Allow"], "GET, HEAD")
+                self.assertEqual(response["Allow"], "GET, HEAD, POST" if writes else "GET, HEAD")
             self.assertEqual(client.head(API + path).status_code, 200)
 
     def test_responses_are_private_and_uncached(self):
@@ -390,8 +396,11 @@ class SecretsTests(ConsoleDataTestCase):
         for query in queries:
             self.assertNotIn("token_hash", query["sql"])
             used |= set(re.findall(r'"agents_agent"\."(\w+)"', query["sql"]))
-        # The version is the only agent column read; server_id is the join key.
-        self.assertEqual(used, {"agent_version", "server_id"})
+        # The version, and (for the detail) the agent's identity, are the only agent columns read; server_id is the join key.
+        self.assertEqual(
+            used,
+            {"agent_version", "server_id", "id", "name", "enabled", "last_seen_at", "created_at", "updated_at"},
+        )
 
     def test_the_agent_version_is_shown_and_nothing_else_about_the_agent(self):
         self.agent.agent_version = "1.4.2"

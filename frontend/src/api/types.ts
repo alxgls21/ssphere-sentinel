@@ -414,10 +414,60 @@ export interface ServerContainer {
   status: HealthStatus
 }
 
+/** The agent enrolled for a server: who reports for it. Never its token, nor the token's hash. */
+export interface MonitoringAgent {
+  id: string
+  name: string
+  /** A disabled agent's heartbeats are refused; enabling it again needs no new token. */
+  enabled: boolean
+  lastSeenAt: Iso | null
+  agentVersion: string
+  createdAt: Iso
+  updatedAt: Iso
+}
+
 export interface ServerDetail {
   generatedAt: Iso
   item: ServerListItem
+  /** Null for a server that has no agent yet (added in the admin, or its agent not created yet). */
+  agent: MonitoringAgent | null
   containers: ServerContainer[]
+}
+
+/** What adding a server sends. Only the name is required; a blank hostname takes the name. */
+export interface ServerInput {
+  name: string
+  hostname?: string
+  description?: string
+  operatingSystem?: string
+  /** An IPv4 or IPv6 address; null for none. */
+  ipAddress?: string | null
+  /** The site the server is placed on; null for none (seen by accounts with every customer only). */
+  siteId?: string | null
+}
+
+/** What adding an agent sends: its name, or nothing (the server's name). */
+export interface AgentInput {
+  name?: string
+}
+
+/**
+ * The one answer that carries an agent's plaintext token: when the agent is created and when its
+ * token is rotated. The server never answers it again, and the console never keeps it: not in the
+ * URL, the history, any storage or any cache. `serverUrl` is the address the agent must use; null
+ * while the server has no `SENTINEL_URL` (it never guesses one from the request in production).
+ */
+export interface AgentEnrollment {
+  generatedAt: Iso
+  item: MonitoringAgent
+  token: string
+  serverUrl: string | null
+}
+
+/** An agent as it now is, after it was enabled or disabled. */
+export interface AgentChange {
+  generatedAt: Iso
+  item: MonitoringAgent
 }
 
 export interface ServerSeriesOptions extends Pick<RequestOptions, 'signal'> {

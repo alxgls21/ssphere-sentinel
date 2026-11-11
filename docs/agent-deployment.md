@@ -34,16 +34,27 @@ the release you deploy (for example `v0.2.0`).
 - `ping` (`iputils-ping` on Debian/Ubuntu) for ICMP targets, and unprivileged
   ICMP allowed for the agent's group ([step 4](#4-allow-icmp-probes)); Debian
   and Ubuntu disable it by default.
-- `git`, only if you install directly from the repository.
+- `git`, to install directly from the repository (not for the wheel path in
+  step 2), and `curl`, to fetch the deployment files in step 3:
+  `sudo apt install -y git curl` on Debian/Ubuntu (the commands the console
+  shows start with that line, together with `python3-venv`).
 - Outbound HTTPS from the host to the Sentinel server.
 
 ## 1. Create the agent on the server
 
-In the Django admin, add an **Agent** for the host's **Server** (or run
-`python manage.py create_agent --server <server-uuid> --name <name>`). The
-token is displayed **once**; keep it for step 3. For network monitoring,
-also create the **Network targets** assigned to this agent and note their
-UUIDs.
+In the console, **Servers → Add server** creates the host's **Server** and its
+**Agent** together and shows the token **once**, with the server's address and
+a copy of steps 2 to 5 below filled in (the token is read hidden into the
+environment file, never typed on a command line). Paste those commands one
+step at a time, or at least run their step 3 on its own: it asks for the
+token, and a paste of the whole block relies on the shell's bracketed paste
+(bash 5.1 or newer) to hold the following lines back. A server added in the admin
+without an agent gets one from its page in the console (**Create agent**).
+The admin remains possible: add an **Agent** for the host's **Server** there,
+or run `python manage.py create_agent --server <server-uuid> --name <name>`;
+every way shows the token once. Keep it for step 3. For network monitoring,
+also create the **Network targets** assigned to this agent (in the admin) and
+note their UUIDs.
 
 ## 2. Install
 
@@ -92,7 +103,10 @@ sudoedit /etc/ssphere-sentinel-agent/agent.env
 Set at least `SENTINEL_URL` (the `https://` address of the server) and
 `SENTINEL_AGENT_TOKEN`. systemd reads this file as root before it starts the
 agent, so the token is never readable by the service account from disk,
-never on a command line and never in the unit file.
+never on a command line and never in the unit file. (The commands the console
+shows with a new token write the file this way: `read -rsp` takes the token
+hidden from the terminal, and `printf`, a shell builtin, pipes it into the
+root-only file through `sudo tee`.)
 
 For network monitoring, create a targets file (format:
 [`agent/network_targets.example.json`](../agent/network_targets.example.json);
@@ -170,7 +184,8 @@ INFO: Network monitoring: 3 enabled target(s), queue /var/lib/ssphere-sentinel-a
 
 Successful heartbeats are not logged at the default `INFO` level; failures
 are (`WARNING: Heartbeat failed: ...`), and so is the first success after
-failures. In the admin, the server's **Last seen** updates every heartbeat.
+failures. In the console, the server's **Last heartbeat** (and, in the admin,
+its **Last seen**) updates every heartbeat.
 
 To send a single heartbeat by hand as the service account, with the same
 environment (the token stays in the file):
@@ -347,9 +362,12 @@ sudo /opt/ssphere-sentinel-agent/venv/bin/pip uninstall -y ssphere-sentinel
 
 ## Token rotation
 
-1. In the admin, select the agent and run **Regenerate authentication
-   token**, confirm, and copy the new token from the page (it is shown once).
-2. Replace `SENTINEL_AGENT_TOKEN` in `/etc/ssphere-sentinel-agent/agent.env`.
+1. In the console, open the server's page and, under **Agent**, **Rotate
+   token**; confirm, and copy the new token (it is shown once). Or, in the
+   admin, select the agent and run **Regenerate authentication token**.
+2. Replace `SENTINEL_AGENT_TOKEN` in `/etc/ssphere-sentinel-agent/agent.env`
+   (`sudoedit`, or the commands the console shows next to the new token: they
+   replace that one line, keep the rest of the file, and do step 3 as well).
 3. `sudo systemctl restart sentinel-agent`.
 
 The old token stops working at step 1. Until step 3 heartbeats fail with
@@ -372,7 +390,7 @@ or targets. `systemd-analyze security sentinel-agent` summarizes the sandbox.
 
 | Symptom (journal) | Cause and fix |
 | --- | --- |
-| `Heartbeat failed: server returned HTTP 401` | Wrong or rotated token, or the agent is disabled in the admin. Update `agent.env` and restart. |
+| `Heartbeat failed: server returned HTTP 401` | Wrong or rotated token, or the agent is disabled (on the server's page in the console, or in the admin). Update `agent.env` and restart, or enable the agent. |
 | `server returned HTTP 301 redirect; redirects are not followed` | `SENTINEL_URL` is not the final address (for example `http://` behind an HTTPS redirect). Use the `https://` URL. |
 | `connection failed: ...` / `request timed out` | DNS, firewall or the server is down. The agent keeps retrying; measurements stay queued. |
 | `Heartbeat failed: server returned HTTP 403` behind Cloudflare | A WAF, Bot Fight Mode or Access rule blocks the agent. Exempt `/api/v1/agent/` (docs/server-deployment.md). |

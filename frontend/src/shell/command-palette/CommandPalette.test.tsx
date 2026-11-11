@@ -842,6 +842,30 @@ describe('mock scenarios', () => {
   })
 })
 
+describe('add server', () => {
+  const mayAdd = createFakeAuth({ capabilities: { ...NO_CAPABILITIES, manageServers: true } })
+
+  it('is not offered to an account that may not manage hosts', async () => {
+    const { user } = setup()
+    await openLoaded(user)
+    expect(titles(group('Actions'))).not.toContain('Add server')
+    await user.type(combobox(), 'add server')
+    expect(screen.queryByRole('option', { name: /^Add server/ })).not.toBeInTheDocument()
+  })
+
+  it('is offered to an account that may, and opens the form without the view’s filters', async () => {
+    const { user } = setup({ auth: mayAdd, route: '/?customer=acme&range=6h' })
+    await openLoaded(user)
+    expect(titles(group('Actions'))).toContain('Add server')
+    await user.type(combobox(), 'add server')
+    const [top] = options()
+    expect(top).toHaveAccessibleName(/^Add server/)
+    await user.keyboard('{Enter}')
+    expect(probe()).toMatch(/^\/servers\/new\|paused=/)
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+  })
+})
+
 describe('new alert rule', () => {
   const mayCreate = createFakeAuth({
     capabilities: { ...NO_CAPABILITIES, viewAlertRules: true, createAlertRules: true },
