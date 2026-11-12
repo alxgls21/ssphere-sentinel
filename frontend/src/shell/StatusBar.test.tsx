@@ -83,7 +83,7 @@ const bar = () => screen.getByRole('contentinfo')
 describe('StatusBar: landmark and source', () => {
   it('is the contentinfo landmark and shows the version', () => {
     setup()
-    expect(within(bar()).getByText('v0.1.0')).toBeInTheDocument()
+    expect(within(bar()).getByText('v0.9.3')).toBeInTheDocument()
   })
 
   it('names the mock data source and the current scenario', () => {

@@ -15,7 +15,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "ssphere-sentinel"
-version = "0.1.0"
+version = "0.9.3"
 description = "SSphere Sentinel server: self-hosted infrastructure and network monitoring"
 readme = "README.md"
 license-files = ["LICENSE"]

@@ -19,7 +19,7 @@ export function installCommands(serverUrl: string): string {
   const url = shellQuote(serverUrl)
   return [
     `# SSphere Sentinel agent on a Linux host with systemd (bash). Replace ${RELEASE_PLACEHOLDER} with the`,
-    '# release you deploy, for example v0.2.0. Full guide: docs/agent-deployment.md in the repository.',
+    '# release you deploy, for example v0.9.3. Full guide: docs/agent-deployment.md in the repository.',
     '# Needs Python 3.11 or newer with venv, git and curl (step 1 installs them on Debian/Ubuntu);',
     '# ping, and step 4 of the guide, for ICMP targets.',
     '# Run step 3 on its own, or paste one step at a time: it asks for the token, and a paste of',

@@ -410,7 +410,7 @@ Subtle and functional; motion only explains change and is fully removed under pr
  w   wall mode         │ │ p95/p50 over 40 targets · loss = mean     │ │ cell=5% · ▲ at 80 · ◆ at 95 · UI defaults  │ ┆ Sample data. Event log not implemented.    ┆
  [   collapse          │ │                                           │ │                                            │ ┆                                            ┆
  v0.1 · MOCK           │ └───────────────────────────────────────────┘ └────────────────────────────────────────────┘ └┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┘
- NORMAL  │ MOCK · mock://fixtures v1 · MockApi (no backend read APIs) · scenario normal │ next poll 12s │ p pause · r refresh · ? keys │ v0.1.0
+ NORMAL  │ MOCK · mock://fixtures v1 · MockApi (no backend read APIs) · scenario normal │ next poll 12s │ p pause · r refresh · ? keys │ v0.9.3
 
 LEGEND  Glyphs are inline SVG in the product (the fontsource latin subsets contain no U+25xx): ● ok  ▲ warn  ◆ crit  ⧄ offline (critical, drawn apart where marks describe; this diagram draws it as ◆)  ○ unknown  ▬ idle  ◌ planned marker (provenance, not health)
         ┃ / ┏ 4px verdict edge (rows carry a 2px left edge in the worst status colour)   › selection cursor (a chevron icon in the product)   ▒ ▓ █ ░ segments, worst-first: crit, warn, ok (track = unfilled)
