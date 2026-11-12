@@ -87,6 +87,17 @@ class QueryParams:
             raise invalid(name, f"expected a whole number from {minimum} to {maximum}")
         return value
 
+    def text(self, name: str, *, limit: int) -> str | None:
+        """A text parameter of 1 to ``limit`` characters, without control characters; ``None`` when absent."""
+        raw = self._values.get(name)
+        if raw is None:
+            return None
+        if not 1 <= len(raw) <= limit:
+            raise invalid(name, f"expected 1 to {limit} characters")
+        if any(unicodedata.category(char) == "Cc" for char in raw):
+            raise invalid(name, "control characters are not allowed")
+        return raw
+
     def uuid(self, name: str) -> UUID | None:
         raw = self._values.get(name)
         if raw is None:

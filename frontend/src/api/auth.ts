@@ -32,6 +32,22 @@ export interface SessionCapabilities {
   viewSystemStatus: boolean
   /** Add a server and its agent, rotate the agent's token, enable or disable the agent. */
   manageServers: boolean
+  /** Change a server's name, hostname, address, system, description or site. */
+  editServers: boolean
+  /** Delete a server, with its agent, telemetry and containers. */
+  deleteServers: boolean
+  /** Customers and sites: add, change, delete. */
+  manageCustomers: boolean
+  /** Network targets: add, change, enable, disable, delete. */
+  manageTargets: boolean
+  /** Devices and their SNMP configuration: add, change, delete. */
+  manageDevices: boolean
+  /** Accounts, roles, grants, passwords and sign-in lockouts: administrators only. */
+  manageUsers: boolean
+  /** Read the audit trail. */
+  viewAuditLog: boolean
+  /** The signed-in account's own settings: its password. */
+  manageOwnAccount: boolean
 }
 
 /** Nothing offered: an anonymous session, an answer without capabilities, the sample fleet. */
@@ -44,6 +60,14 @@ export const NO_CAPABILITIES: SessionCapabilities = {
   sendTestEmail: false,
   viewSystemStatus: false,
   manageServers: false,
+  editServers: false,
+  deleteServers: false,
+  manageCustomers: false,
+  manageTargets: false,
+  manageDevices: false,
+  manageUsers: false,
+  viewAuditLog: false,
+  manageOwnAccount: false,
 }
 
 /**

@@ -37,9 +37,10 @@ describe('ServerDetailPage', () => {
     page('srv-ath-db-01')
     expect(await screen.findByRole('heading', { level: 1, name: 'ath-db-01' })).toBeVisible()
     expect(screen.getByText('DISK', { selector: '[data-status] span' })).toBeInTheDocument()
-    expect(screen.getByText('10.20.2.10')).toBeVisible()
-    expect(screen.getByText('Debian 13')).toBeVisible()
-    expect(screen.getByText('Meridian Logistics')).toBeInTheDocument()
+    // The header says it; the Configuration panel repeats it among the facts.
+    expect(screen.getAllByText('10.20.2.10')[0]).toBeVisible()
+    expect(screen.getAllByText('Debian 13')[0]).toBeVisible()
+    expect(screen.getAllByText('Meridian Logistics')[0]).toBeInTheDocument()
   })
 
   it('keeps the indicator of a server that is reporting', async () => {

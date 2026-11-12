@@ -40,12 +40,25 @@ const target = (over: Record<string, unknown> = {}) => ({
   enabled: true,
   intervalSeconds: 60,
   timeoutSeconds: 5,
+  expectedSlaPercent: 99.9,
+  customerLabel: null,
   circuitId: null,
   siteId: 'site-1',
   agentAssigned: true,
   agent,
   ...over,
 })
+const agentEntry = {
+  id: 't1',
+  name: 'ath-gateway',
+  hostname_or_ip: '10.20.0.1',
+  protocol: 'icmp',
+  port: null,
+  enabled: true,
+  monitoring_interval_seconds: 60,
+  timeout_seconds: 5,
+  probe_count: 4,
+}
 const item = (over: Record<string, unknown> = {}) => ({
   target: target(),
   latest: measurement(),
@@ -78,6 +91,7 @@ const detail = (over: Record<string, unknown> = {}) => ({
   item: item(),
   measurements: [measurement()],
   availability24h: availability,
+  agentEntry,
   ...over,
 })
 const series = (over: Record<string, unknown> = {}) => ({

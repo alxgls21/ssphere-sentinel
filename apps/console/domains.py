@@ -81,6 +81,7 @@ from django.db.models import Count, F
 from django.http import JsonResponse
 from django.utils import timezone
 
+from apps.console import audit as trail
 from apps.console.http import ApiError, console_api, json_object, validation_error
 from apps.console.listing import apply_search, name_order, page_envelope
 from apps.console.params import PAGE_PARAMS, PageRequest, QueryParams, canonical_uuid
@@ -300,6 +301,14 @@ def create_domain(request):
                 updated_at=now,
             )
             audit.domain_created(user, domain)
+            trail.record(
+                user,
+                action="domain_created",
+                target_type=trail.DOMAIN,
+                target_id=domain.pk,
+                target_name=domain.name,
+                changed=trail.changes({}, audit.domain_values(domain)),
+            )
     except IntegrityError as error:
         # Added meanwhile by another request; anything else is not a conflict to explain.
         if getattr(getattr(error.__cause__, "diag", None), "constraint_name", None) != DOMAIN_UNIQUE:
@@ -326,6 +335,14 @@ def verify_domain(request, domain_id: UUID):
             domain = domain_or_404(MonitoredDomain.objects.select_for_update(no_key=True), domain_id)
             list(get_user_model().objects.select_for_update(no_key=True).filter(pk=user.pk).values_list("pk", flat=True))
             row = request_verification(domain, user, now)
+            trail.record(
+                user,
+                action="domain_verification_requested",
+                target_type=trail.DOMAIN,
+                target_id=domain.pk,
+                target_name=domain.name,
+                changed={"verificationId": {"before": None, "after": str(row.pk)}},
+            )
     except Refused as refused:
         headers = {"Retry-After": str(refused.retry_after)} if refused.retry_after is not None else None
         raise ApiError(refused.status, refused.code, refused.message, headers=headers) from None

@@ -39,6 +39,7 @@ TASKS = (
     "purge_absent_docker_containers",
     "purge_incidents",
     "purge_notifications",
+    "purge_audit_entries",
     "clearsessions",
 )
 MIN_INTERVAL, MAX_INTERVAL = 3600, 7 * 86400

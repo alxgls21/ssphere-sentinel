@@ -221,8 +221,8 @@ class TargetItemTests(TargetTestCase):
             item["target"],
             {
                 "id": str(target.pk), "name": "edge-tcp", "address": "edge.example.net", "protocol": "tcp", "port": 443,
-                "enabled": True, "intervalSeconds": 60, "timeoutSeconds": 3, "circuitId": "CIRC-42",
-                "siteId": str(self.hq.pk), "agentAssigned": True,
+                "enabled": True, "intervalSeconds": 60, "timeoutSeconds": 3, "expectedSlaPercent": 99.9,
+                "customerLabel": None, "circuitId": "CIRC-42", "siteId": str(self.hq.pk), "agentAssigned": True,
                 "agent": {
                     "id": str(self.agent.pk), "name": "probe-agent", "status": "online",
                     "lastSeenAt": self.iso(self.now - timedelta(seconds=5)),
@@ -387,7 +387,9 @@ class TargetListTests(TargetTestCase):
         target = NetworkTarget.objects.get(name="Alpha")
         self.assertEqual(self.get(self.admin, f"targets/{target.pk}/", page="1").status_code, 400)
         self.assertEqual(self.get(self.admin, f"targets/{target.pk}/series/", range="7d").status_code, 400)
-        self.assertEqual(signed_in_client(self.admin).post(API + "targets/").status_code, 405)
+        # targets/ also takes a POST (adding a target, apps.console.target_config), refused to an account that may only read.
+        self.assertEqual(signed_in_client(self.admin).post(API + "targets/").status_code, 403)
+        self.assertEqual(signed_in_client(self.admin).put(API + "targets/").status_code, 405)
 
 
 class TargetDetailTests(TargetTestCase):

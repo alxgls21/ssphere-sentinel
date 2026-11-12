@@ -17,7 +17,8 @@ without an `snmp` section is handled exactly as before.
 
 ## Quick start
 
-1. **Server.** In the admin, under **Inventory → Devices**, add the device
+1. **Server.** In the console, under **Settings → Devices** (or in the admin,
+   under **Inventory → Devices**), add the device
    (management address, and the agent that can reach it) and fill the SNMP
    section: SNMP version, port, poll interval and a **credential profile
    name** of your choice (for example `core-switches`). Note the device's UUID.
@@ -868,8 +869,9 @@ need more. Partitioning and long-term rollups are not implemented.
 ## Deleting devices
 
 Polling history is never deleted implicitly. A device that has history cannot
-be deleted (the admin says so, without trying to list the history): disable it,
-and delete it once `purge_snmp_data` has removed its history. Deleting an
+be deleted (the console refuses it, and the admin says so, without trying to
+list the history): disable it, and delete it once `purge_snmp_data` has removed
+its history (the console's device page offers the deletion then). Deleting an
 **agent** keeps all history and only unassigns its devices; history rows do not
 reference the agent, so this never scans or rewrites them, however large they
 are.

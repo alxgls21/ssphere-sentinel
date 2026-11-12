@@ -1,6 +1,7 @@
 import { sumCounts } from '@/lib/status'
-import { useEffect } from 'react'
-import { Link, Navigate, useSearchParams } from 'react-router'
+import { useEffect, useState } from 'react'
+import { Link, Navigate, useLocation, useSearchParams } from 'react-router'
+import type { ServerDeleted } from '@/api/types'
 import { useApi } from '@/api/context'
 import { useAuth } from '@/app/auth/auth'
 import { useLive } from '@/app/live'
@@ -17,7 +18,7 @@ import { Panel } from '@/ui/Panel'
 import { Button, Chip, SearchField, Select, type SelectOption } from '@/ui/controls'
 import { buttonStyle } from '@/ui/controls/buttonStyle'
 import { limitsOrigin, useResourceLimits } from '@/ui/meters'
-import { EmptyState } from '@/ui/states'
+import { EmptyState, Notice } from '@/ui/states'
 import { StatusGlyph } from '@/ui/status'
 import { ServerCards } from './ServerCards'
 import { ServersTable } from './ServersTable'
@@ -58,11 +59,16 @@ export default function ServersListPage() {
   const [scope] = useScope()
   const viewTo = useViewTo()
   const [params] = useSearchParams()
+  const location = useLocation()
   const [query, update] = useServersQuery()
   const wide = useMediaQuery('(min-width: 48rem)')
   const limits = useResourceLimits()
   // Offered to an account that may add hosts; the server decides again when one is added.
   const mayAdd = useAuth().capabilities.manageServers
+  // A server's page sends the operator here after deleting it, saying what went with it.
+  const [deleted, setDeleted] = useState<ServerDeleted['deleted'] | null>(
+    () => (location.state as { deleted?: ServerDeleted['deleted'] } | null)?.deleted ?? null,
+  )
 
   const search = useDebouncedValue(query.q, SEARCH_SETTLE_MS)
   const asked = {
@@ -115,6 +121,25 @@ export default function ServersListPage() {
           </Link>
         ) : null}
       </header>
+
+      {deleted ? (
+        <Notice
+          status="healthy"
+          word="DELETED"
+          live="status"
+          actions={
+            <Button size="sm" variant="ghost" onClick={() => setDeleted(null)}>
+              Dismiss
+            </Button>
+          }
+        >
+          The server “{deleted.name}” is deleted
+          {deleted.agent ? ', with its agent (its token no longer works)' : ''},{' '}
+          {deleted.telemetrySamples} telemetry samples and {deleted.containers} containers. Kept:{' '}
+          {deleted.measurementsKept} network measurements; {deleted.targetsUnassigned} targets and{' '}
+          {deleted.devicesUnassigned} devices lost their agent.
+        </Notice>
+      ) : null}
 
       <search aria-label="Filter servers" className="flex flex-wrap items-center gap-2">
         <SearchField

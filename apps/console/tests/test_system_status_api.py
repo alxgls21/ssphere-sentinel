@@ -161,6 +161,7 @@ class SystemStatusTests(TestCase):
         })
         self.assertEqual(set(body["environment"]["retention"]), {
             "incidentDays", "notificationDays", "networkMeasurementDays", "snmpDays", "telemetryDays", "absentContainerDays",
+            "auditDays",
         })
         self.assertIn("thresholds", body["environment"]["monitoring"])
         self.beat(beat_at=self.now, interval_seconds=15, server_configured=True, authentication_configured=True)
@@ -187,34 +188,40 @@ class CapabilityTests(TestCase):
             "web.view_monitoreddomain", "web.add_monitoreddomain", "web.verify_monitoreddomain",
             "infrastructure.add_server", "agents.add_agent", "agents.change_agent",
         )
+        # The administration of customers, targets, devices, users and the audit log needs permissions of its own
+        # (test_customers_api, test_target_config_api, test_device_config_api, test_users_api, test_audit_log_api).
+        administration = {
+            "editServers": False, "deleteServers": False, "manageCustomers": False, "manageTargets": False,
+            "manageDevices": False, "manageUsers": False, "viewAuditLog": False,
+        }
         global_user = grant(make_user("global", all_customers=True), *everything)
         self.assertEqual(self.capabilities(global_user), {
             "acknowledgeIncidents": True, "viewAlertRules": True, "createAlertRules": True, "editAlertRules": True,
-            "manageOwnNotifications": True, "sendTestEmail": True, "viewSystemStatus": True,
-            "viewDomains": True, "addDomains": True, "verifyDomains": True, "manageServers": True,
+            "manageOwnNotifications": True, "manageOwnAccount": True, "sendTestEmail": True, "viewSystemStatus": True,
+            "viewDomains": True, "addDomains": True, "verifyDomains": True, "manageServers": True, **administration,
         })
         restricted = grant(make_user("restricted", customers=[acme]), *everything)
         self.assertEqual(self.capabilities(restricted), {
             "acknowledgeIncidents": True, "viewAlertRules": False, "createAlertRules": False, "editAlertRules": False,
-            "manageOwnNotifications": True, "sendTestEmail": True, "viewSystemStatus": False,
-            "viewDomains": False, "addDomains": False, "verifyDomains": False, "manageServers": False,
+            "manageOwnNotifications": True, "manageOwnAccount": True, "sendTestEmail": True, "viewSystemStatus": False,
+            "viewDomains": False, "addDomains": False, "verifyDomains": False, "manageServers": False, **administration,
         })
         plain = make_user("plain", all_customers=True)
-        self.assertEqual({name for name, value in self.capabilities(plain).items() if value}, {"manageOwnNotifications"})
+        self.assertEqual({name for name, value in self.capabilities(plain).items() if value}, {"manageOwnNotifications", "manageOwnAccount"})
         editor = grant(make_user("editor", all_customers=True), "alerts.change_alertrule")
         self.assertEqual(
             {name for name, value in self.capabilities(editor).items() if value},
-            {"viewAlertRules", "editAlertRules", "manageOwnNotifications"},
+            {"viewAlertRules", "editAlertRules", "manageOwnNotifications", "manageOwnAccount"},
         )
         # Monitored hosts: the rule permission and the admin's permissions on servers and agents, all of them.
         hosts = ("infrastructure.add_server", "agents.add_agent", "agents.change_agent")
         manager = grant(make_user("manager", all_customers=True), "alerts.change_alertrule", *hosts)
         self.assertEqual(
             {name for name, value in self.capabilities(manager).items() if value},
-            {"viewAlertRules", "editAlertRules", "manageServers", "manageOwnNotifications"},
+            {"viewAlertRules", "editAlertRules", "manageServers", "manageOwnNotifications", "manageOwnAccount"},
         )
         admin_only = grant(make_user("admin-only", all_customers=True), *hosts)
-        self.assertEqual({name for name, value in self.capabilities(admin_only).items() if value}, {"manageOwnNotifications"})
+        self.assertEqual({name for name, value in self.capabilities(admin_only).items() if value}, {"manageOwnNotifications", "manageOwnAccount"})
         for missing in hosts:
             with self.subTest(missing=missing):
                 partial = grant(make_user(f"without-{missing}", all_customers=True), "alerts.change_alertrule", *(set(hosts) - {missing}))

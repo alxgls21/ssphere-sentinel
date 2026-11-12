@@ -89,6 +89,7 @@ from django.utils import timezone
 
 from apps.alerts import audit
 from apps.alerts.conditions import MATCHES, EntityKind, HealthCondition, Severity, reasons_for
+from apps.console import audit as trail
 from apps.alerts.models import MAX_DURATION_SECONDS, AlertRule, CloseReason, ConfigurationSource, Incident
 from apps.console.http import ApiError, console_api, json_object, storable_text, validation_error
 from apps.console.listing import apply_search, name_order, page_envelope
@@ -414,6 +415,14 @@ def create_rule(request):
     with transaction.atomic():
         save(rule)
         audit.rule_saved(request.user, rule, {}, created=True, source=ConfigurationSource.CONSOLE)
+        trail.record(
+            request.user,
+            action="alert_rule_created",
+            target_type=trail.ALERT_RULE,
+            target_id=rule.pk,
+            target_name=rule.name,
+            changed=trail.changes({}, audit.rule_values(rule)),
+        )
     logger.info("Alert rule created (rule=%s, user_id=%s)", rule.pk, request.user.pk)
     payload = {"generatedAt": iso(now), "item": detail_item(request, rule.pk), "changeEffects": CHANGE_EFFECTS}
     return JsonResponse(payload, status=201)
@@ -464,6 +473,14 @@ def change_rule(request, rule_id: UUID):
         open_incidents = Incident.objects.filter(rule=rule, status__in=Incident.OPEN).count()
         save(rule)
         audit.rule_saved(request.user, rule, before, created=False, source=ConfigurationSource.CONSOLE)
+        trail.record(
+            request.user,
+            action="alert_rule_changed",
+            target_type=trail.ALERT_RULE,
+            target_id=rule.pk,
+            target_name=rule.name,
+            changed=trail.changes(before, audit.rule_values(rule)),
+        )
         result = effects(rule, before, open_incidents)
     logger.info("Alert rule changed (rule=%s, user_id=%s, version=%s)", rule.pk, request.user.pk, rule.version)
     return JsonResponse({"generatedAt": iso(now), "item": detail_item(request, rule.pk), "effects": result})

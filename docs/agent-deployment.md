@@ -108,10 +108,14 @@ shows with a new token write the file this way: `read -rsp` takes the token
 hidden from the terminal, and `printf`, a shell builtin, pipes it into the
 root-only file through `sudo tee`.)
 
-For network monitoring, create a targets file (format:
-[`agent/network_targets.example.json`](../agent/network_targets.example.json);
-each `id` is a target UUID from step 1), install it and enable it in
-`agent.env` with `SENTINEL_NETWORK_TARGETS_FILE=/etc/ssphere-sentinel-agent/network_targets.json`:
+For network monitoring, create the targets in the console (**Settings →
+Network targets**, each assigned to this agent) and write a targets file
+(format: [`agent/network_targets.example.json`](../agent/network_targets.example.json)):
+each target's page in the console shows the entry the file needs for it (its
+`id` is the target's UUID), with a copy button, under **Settings → Network
+targets** and under **Network**. Install the file and enable it in `agent.env`
+with `SENTINEL_NETWORK_TARGETS_FILE=/etc/ssphere-sentinel-agent/network_targets.json`;
+the agent reads the file at start, so restart it after a change:
 
 ```bash
 sudo install -m 0640 -o root -g sentinel-agent network_targets.json \
@@ -290,8 +294,11 @@ and SNMPv3 and report their reachability, interfaces and counters. It is off
 unless you configure it, and the full reference (every setting, the credential
 rules, counters, limits) is in [snmp.md](snmp.md). On the agent host:
 
-1. Create the device in Sentinel (**Inventory → Devices**, assigned to this
-   agent, with an SNMP section naming a credential profile) and note its UUID.
+1. Create the device in the console (**Settings → Devices**, assigned to this
+   agent, polled by SNMP with the name of a credential profile; the admin's
+   **Inventory → Devices** remains possible) and note its UUID (in the page's
+   address). The credential profile is only a name: the credentials themselves
+   go in the agent's file below and never reach the server.
 2. Install the extra (it adds `pysnmp` and `cryptography`):
 
    ```bash

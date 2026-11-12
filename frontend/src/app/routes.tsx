@@ -25,8 +25,19 @@ const AlertsPage = lazy(() => import('@/features/alerts/AlertsPage'))
 const IncidentDetailPage = lazy(() => import('@/features/alerts/IncidentDetailPage'))
 const SettingsLayout = lazy(() => import('@/features/settings/SettingsLayout'))
 const NotificationsPage = lazy(() => import('@/features/settings/NotificationsPage'))
+const AccountPage = lazy(() => import('@/features/settings/AccountPage'))
 const AlertRulesPage = lazy(() => import('@/features/settings/AlertRulesPage'))
 const RuleEditorPage = lazy(() => import('@/features/settings/RuleEditorPage'))
+const CustomersPage = lazy(() => import('@/features/settings/CustomersPage'))
+const CustomerPage = lazy(() => import('@/features/settings/CustomerPage'))
+const SitePage = lazy(() => import('@/features/settings/SitePage'))
+const TargetsPage = lazy(() => import('@/features/settings/TargetsPage'))
+const TargetEditorPage = lazy(() => import('@/features/settings/TargetEditorPage'))
+const DevicesPage = lazy(() => import('@/features/settings/DevicesPage'))
+const DeviceEditorPage = lazy(() => import('@/features/settings/DeviceEditorPage'))
+const UsersPage = lazy(() => import('@/features/settings/UsersPage'))
+const UserPage = lazy(() => import('@/features/settings/UserPage'))
+const AuditLogPage = lazy(() => import('@/features/settings/AuditLogPage'))
 const SystemPage = lazy(() => import('@/features/settings/SystemPage'))
 
 // Development only: in a production build the condition is a constant, so the gallery
@@ -57,9 +68,25 @@ export function AppRoutes() {
           <Route path="topology" element={<TopologyPage />} />
           <Route path="settings" element={<SettingsLayout />}>
             <Route path="notifications" element={<NotificationsPage />} />
+            <Route path="account" element={<AccountPage />} />
             <Route path="alert-rules" element={<AlertRulesPage />} />
             <Route path="alert-rules/new" element={<RuleEditorPage />} />
             <Route path="alert-rules/:id" element={<RuleEditorPage />} />
+            <Route path="customers" element={<CustomersPage />} />
+            <Route path="customers/new" element={<CustomerPage />} />
+            <Route path="customers/:id" element={<CustomerPage />} />
+            <Route path="sites/new" element={<SitePage />} />
+            <Route path="sites/:id" element={<SitePage />} />
+            <Route path="targets" element={<TargetsPage />} />
+            <Route path="targets/new" element={<TargetEditorPage />} />
+            <Route path="targets/:id" element={<TargetEditorPage />} />
+            <Route path="devices" element={<DevicesPage />} />
+            <Route path="devices/new" element={<DeviceEditorPage />} />
+            <Route path="devices/:id" element={<DeviceEditorPage />} />
+            <Route path="users" element={<UsersPage />} />
+            <Route path="users/new" element={<UserPage />} />
+            <Route path="users/:id" element={<UserPage />} />
+            <Route path="audit-log" element={<AuditLogPage />} />
             <Route path="system" element={<SystemPage />} />
           </Route>
           <Route path="alerts">

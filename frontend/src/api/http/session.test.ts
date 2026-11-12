@@ -56,6 +56,14 @@ describe('parseSession capabilities', () => {
     sendTestEmail: false,
     viewSystemStatus: false,
     manageServers: true,
+    editServers: true,
+    deleteServers: false,
+    manageCustomers: true,
+    manageTargets: false,
+    manageDevices: true,
+    manageUsers: false,
+    viewAuditLog: false,
+    manageOwnAccount: true,
   }
 
   it('carries what the server says the account may do, flag by flag', () => {

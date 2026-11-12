@@ -1,16 +1,19 @@
-"""Network targets: ``GET /targets/``, ``GET /targets/<id>/`` and ``GET /targets/<id>/series/?range=``.
+"""Network targets: ``GET /targets/``, ``GET /targets/<id>/`` and ``GET /targets/<id>/series/?range=``
+(adding, changing and deleting them is ``apps.console.target_config``).
 
 A list item::
 
     {"target": {id, name, address, protocol, port, enabled, intervalSeconds, timeoutSeconds,
-                circuitId, siteId, agentAssigned, agent},
+                expectedSlaPercent, customerLabel, circuitId, siteId, agentAssigned, agent},
      "latest": {measuredAt, receivedAt, success, latencyMs, lossPercent, probeCount,
                 successfulProbes, failureReason} | null,
      "stale": bool, "health": HealthStatus, "reason": str, "customerName"?, "siteName"?}
 
 ``agent`` is ``{id, name, status, lastSeenAt, serverId, serverName}`` when one is
 assigned and its server is visible to the user, and ``null`` otherwise
-(``agentAssigned`` tells the two apart). ``latest`` is the newest measurement by
+(``agentAssigned`` tells the two apart). ``expectedSlaPercent`` and ``customerLabel``
+are the admin's informational fields (the SLA expectation, a free-text label for
+reports that says nothing about who sees the target: the site does). ``latest`` is the newest measurement by
 the time it was taken, kept whatever its age; ``stale`` is true when there is
 one and it is no longer current, and then it takes no part in ``health``.
 ``reason`` is the rule that decided the status (``apps.console.health``).
@@ -37,9 +40,11 @@ every other target last in both directions; ``measured`` orders by the age of
 the latest measurement, targets never measured last. Ties are broken by name,
 then id.
 
-The detail is ``{generatedAt, item, measurements, availability24h}``: the item,
+The detail is ``{generatedAt, item, measurements, availability24h, agentEntry}``: the item,
 the latest ``RECENT`` measurements (newest first, the list's ``latest`` shape),
-and what the last 24 hours observed::
+the target's entry for the agent's targets file (``agent/network_targets.example.json``:
+``{id, name, hostname_or_ip, protocol, port, enabled, monitoring_interval_seconds,
+timeout_seconds, probe_count}``), and what the last 24 hours observed::
 
     {"from", "to", "measurements", "successful", "percent", "expectedMeasurements", "coveragePercent"}
 
@@ -98,6 +103,8 @@ FIELDS = (
     "enabled",
     "monitoring_interval_seconds",
     "timeout_seconds",
+    "expected_sla_percentage",
+    "customer_name",
     "circuit_identifier",
     "site_id",
     "site__name",
@@ -124,6 +131,8 @@ MEASUREMENT_FIELDS = (
 )
 RECENT = 20
 AVAILABILITY_WINDOW = timedelta(hours=24)
+# The agent's probes per measurement, as agent/network_targets.example.json sets it; the server stores no such setting.
+AGENT_PROBE_COUNT = 4
 
 
 def visible_targets(visibility: Visibility, now: datetime, scope: Scope | None = None):
@@ -195,6 +204,10 @@ def serialize(row: dict, latest: dict | None, servers: dict[UUID, str], now: dat
             "enabled": row["enabled"],
             "intervalSeconds": row["monitoring_interval_seconds"],
             "timeoutSeconds": row["timeout_seconds"],
+            # Informational, as the admin shows them: the SLA expectation and the free-text customer label
+            # (``customerName`` beside the item is the site's customer; this one says nothing about who sees the target).
+            "expectedSlaPercent": float(row["expected_sla_percentage"]),
+            "customerLabel": row["customer_name"] or None,
             "circuitId": row["circuit_identifier"] or None,
             "siteId": str(row["site_id"]) if row["site_id"] is not None else None,
             "agentAssigned": row["assigned_agent_id"] is not None,
@@ -224,8 +237,8 @@ def serialize_rows(visibility: Visibility, rows: list[dict], now: datetime, scop
     return [serialize(row, latest.get(row["latest_id"]), servers, now) for row in rows]
 
 
-@console_api()
 def target_list(request):
+    """``GET /targets/``: the body of ``apps.console.target_config.target_collection`` (which also takes the POST)."""
     now = timezone.now()
     params = QueryParams(request, LIST_PARAMS)
     scope = params.scope(request.visibility)
@@ -265,11 +278,27 @@ def availability(visibility: Visibility, target_id: UUID, interval_seconds: int,
     }
 
 
-@console_api()
-def target_detail(request, target_id: UUID):
-    now = timezone.now()
-    QueryParams(request, ())  # no parameters: a stray one is a mistake, not ignored
-    visibility = request.visibility
+def agent_entry(row: dict) -> dict:
+    """The target's entry for the agent's targets file (``agent/network_targets.example.json``).
+
+    The agent reads its targets from its own file, by these keys; ``probe_count`` is the agent's
+    own setting (the example file's 4), not stored on the server. Nothing here is secret.
+    """
+    return {
+        "id": str(row["id"]),
+        "name": row["name"],
+        "hostname_or_ip": row["hostname_or_ip"],
+        "protocol": row["protocol"],
+        "port": row["port"],
+        "enabled": row["enabled"],
+        "monitoring_interval_seconds": row["monitoring_interval_seconds"],
+        "timeout_seconds": row["timeout_seconds"],
+        "probe_count": AGENT_PROBE_COUNT,
+    }
+
+
+def detail_payload(visibility: Visibility, target_id: UUID, now: datetime) -> dict:
+    """``GET /targets/<id>/`` (``NotVisible`` for an unknown or hidden id), also the answer to a write."""
     row = visibility.get(visible_targets(visibility, now).values(*FIELDS), target_id)
     (item,) = serialize_rows(visibility, [row], now)
     recent = (
@@ -278,14 +307,20 @@ def target_detail(request, target_id: UUID):
         .order_by("-measured_at", "-id")
         .values(*MEASUREMENT_FIELDS)[:RECENT]
     )
-    return JsonResponse(
-        {
-            "generatedAt": iso(now),
-            "item": item,
-            "measurements": [serialize_measurement(m) for m in recent],
-            "availability24h": availability(visibility, target_id, row["monitoring_interval_seconds"], now),
-        }
-    )
+    return {
+        "generatedAt": iso(now),
+        "item": item,
+        "measurements": [serialize_measurement(m) for m in recent],
+        "availability24h": availability(visibility, target_id, row["monitoring_interval_seconds"], now),
+        "agentEntry": agent_entry(row),
+    }
+
+
+def target_detail(request, target_id: UUID):
+    """``GET /targets/<id>/``: the body of ``apps.console.target_config.target_item`` (which also takes the writes)."""
+    now = timezone.now()
+    QueryParams(request, ())  # no parameters: a stray one is a mistake, not ignored
+    return JsonResponse(detail_payload(request.visibility, target_id, now))
 
 
 def build_series(rows, *, range_key: str, interval_seconds: int, now: datetime) -> dict:

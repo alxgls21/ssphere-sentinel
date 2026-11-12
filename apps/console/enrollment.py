@@ -20,7 +20,8 @@ whose ``agent`` is null until one is added. A name another server has is a 409
 are refused there too); the body is at most 16 KiB. No text may hold a control character (the
 description keeps its line breaks); the name is stored in Unicode NFC, so two spellings of one
 name are one server; a hostname, when given, is a host name (RFC 1123: labels of letters, digits
-and hyphens joined by dots) or an IP address.
+and hyphens joined by dots) or an IP address. Changing and deleting a server is
+``apps.console.server_config`` (``PATCH`` and ``DELETE /servers/<id>/``).
 
 Agent, ``POST /servers/<id>/agents/`` with ``{"name": str}`` (optional: the server's name)::
 
@@ -47,7 +48,7 @@ A disabled agent is refused by the heartbeat endpoint exactly as an unknown toke
 again needs no new token. Nothing else about an agent changes here, and nothing is deleted.
 
 Every write is logged (``apps.console``) with the account's id and the server's and agent's
-ids, never the token.
+ids, never the token, and recorded in the audit trail (``apps.console.audit``) the same way.
 """
 
 from __future__ import annotations
@@ -66,9 +67,10 @@ from django.utils import timezone
 
 from apps.agents.models import Agent
 from apps.agents.services import AgentAlreadyExistsError, create_agent, rotate_token
-from apps.console import servers
-from apps.console.http import API_PREFIX, ApiError, console_api, json_object, storable_text, validation_error
-from apps.console.params import QueryParams, canonical_uuid
+from apps.console import audit, servers
+from apps.console.fields import model_errors, reference, text, unknown_fields
+from apps.console.http import API_PREFIX, ApiError, console_api, json_object, validation_error
+from apps.console.params import QueryParams
 from apps.console.permissions import may_add_agents, may_add_servers, may_change_agents, require
 from apps.console.serializers import iso
 from apps.infrastructure.models import Server
@@ -95,6 +97,15 @@ ERROR_FIELDS = {
     "site": "siteId",
     NON_FIELD_ERRORS: "nonField",
 }
+# Body field -> model attribute, for the audit trail (the site by its id, as the body names it).
+MODEL_FIELDS = {
+    "name": "name",
+    "hostname": "hostname",
+    "description": "description",
+    "operatingSystem": "operating_system",
+    "ipAddress": "ip_address",
+    "siteId": "site_id",
+}
 NAME_TAKEN = "A server with this name already exists."
 NOT_PERMITTED = "This account may not add or change monitored hosts."
 # RFC 1123: a label is letters, digits and hyphens, neither first nor last a hyphen, at most 63 long;
@@ -102,35 +113,6 @@ NOT_PERMITTED = "This account may not add or change monitored hosts."
 HOSTNAME_LABEL = re.compile(r"[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?\Z")
 DNS_NAME_MAX_LENGTH = 253
 NOT_A_HOSTNAME = "Expected a host name (letters, digits, hyphens and dots) or an IP address."
-
-
-def _controls(value: str, *, allowed: str = "") -> bool:
-    """Whether ``value`` holds a control character (Unicode category Cc) other than those ``allowed``."""
-    return any(unicodedata.category(char) == "Cc" and char not in allowed for char in value)
-
-
-def _text(data: dict, name: str, *, limit: int, errors: dict, multiline: bool = False) -> str:
-    """The text of an optional field ("" when absent), with what is wrong with it in ``errors``.
-
-    Control characters are refused, as ``apps.console.params`` refuses them in a search: a line
-    break or an escape sequence in a name would end up in an email or a log line. A multi-line
-    field keeps its tabs and line breaks; the others are stripped by the caller, so what is
-    stripped away is not held against them.
-    """
-    value = data.get(name, "")
-    if not isinstance(value, str):
-        errors[name] = ["Expected text."]
-        return ""
-    if not storable_text(value):
-        errors[name] = ["This text cannot be stored."]
-        return ""
-    if len(value) > limit:
-        errors[name] = [f"At most {limit} characters."]
-        return ""
-    if _controls(value if multiline else value.strip(), allowed="\t\n\r" if multiline else ""):
-        errors[name] = ["Control characters are not allowed."]
-        return ""
-    return value
 
 
 def host_name(value: str) -> bool:
@@ -144,62 +126,63 @@ def host_name(value: str) -> bool:
     return True
 
 
-def parse_server(data: dict) -> dict:
-    """The model values of a ``POST /servers/`` body, or a 400 with what is wrong, field by field."""
+def parse_server(data: dict, *, partial: bool = False) -> dict:
+    """The model values of a ``POST /servers/`` body, or a 400 with what is wrong, field by field.
+
+    ``partial`` (a ``PATCH``): only the fields the body holds, the name required only when it is
+    one of them, and a blank hostname left blank for the caller to resolve against the name.
+    """
     errors: dict[str, list[str]] = {}
-    for name in sorted(set(data) - set(SERVER_FIELDS)):
-        errors[name] = ["Unknown field."]
-    # One spelling per name (NFC), so that a composed and a decomposed "é" cannot be two servers.
-    name = unicodedata.normalize("NFC", _text(data, "name", limit=NAME_MAX_LENGTH, errors=errors).strip())
-    if "name" not in errors and not name:
-        errors["name"] = ["Required."]
-    hostname = _text(data, "hostname", limit=HOSTNAME_MAX_LENGTH, errors=errors).strip()
-    if "hostname" not in errors and hostname and not host_name(hostname):
-        errors["hostname"] = [NOT_A_HOSTNAME]
-    values = {
-        "name": name,
-        "hostname": hostname or name,  # as the model stores it: a host is named by its name unless told otherwise
-        "description": _text(data, "description", limit=DESCRIPTION_MAX_LENGTH, errors=errors, multiline=True),
-        "operating_system": _text(data, "operatingSystem", limit=OS_MAX_LENGTH, errors=errors).strip(),
-        "ip_address": None,
-        "site_id": None,
-    }
-    address = data.get("ipAddress")
-    if address is not None:
-        address = _text(data, "ipAddress", limit=64, errors=errors).strip()
-        if "ipAddress" not in errors and address:
-            try:
-                validate_ipv46_address(address)
-            except ValidationError:
-                errors["ipAddress"] = ["Expected an IPv4 or IPv6 address."]
-            else:
-                values["ip_address"] = address
-    site_id = data.get("siteId")
-    if site_id is not None:
-        parsed = canonical_uuid(site_id)
-        if parsed is None:
-            errors["siteId"] = ["Expected the id of a site."]
-        elif not Site.objects.filter(pk=parsed).exists():
-            errors["siteId"] = ["No such site."]
-        else:
-            values["site_id"] = parsed
+    unknown_fields(data, SERVER_FIELDS, errors)
+    values: dict = {}
+    if "name" in data or not partial:
+        # One spelling per name (NFC), so that a composed and a decomposed "é" cannot be two servers.
+        name = unicodedata.normalize("NFC", text(data, "name", limit=NAME_MAX_LENGTH, errors=errors).strip())
+        if "name" not in errors and not name:
+            errors["name"] = ["Required."]
+        values["name"] = name
+    if "hostname" in data or not partial:
+        hostname = text(data, "hostname", limit=HOSTNAME_MAX_LENGTH, errors=errors).strip()
+        if "hostname" not in errors and hostname and not host_name(hostname):
+            errors["hostname"] = [NOT_A_HOSTNAME]
+        # As the model stores it: a host is named by its name unless told otherwise.
+        values["hostname"] = hostname or (values["name"] if not partial else "")
+    if "description" in data or not partial:
+        values["description"] = text(data, "description", limit=DESCRIPTION_MAX_LENGTH, errors=errors, multiline=True)
+    if "operatingSystem" in data or not partial:
+        values["operating_system"] = text(data, "operatingSystem", limit=OS_MAX_LENGTH, errors=errors).strip()
+    if "ipAddress" in data or not partial:
+        values["ip_address"] = None
+        address = data.get("ipAddress")
+        if address is not None:
+            address = text(data, "ipAddress", limit=64, errors=errors).strip()
+            if "ipAddress" not in errors and address:
+                try:
+                    validate_ipv46_address(address)
+                except ValidationError:
+                    errors["ipAddress"] = ["Expected an IPv4 or IPv6 address."]
+                else:
+                    values["ip_address"] = address
+    if "siteId" in data or not partial:
+        values["site_id"] = reference(data, "siteId", errors=errors, model=Site, label="site")
     if errors:
         raise validation_error(errors)
     return values
 
 
-def model_errors(error: ValidationError) -> dict[str, list[str]]:
-    fields: dict[str, list[str]] = {}
-    for model_field, messages in error.message_dict.items():
-        name = ERROR_FIELDS.get(model_field, "nonField")
-        for message in messages:
-            if message not in fields.setdefault(name, []):
-                fields[name].append(message)
-    return fields
+def server_values(server: Server) -> dict:
+    """The server's fields by the names the API gives them, for the audit trail."""
+    return {body: getattr(server, model) for body, model in MODEL_FIELDS.items()}
 
 
 def name_taken(error: ValidationError) -> bool:
     return any(problem.code == "unique" for problem in getattr(error, "error_dict", {}).get("name", []))
+
+
+def name_taken_meanwhile(error: IntegrityError) -> bool:
+    """The name taken by a server saved meanwhile; anything else is not a conflict to explain."""
+    constraint = getattr(getattr(error.__cause__, "diag", None), "constraint_name", None) or ""
+    return constraint.endswith("_name_key")
 
 
 def server_url(request) -> str | None:
@@ -244,14 +227,20 @@ def create_server(request):
         with transaction.atomic():
             server.full_clean()  # the model's own checks (the address, the site, the unique name) in one place
             server.save(force_insert=True)
+            audit.record(
+                user,
+                action="server_created",
+                target_type=audit.SERVER,
+                target_id=server.pk,
+                target_name=server.name,
+                changed=audit.changes({}, server_values(server)),
+            )
     except ValidationError as error:
         if name_taken(error):
             raise ApiError(409, "server_exists", NAME_TAKEN) from None
-        raise validation_error(model_errors(error)) from None
+        raise validation_error(model_errors(error, ERROR_FIELDS)) from None
     except IntegrityError as error:
-        # The name taken by a server saved meanwhile; anything else is not a conflict to explain.
-        constraint = getattr(getattr(error.__cause__, "diag", None), "constraint_name", None) or ""
-        if not constraint.endswith("_name_key"):
+        if not name_taken_meanwhile(error):
             raise
         raise ApiError(409, "server_exists", NAME_TAKEN) from None
     logger.info("Server created (server=%s, site=%s, user_id=%s)", server.pk, server.site_id, user.pk)
@@ -268,9 +257,8 @@ def agent_collection(request, server_id: UUID):
     QueryParams(request, ())
     data = json_object(request, max_bytes=MAX_AGENT_BODY_BYTES, empty=True)
     errors: dict[str, list[str]] = {}
-    for name in sorted(set(data) - {"name"}):
-        errors[name] = ["Unknown field."]
-    name = _text(data, "name", limit=AGENT_NAME_MAX_LENGTH, errors=errors).strip()
+    unknown_fields(data, ("name",), errors)
+    name = text(data, "name", limit=AGENT_NAME_MAX_LENGTH, errors=errors).strip()
     if errors:
         raise validation_error(errors)
     with transaction.atomic():
@@ -280,6 +268,14 @@ def agent_collection(request, server_id: UUID):
             agent, raw_token = create_agent(server=server, name=name or server.name)
         except AgentAlreadyExistsError:
             raise ApiError(409, "agent_exists", "This server already has an agent.") from None
+        audit.record(
+            user,
+            action="agent_created",
+            target_type=audit.AGENT,
+            target_id=agent.pk,
+            target_name=agent.name,
+            changed={"serverId": {"before": None, "after": str(server.pk)}, "serverName": {"before": None, "after": server.name}},
+        )
         # The answer is built before the commit: an agent whose token could not be answered is not kept.
         response = token_answer(request, now, agent, raw_token, status=201)
     logger.info("Agent created (agent=%s, server=%s, user_id=%s)", agent.pk, server.pk, user.pk)
@@ -290,6 +286,10 @@ def agent_collection(request, server_id: UUID):
 def visible_agent(request, agent_id: UUID) -> Agent:
     """The agent, its row held until the end of the transaction; 404 when unknown or on a hidden server."""
     return request.visibility.get(Agent.objects.select_for_update(no_key=True), agent_id, site_path="server__site")
+
+
+def agent_record(user, agent: Agent, action: str, changed: dict | None = None) -> None:
+    audit.record(user, action=action, target_type=audit.AGENT, target_id=agent.pk, target_name=agent.name, changed=changed)
 
 
 @console_api(methods=("POST",))
@@ -304,6 +304,7 @@ def rotate_agent_token(request, agent_id: UUID):
     with transaction.atomic():
         agent = visible_agent(request, agent_id)
         raw_token = rotate_token(agent)
+        agent_record(user, agent, "agent_token_rotated")  # the action alone: never the token
     logger.info("Agent token rotated (agent=%s, server=%s, user_id=%s)", agent.pk, agent.server_id, user.pk)
     return token_answer(request, now, agent, raw_token)
 
@@ -316,8 +317,7 @@ def agent_item(request, agent_id: UUID):
     QueryParams(request, ())
     data = json_object(request, max_bytes=MAX_AGENT_BODY_BYTES)
     errors: dict[str, list[str]] = {}
-    for name in sorted(set(data) - {"enabled"}):
-        errors[name] = ["Unknown field."]
+    unknown_fields(data, ("enabled",), errors)
     enabled = data.get("enabled")
     if not isinstance(enabled, bool):
         errors["enabled"] = ["Required: true or false."]
@@ -328,6 +328,12 @@ def agent_item(request, agent_id: UUID):
         if agent.enabled != enabled:
             agent.enabled = enabled
             agent.save(update_fields=["enabled", "updated_at"])
+            agent_record(
+                user,
+                agent,
+                "agent_enabled" if enabled else "agent_disabled",
+                {"enabled": {"before": not enabled, "after": enabled}},
+            )
             logger.info(
                 "Agent %s (agent=%s, server=%s, user_id=%s)",
                 "enabled" if enabled else "disabled",

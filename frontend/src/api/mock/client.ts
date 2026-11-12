@@ -262,10 +262,44 @@ export function createMockApi(options: MockApiOptions = {}): SentinelApi {
     getSystemStatus: (request) => noSettings('getSystemStatus', request?.signal),
     // Nor can a host be added to it: nothing would be monitored, and no token could be real.
     createServer: (_input, request) => noSettings('createServer', request?.signal),
+    updateServer: (_id, _patch, request) => noSettings('updateServer', request?.signal),
+    deleteServer: (_id, request) => noSettings('deleteServer', request?.signal),
     createAgent: (_serverId, _input, request) => noSettings('createAgent', request?.signal),
     rotateAgentToken: (_agentId, request) => noSettings('rotateAgentToken', request?.signal),
     setAgentEnabled: (_agentId, _enabled, request) =>
       noSettings('setAgentEnabled', request?.signal),
+    // Nor administered: the sample fleet has no customers to change, no accounts, no trail and no
+    // inventory to write to. Every administration method says so, as the settings do.
+    listAgents: (request) => noSettings('listAgents', request?.signal),
+    createTarget: (_input, request) => noSettings('createTarget', request?.signal),
+    updateTarget: (_id, _patch, request) => noSettings('updateTarget', request?.signal),
+    deleteTarget: (_id, request) => noSettings('deleteTarget', request?.signal),
+    listCustomers: (request) => noSettings('listCustomers', request?.signal),
+    getCustomer: (_id, request) => noSettings('getCustomer', request?.signal),
+    createCustomer: (_input, request) => noSettings('createCustomer', request?.signal),
+    updateCustomer: (_id, _patch, request) => noSettings('updateCustomer', request?.signal),
+    deleteCustomer: (_id, request) => noSettings('deleteCustomer', request?.signal),
+    listSites: (request) => noSettings('listSites', request?.signal),
+    getSite: (_id, request) => noSettings('getSite', request?.signal),
+    createSite: (_input, request) => noSettings('createSite', request?.signal),
+    updateSite: (_id, _patch, request) => noSettings('updateSite', request?.signal),
+    deleteSite: (_id, request) => noSettings('deleteSite', request?.signal),
+    listInventoryDevices: (request) => noSettings('listInventoryDevices', request?.signal),
+    getInventoryDevice: (_id, request) => noSettings('getInventoryDevice', request?.signal),
+    createInventoryDevice: (_input, request) =>
+      noSettings('createInventoryDevice', request?.signal),
+    updateInventoryDevice: (_id, _patch, request) =>
+      noSettings('updateInventoryDevice', request?.signal),
+    deleteInventoryDevice: (_id, request) => noSettings('deleteInventoryDevice', request?.signal),
+    listUsers: (request) => noSettings('listUsers', request?.signal),
+    getUser: (_id, request) => noSettings('getUser', request?.signal),
+    createUser: (_input, request) => noSettings('createUser', request?.signal),
+    updateUser: (_id, _patch, request) => noSettings('updateUser', request?.signal),
+    resetUserPassword: (_id, _password, request) =>
+      noSettings('resetUserPassword', request?.signal),
+    unlockUser: (_id, request) => noSettings('unlockUser', request?.signal),
+    changeOwnPassword: (_input, request) => noSettings('changeOwnPassword', request?.signal),
+    listAuditLog: (request) => noSettings('listAuditLog', request?.signal),
 
     getTopology: (request) =>
       scoped('getTopology', request, ({ fleet }, { now }) => mockTopology(fleet, now, request)),

@@ -216,6 +216,72 @@ the CSRF token.
   the account's id and the server's and agent's ids. A server's detail names its
   agent (id, name, enabled, last heartbeat, version), never a token or its hash,
   and the token hash is never even read for a detail or a list.
+- **The rest of the administration is in the console too, by the same rule.**
+  Changing a server (`infrastructure.change_server`) and deleting one
+  (`infrastructure.delete_server`: its agent, telemetry and containers go with
+  it, its measurements, targets and devices stay without their agent);
+  customers and sites (`inventory.add_customer`, `change_customer`,
+  `delete_customer`, and the same three on `inventory.Site`); network targets
+  (`network.add_networktarget`, `change_networktarget`,
+  `delete_networktarget`, enabling and disabling included); devices with their
+  SNMP configuration (`inventory.add_device`, `change_device`, `delete_device`
+  together with `snmp.add_snmpconfig`, `change_snmpconfig`,
+  `delete_snmpconfig`): each needs `alerts.change_alertrule` with
+  `view_all_customers` *and* the admin's model permission for that action, as
+  monitored hosts do. The session announces `editServers`, `deleteServers`,
+  `manageCustomers`, `manageTargets` and `manageDevices` only to an account
+  that holds every permission of the group. A customer or a site is never
+  deleted while anything still belongs to it (sites, monitored domains or alert
+  rules; servers, devices, targets, alert rules or incidents): the request is
+  refused (`409`) with what still belongs, and nothing is ever deleted along
+  with it, only the access grants to it. A device with SNMP history is refused
+  too, as in the admin. A target's detail carries the entry for the agent's
+  own targets file (nothing secret: the agent's keys of the target); an SNMP
+  credential profile is written and never answered, logged or recorded.
+- **Accounts, roles and access are administered by administrators only**
+  (a superuser; the session announces `manageUsers`). Whoever may change
+  accounts can give any account, their own included, anything, so there is no
+  lesser permission for it, and the Django user permissions mean nothing to
+  the console here. The console names four roles, each a fixed bundle of the
+  permissions above: *viewer* (`use_console`), *operator* (also
+  `acknowledge_incident` and `send_test_email`), *editor* (also every
+  configuration permission, with `view_all_customers`) and *administrator* (a
+  superuser, who may also use the admin). Assigning a role sets exactly that
+  role's permissions on the account and takes it out of every group; a viewer
+  or operator is granted customers (every site of each, now and later) and
+  single sites, or every customer; an account that holds a finer set of
+  permissions from the admin is shown as the highest role it amounts to. The
+  administrator types a new account's first password (checked by the
+  installation's `AUTH_PASSWORD_VALIDATORS`, as the setup and the admin check
+  it) and tells it to the user, who changes it in **Settings → Account** with
+  the current one (a wrong current password counts as a failed sign-in, under
+  the throttle); setting another account's password ends that account's
+  sessions, and so does deactivating it. Accounts are deactivated, never
+  deleted from the console: the audit trail refers to them. Nobody can
+  deactivate or demote their own account there, so an administrator cannot
+  lock themselves out, and the last active administrator cannot be demoted or
+  deactivated (every administrator's row is held while it is checked, so two
+  demotions at once cannot each see the other still there). A locked account
+  is unlocked there (**Users & access → Sign-in**), which does what
+  `manage.py unlock_login` does. No answer ever carries a password, a hash,
+  or anything about one.
+- **Every administrative write is recorded** in the console's own append-only
+  audit trail (`console.AuditEntry`; **Settings → Audit log**, read by
+  administrators or an account granted `console.view_auditentry` with
+  `view_all_customers`; read-only in the admin too): who (the account, and its
+  name at the time, kept once the account is gone), when, what, on which
+  object (type, id and name at the time), and the fields that changed with
+  their values before and after, by the names the console API gives them.
+  Only safe values are recorded: a password change or reset and a token
+  rotation are the action alone, a changed SNMP credential profile is recorded
+  as `credentialProfileChanged` without the name, and no entry ever holds a
+  password, a hash, a token or a credential (tests assert it over a run of
+  every kind of write). An entry is written in the transaction of the change,
+  so a refused change leaves none; the application never changes or deletes
+  one (the model refuses), only `purge_audit_entries` removes rows older than
+  `SENTINEL_AUDIT_RETENTION_DAYS` (365 days by default; 30 to 3650). The
+  database login could still alter the table: it is a trail, not a tamper-proof
+  log.
 - **Domains are verified before anything is monitored, by permission too.**
   Adding a domain (`web.add_monitoreddomain`), seeing domains
   (`web.view_monitoreddomain`) and asking for a verification
@@ -277,11 +343,15 @@ the CSRF token.
 Whoever can edit *Customer access*, *Site access*, a user's permissions or
 groups, or a group's permissions in the admin can give any account (their own
 included) access to any customer: treat those permissions as "may see
-everything". Operational notes:
-create console users in the admin (they need no staff access); the throttle is per account because the client address is not
+everything". The admin is still present in this version (a later release turns
+it off by default): everything above is done in the console, and the admin
+remains the way to a finer permission set than the four roles. Operational notes:
+create console users in the console (**Settings → Users & access**; they need no
+staff access, and only an administrator may do it); the throttle is per account because the client address is not
 trustworthy behind a proxy (see above), so it cannot be bypassed by rotating
 addresses but can be used to lock a known account out for the lockout period
-(unlock it under **Console → Login throttles**). Because the admin login shares
+(unlock it under **Settings → Users & access**, or **Console → Login throttles**
+in the admin). Because the admin login shares
 the counter, this includes staff and superuser accounts, at both doors: someone
 who knows an administrator's user name can keep that administrator out of the
 console and the admin for the lockout period. This is the accepted price of a

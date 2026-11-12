@@ -91,3 +91,22 @@ def _count_attempt(key: str, now: datetime, user_id: int | None) -> int | None:
 def clear(key: str) -> None:
     """A successful login forgets earlier failures."""
     LoginThrottle.objects.filter(key=key).delete()
+
+
+def unlock(user_pk: int) -> bool:
+    """Forget the failed sign-ins of one account, so a lockout ends now (``manage.py unlock_login``, the console).
+
+    True when a row was removed (the account had failed sign-ins), false when it had none.
+    """
+    deleted, _ = LoginThrottle.objects.filter(key=throttle_key("", user_pk)).delete()
+    return bool(deleted)
+
+
+def locked_until(user_pks, now: datetime) -> dict[int, datetime]:
+    """For each of ``user_pks`` that the throttle holds locked at ``now``, until when."""
+    return {
+        user_id: until
+        for user_id, until in LoginThrottle.objects.filter(user_id__in=list(user_pks), locked_until__gt=now).values_list(
+            "user_id", "locked_until"
+        )
+    }

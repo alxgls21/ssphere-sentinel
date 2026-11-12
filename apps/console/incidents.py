@@ -104,6 +104,7 @@ import logging
 from datetime import datetime
 from uuid import UUID
 
+from django.db import transaction
 from django.db.models import Case, Count, F, IntegerField, OuterRef, Subquery, Value, When
 from django.http import JsonResponse
 from django.utils import timezone
@@ -111,6 +112,7 @@ from django.utils import timezone
 from apps.alerts.conditions import EntityKind, Severity
 from apps.alerts.engine import DEFAULT_INTERVAL
 from apps.alerts.models import AlertEngineHeartbeat, ErrorCategory, Incident, IncidentEvent
+from apps.console import audit
 from apps.console.access import Scope, Visibility
 from apps.console.http import ApiError, console_api
 from apps.console.listing import apply_search, name_order, page_envelope
@@ -341,8 +343,19 @@ def incident_acknowledge(request, incident_id: UUID):
     incident = request.visibility.get(Incident.objects.all(), incident_id)
     if not request.user.has_perm(ACKNOWLEDGE):
         raise ApiError(403, "forbidden", "This account may not acknowledge incidents.")
-    # One conditional update and its event, together: the first acknowledgement is the only one.
-    if incident.acknowledge(request.user, at=max(now, incident.opened_at)):
+    # One conditional update, its event and its audit entry, together: the first acknowledgement is the only one.
+    with transaction.atomic():
+        acknowledged = incident.acknowledge(request.user, at=max(now, incident.opened_at))
+        if acknowledged:
+            audit.record(
+                request.user,
+                action="incident_acknowledged",
+                target_type=audit.INCIDENT,
+                target_id=incident.pk,
+                target_name=incident.entity_label,
+                changed={"status": {"before": Incident.Status.ACTIVE.value, "after": Incident.Status.ACKNOWLEDGED.value}},
+            )
+    if acknowledged:
         logger.info("Incident acknowledged (incident=%s, user_id=%s)", incident.pk, request.user.pk)
     else:
         incident.refresh_from_db(fields=["status"])
