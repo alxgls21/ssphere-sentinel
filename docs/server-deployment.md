@@ -79,7 +79,7 @@ settings template and the preflight script; this is what `install.sh` does,
 by hand:
 
 ```bash
-version=0.1.0   # the release you deploy
+version=0.9.3   # the release you deploy
 mkdir -p /opt/ssphere-sentinel && cd /opt/ssphere-sentinel
 base=https://github.com/alxgls21/ssphere-sentinel/releases/download/v$version
 curl -fsSLO "$base/sentinel-$version.tar.gz"

@@ -19,7 +19,7 @@ server (no Django, Gunicorn or PostgreSQL driver).
 
 The shipped files are in [`deploy/systemd/`](../deploy/systemd/): the unit, an
 environment template, the ICMP helper script and an opt-in Docker drop-in. Replace `<tag>` below with
-the release you deploy (for example `v0.2.0`).
+the release you deploy (for example `v0.9.3`).
 
 ## Requirements
 
@@ -182,7 +182,7 @@ journalctl -u sentinel-agent -p warning  # problems only
 A healthy start logs two lines, then stays quiet:
 
 ```text
-INFO: SSphere Sentinel agent 0.1.0 starting: server https://sentinel.example.com, heartbeat every 30s
+INFO: SSphere Sentinel agent 0.9.3 starting: server https://sentinel.example.com, heartbeat every 30s
 INFO: Network monitoring: 3 enabled target(s), queue /var/lib/ssphere-sentinel-agent/network-queue.sqlite3
 ```
 

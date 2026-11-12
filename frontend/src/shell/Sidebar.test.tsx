@@ -234,7 +234,7 @@ describe('Sidebar: expanded and rail', () => {
     await setup()
     expect(screen.getByText('SENTINEL')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Collapse sidebar' })).toBeInTheDocument()
-    expect(screen.getByText('v0.1 · MOCK')).toBeInTheDocument()
+    expect(screen.getByText('v0.9 · MOCK')).toBeInTheDocument()
     for (const hint of ['commands', 'shortcuts', 'collapse']) {
       expect(screen.getByText(hint)).toBeInTheDocument()
     }
@@ -246,7 +246,7 @@ describe('Sidebar: expanded and rail', () => {
     await user.click(screen.getByRole('button', { name: 'Collapse sidebar' }))
     expect(screen.getByRole('button', { name: 'Expand sidebar' })).toBeInTheDocument()
     expect(screen.queryByText('SENTINEL')).not.toBeInTheDocument()
-    expect(screen.getByText('v0.1')).toBeInTheDocument()
+    expect(screen.getByText('v0.9')).toBeInTheDocument()
     await user.click(screen.getByRole('button', { name: 'Expand sidebar' }))
     expect(screen.getByText('SENTINEL')).toBeInTheDocument()
   })
