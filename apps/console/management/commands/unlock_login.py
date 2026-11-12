@@ -50,8 +50,7 @@ class Command(BaseCommand):
         )
         if not account:
             raise CommandError(f"There is no account with the user name {username!r}.")
-        deleted, _ = LoginThrottle.objects.filter(key=throttle.throttle_key(username, account.pk)).delete()
-        if deleted:
+        if throttle.unlock(account.pk):
             self.stdout.write(f"Unlocked {account.get_username()!r}: its failed sign-ins are forgotten.")
         else:
             self.stdout.write(f"{account.get_username()!r} was not locked: no failed sign-ins are recorded for it.")

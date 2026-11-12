@@ -74,8 +74,10 @@ frontend/
       overview/           hero/ queue/ load/ health/ alerts/ (latency/ holds components for data the
                           console API does not serve yet; the Overview does not mount them)
       alerts/             incident list (table, cards, filters), incident page (summary, timeline), acknowledge
-      settings/           notifications (preferences, test email), alert rules (list, form), system status
-      servers/            list (table, cards, search/filter/sort) and detail (summary with sparklines, history chart, containers)
+      settings/           notifications (preferences, test email), own account (password), alert rules (list, form),
+                          customers & sites, network targets, devices, users & access, audit log (lists, forms), system status
+      servers/            list (table, cards, search/filter/sort) and detail (summary with sparklines, history chart,
+                          containers, agent, configuration: edit and delete)
       placeholder/        honest "not designed yet" screens
       design-system/      dev-only gallery at /_ds
     test/                 test setup and render helpers
@@ -401,24 +403,57 @@ for it.
 
 ## Settings screen
 
-`/settings` holds three sections under one layout (`features/settings/SettingsLayout`): **Notifications**
-(`/settings/notifications`), **Alert rules** (`/settings/alert-rules`, `/new` and `/:id`) and **System**
+`/settings` holds nine sections under one layout (`features/settings/SettingsLayout`): **Notifications**
+(`/settings/notifications`), **Account** (`/settings/account`, the own password), **Alert rules**
+(`/settings/alert-rules`, `/new` and `/:id`), **Customers & sites** (`/settings/customers`, `/new`,
+`/:id`; a site at `/settings/sites/new?of=<customer>` and `/settings/sites/:id`), **Network targets**
+(`/settings/targets`, `/new`, `/:id`), **Devices** (`/settings/devices`, `/new`, `/:id`), **Users &
+access** (`/settings/users`, `/new`, `/:id`), **Audit log** (`/settings/audit-log`) and **System**
 (`/settings/system`). The section links shown are the ones this account is offered; `/settings` itself
 goes to the first of them. There is no General section: nothing in the console is a global preference.
-Ten methods of `SentinelApi` serve it: `getNotificationSettings`, `saveNotificationPreferences`,
-`requestTestEmail`, `getTestEmail`, `listAlertRules`, `getAlertRule`, `getAlertRuleOptions`,
-`createAlertRule`, `updateAlertRule` and `getSystemStatus`. Each adapter (`api/http/notifications.ts`,
-`alertRules.ts`, `system.ts`) names every field it reads, so nothing an answer holds beyond the contract
-(a secret, were one ever sent) reaches a screen, and names every field it writes: a preference body is
-exactly its three preferences, a rule's change never carries its kind, and a test email names no address.
+The methods of `SentinelApi` that serve it are the notifications', the rules' and the status's
+(`getNotificationSettings`, `saveNotificationPreferences`, `requestTestEmail`, `getTestEmail`,
+`listAlertRules`, `getAlertRule`, `getAlertRuleOptions`, `createAlertRule`, `updateAlertRule`,
+`getSystemStatus`) and the administration's: `listCustomers`, `getCustomer`, `createCustomer`,
+`updateCustomer`, `deleteCustomer` and the same five for sites; `createTarget`, `updateTarget`,
+`deleteTarget` (the list and the detail are the Network screen's `listTargets` and `getTarget`, whose
+detail carries `agentEntry`, the target's line for the agent's own targets file); `listInventoryDevices`,
+`getInventoryDevice`, `createInventoryDevice`, `updateInventoryDevice`, `deleteInventoryDevice`;
+`listUsers`, `getUser`, `createUser`, `updateUser`, `resetUserPassword`, `unlockUser`,
+`changeOwnPassword`; `listAuditLog`; and `listAgents` for the agent choice of a target or a device.
+Each adapter (`api/http/notifications.ts`, `alertRules.ts`, `system.ts`, `customers.ts`, `targets.ts`,
+`inventory.ts`, `users.ts`, `audit.ts`, `agents.ts`) names every field it reads, so nothing an answer
+holds beyond the contract (a secret, were one ever sent: a password, a hash, a token, an SNMP credential
+profile) reaches a screen, and names every field it writes: a preference body is exactly its three
+preferences, a rule's change never carries its kind, a test email names no address, an account's change
+never carries a password (a new account's goes out in that one request, a reset in its own), and a
+device's credential profile goes out only when the operator typed one. The mock refuses every
+administration method with a 403, as it refuses the settings: the sample fleet has no accounts.
 
 **Capabilities.** The session carries `capabilities` (`viewAlertRules`, `createAlertRules`,
-`editAlertRules`, `manageOwnNotifications`, `sendTestEmail`, `viewSystemStatus`, the incidents'
-`acknowledgeIncidents`, and the servers' `manageServers`). `AuthProvider` exposes them through `useAuth`; absent (an anonymous session, an
+`editAlertRules`, `manageOwnNotifications`, `manageOwnAccount`, `sendTestEmail`, `viewSystemStatus`,
+the incidents' `acknowledgeIncidents`, the servers' `manageServers`, `editServers` and `deleteServers`,
+and the administration's `manageCustomers`, `manageTargets`, `manageDevices`, `manageUsers` and
+`viewAuditLog`). `AuthProvider` exposes them through `useAuth`; absent (an anonymous session, an
 older server, the sample fleet) means none. They decide what is offered and when a request is made at
 all: a page whose capability is missing says so and asks the server for nothing. They never decide what is
 allowed: every answer, 403 included, is the server's, and a refused read is shown as a refusal even where
 the session said otherwise.
+
+**Administration pages.** Every list (customers, accounts, targets, devices, the audit log) keeps its
+search, filters, sort and page in the URL (`useListQuery` with a pure `parse`/`write` pair in its
+model module), asks the server for the page, and switches between a table and cards at 48rem as the
+other lists do. Every form has a pure draft module (`customersModel`, `usersModel`, `targetsModel`,
+`devicesModel`; `serverDraft` for a server) that validates what the server would refuse and sends only
+what changed (`...Patch` returns null when nothing did, and the Save button says so); `useSaveForm`
+runs the save, maps the server's `validation_error` under the fields and the rest on top
+(`ui/FormNotice`), announces, and moves the focus to the summary. A deletion goes through
+`ui/DeleteConfirm`: an alert dialog that says what goes and what stays, focuses Cancel first, and does
+nothing until the object's name is typed back; a refusal of the server (`customer_in_use`,
+`device_has_history`, ...) is shown inside it with the server's own words. Controls the account may not
+use are absent, or disabled with the reason beside them (a customer that still has sites, a device with
+history, your own account's role and state). The site form takes the customer it was opened for as
+`?of=`, never `?customer=`, which is the console's scope and must not change under the operator.
 
 **Notifications.** The form is the user's own preferences (the address is the account's, read-only here).
 A save sends the three preferences and shows what the server kept; its validation errors, by field, sit

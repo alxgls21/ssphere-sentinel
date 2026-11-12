@@ -7,6 +7,7 @@
       "hostname": "web-1.internal",
       "ipAddress": "10.0.0.5",
       "operatingSystem": "Debian 12",
+      "description": "",
       "status": "online",
       "siteId": "00000000-0000-0000-0000-00000000a001",
       "lastSeenAt": "<iso-utc>",

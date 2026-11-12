@@ -18,15 +18,46 @@ vi.mock('@/features/settings/RuleEditorPage', () => ({
 vi.mock('@/features/settings/SystemPage', () => ({
   default: () => <p>system screen</p>,
 }))
+vi.mock('@/features/settings/AccountPage', () => ({ default: () => <p>account screen</p> }))
+vi.mock('@/features/settings/CustomersPage', () => ({ default: () => <p>customers screen</p> }))
+vi.mock('@/features/settings/CustomerPage', () => ({ default: () => <p>customer screen</p> }))
+vi.mock('@/features/settings/SitePage', () => ({ default: () => <p>site screen</p> }))
+vi.mock('@/features/settings/TargetsPage', () => ({ default: () => <p>targets screen</p> }))
+vi.mock('@/features/settings/TargetEditorPage', () => ({
+  default: () => <p>target editor screen</p>,
+}))
+vi.mock('@/features/settings/DevicesPage', () => ({ default: () => <p>devices screen</p> }))
+vi.mock('@/features/settings/DeviceEditorPage', () => ({
+  default: () => <p>device editor screen</p>,
+}))
+vi.mock('@/features/settings/UsersPage', () => ({ default: () => <p>users screen</p> }))
+vi.mock('@/features/settings/UserPage', () => ({ default: () => <p>user screen</p> }))
+vi.mock('@/features/settings/AuditLogPage', () => ({ default: () => <p>audit log screen</p> }))
 
 const main = () => screen.getByRole('main')
 
 describe('AppRoutes: Settings', () => {
   it.each([
     ['/settings/notifications', 'notifications screen'],
+    ['/settings/account', 'account screen'],
     ['/settings/alert-rules', 'alert rules screen'],
     ['/settings/alert-rules/new', 'rule editor screen'],
     ['/settings/alert-rules/6f1c0d2e-5a1b-4c1d-9a55-0d6c9f6c3c11', 'rule editor screen'],
+    ['/settings/customers', 'customers screen'],
+    ['/settings/customers/new', 'customer screen'],
+    ['/settings/customers/c1', 'customer screen'],
+    ['/settings/sites/new', 'site screen'],
+    ['/settings/sites/s1', 'site screen'],
+    ['/settings/targets', 'targets screen'],
+    ['/settings/targets/new', 'target editor screen'],
+    ['/settings/targets/t1', 'target editor screen'],
+    ['/settings/devices', 'devices screen'],
+    ['/settings/devices/new', 'device editor screen'],
+    ['/settings/devices/d1', 'device editor screen'],
+    ['/settings/users', 'users screen'],
+    ['/settings/users/new', 'user screen'],
+    ['/settings/users/7', 'user screen'],
+    ['/settings/audit-log', 'audit log screen'],
     ['/settings/system', 'system screen'],
   ])('lazy-loads %s inside the shell, under Settings', async (route, text) => {
     renderShell(<AppRoutes />, { route })

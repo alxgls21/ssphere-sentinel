@@ -18,6 +18,7 @@ import { STATUS_FRAME, STATUS_TINT, StatusTag } from '@/ui/status'
 import { AgentPanel } from './AgentPanel'
 import { ContainersPanel } from './ContainersPanel'
 import { HistoryPanel } from './HistoryPanel'
+import { ServerConfigPanel } from './ServerConfigPanel'
 import { readingOf } from '@/lib/serverList'
 import { useResourceLimits } from '@/ui/meters'
 import { stateWord, heartbeatText, serverDisplay } from './serversModel'
@@ -108,10 +109,10 @@ function ReportingNotice({ item, nowMs }: { item: ServerListItem; nowMs: number 
 }
 
 /**
- * Summary, history and containers of one server. The history is requested once
- * here, for the Summary's sparklines and the history chart alike. The page keys
- * this by server, so the series kept on screen while a range loads is never
- * another server's.
+ * Summary, history, containers and configuration of one server. The history is
+ * requested once here, for the Summary's sparklines and the history chart alike.
+ * The page keys this by server, so the series kept on screen while a range loads
+ * is never another server's.
  */
 function ServerPanels({ id, resource }: { id: string; resource: Resource<ServerDetail> }) {
   const api = useApi()
@@ -172,6 +173,9 @@ function ServerPanels({ id, resource }: { id: string; resource: Resource<ServerD
           hostOffline={item?.server.status === 'offline'}
           className="lg:col-span-5"
         />
+      </PanelBoundary>
+      <PanelBoundary title="Configuration" index={5} features="servers" className="lg:col-span-12">
+        <ServerConfigPanel index={5} resource={resource} className="lg:col-span-12" />
       </PanelBoundary>
     </>
   )

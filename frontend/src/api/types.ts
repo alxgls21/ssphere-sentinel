@@ -83,6 +83,8 @@ export interface Server {
   hostname: string
   ipAddress: string | null
   operatingSystem: string
+  /** Free text about the host. Served by the console API; absent in demo data. */
+  description?: string
   status: ServerStatus
   /** The site the server is placed on in the admin; null when it is on none (see `site-links`). */
   siteId: string | null
@@ -446,9 +448,53 @@ export interface ServerInput {
   siteId?: string | null
 }
 
+/** A change to a server: only the fields that change (the same fields as `ServerInput`). */
+export type ServerPatch = Partial<ServerInput>
+
+/** What deleting a server did: what went with it, and what only lost its agent. */
+export interface ServerDeleted {
+  generatedAt: Iso
+  deleted: {
+    id: string
+    name: string
+    /** It had an agent, which is gone with it (its token stopped working at once). */
+    agent: boolean
+    telemetrySamples: number
+    containers: number
+    /** Network measurements its agent reported, kept without their agent. */
+    measurementsKept: number
+    targetsUnassigned: number
+    devicesUnassigned: number
+  }
+}
+
 /** What adding an agent sends: its name, or nothing (the server's name). */
 export interface AgentInput {
   name?: string
+}
+
+/** An agent of a visible server, for choosing which agent probes a target or polls a device. */
+export interface AgentOption {
+  id: string
+  name: string
+  enabled: boolean
+  status: 'online' | 'offline' | 'unknown'
+  lastSeenAt: Iso | null
+  serverId: string
+  serverName: string
+}
+
+export interface AgentOptionList {
+  generatedAt: Iso
+  items: AgentOption[]
+  page: PageInfo
+}
+
+export interface AgentListOptions extends Pick<RequestOptions, 'signal'> {
+  /** Words, every one of which must appear in the agent's or the server's name. */
+  q?: string
+  page?: number
+  pageSize?: number
 }
 
 /**
@@ -540,11 +586,31 @@ export interface TargetConfig {
   enabled: boolean
   intervalSeconds: number
   timeoutSeconds: number
+  /** The SLA expectation, informational (0-100). */
+  expectedSlaPercent: number
+  /** A free-text label for reports. It says nothing about who sees the target: the site does. */
+  customerLabel: string | null
   circuitId: string | null
   siteId: string | null
   /** An agent is assigned, whether or not the user may see its server. */
   agentAssigned: boolean
   agent: TargetAgent | null
+}
+
+/**
+ * The target's entry for the agent's targets file (agent/network_targets.example.json), by the
+ * agent's own keys: what an operator copies into the file on the host that probes it.
+ */
+export interface TargetAgentEntry {
+  id: string
+  name: string
+  hostname_or_ip: string
+  protocol: TargetProtocol
+  port: number | null
+  enabled: boolean
+  monitoring_interval_seconds: number
+  timeout_seconds: number
+  probe_count: number
 }
 
 /**
@@ -620,6 +686,35 @@ export interface TargetDetail {
   /** The newest measurements, newest first. */
   measurements: TargetMeasurement[]
   availability24h: TargetAvailability
+  /** The line the agent's targets file needs for this target. */
+  agentEntry: TargetAgentEntry
+}
+
+/** What adding a target sends (`name`, `address` and `protocol` required); the server fills the rest with its defaults. */
+export interface TargetInput {
+  name: string
+  address: string
+  protocol: TargetProtocol
+  /** A TCP target needs one; an ICMP target must have none (null). */
+  port?: number | null
+  enabled?: boolean
+  intervalSeconds?: number
+  timeoutSeconds?: number
+  expectedSlaPercent?: number
+  customerLabel?: string
+  circuitId?: string
+  /** Null: no site (seen by accounts with every customer only). */
+  siteId?: string | null
+  /** The agent that probes it; null for none (nothing measures it). */
+  agentId?: string | null
+}
+
+/** A change: only the fields that change. */
+export type TargetPatch = Partial<TargetInput>
+
+export interface TargetDeleted {
+  generatedAt: Iso
+  deleted: { id: string; name: string; measurements: number }
 }
 
 export interface TargetSeriesOptions extends Pick<RequestOptions, 'signal'> {
@@ -1358,3 +1453,318 @@ export interface SystemStatus {
   outbox: OutboxSummary
   environment: SystemEnvironment
 }
+
+/* ---------------------------------------------------------- administration */
+
+/** One page of an administration list: the page and the scope, no health counts. */
+export interface RecordList<Item> {
+  generatedAt: Iso
+  items: Item[]
+  page: PageInfo
+  /** Records in the scope, whatever the search and filters. */
+  scopeTotal: number
+}
+
+/** What a deletion answers: the record is gone, named one last time. */
+export interface Deleted {
+  generatedAt: Iso
+  deleted: { id: string; name: string }
+}
+
+export type RecordSortKey = 'name' | 'created'
+
+/** The list query of customers and sites: search, sort, page. */
+export interface RecordListOptions extends Pick<RequestOptions, 'signal'> {
+  /** Words, every one of which must appear in the name, the notes or description, or the customer's name. */
+  q?: string
+  sort?: RecordSortKey
+  dir?: SortDirection
+  /** 1-based. */
+  page?: number
+  pageSize?: number
+}
+
+/** A customer as the console administers it, with what belongs to it (what must go elsewhere before it can be deleted). */
+export interface CustomerRecord {
+  id: string
+  name: string
+  notes: string
+  sites: number
+  servers: number
+  devices: number
+  targets: number
+  domains: number
+  createdAt: Iso
+  updatedAt: Iso
+}
+
+export interface SiteRecord {
+  id: string
+  customerId: string
+  customerName: string
+  name: string
+  description: string
+  servers: number
+  devices: number
+  targets: number
+  createdAt: Iso
+  updatedAt: Iso
+}
+
+export type CustomerList = RecordList<CustomerRecord>
+export type SiteList = RecordList<SiteRecord>
+
+export interface SiteListOptions extends RecordListOptions {
+  /** Only the sites of this customer (its id). */
+  customer?: string
+}
+
+/** One customer with its sites. */
+export interface CustomerDetail {
+  generatedAt: Iso
+  item: CustomerRecord
+  sites: SiteRecord[]
+}
+
+export interface SiteDetail {
+  generatedAt: Iso
+  item: SiteRecord
+}
+
+export interface CustomerInput {
+  name: string
+  notes?: string
+}
+export type CustomerPatch = Partial<CustomerInput>
+
+export interface SiteInput {
+  customerId: string
+  name: string
+  description?: string
+}
+/** A change: only the fields that change. Another `customerId` moves the site, and changes who sees everything on it. */
+export type SitePatch = Partial<SiteInput>
+
+/**
+ * The four roles the console assigns, each a bundle of the server's permissions: a viewer reads
+ * what its grants show; an operator also acknowledges incidents; an editor configures monitoring
+ * for every customer; an administrator may do everything, accounts included.
+ */
+export type UserRole = 'viewer' | 'operator' | 'editor' | 'administrator'
+
+export interface CustomerGrant {
+  id: string
+  name: string
+}
+
+export interface SiteGrant {
+  id: string
+  customerId: string
+  customerName: string
+  name: string
+}
+
+/** An account as the console administers it. Never a password, a hash, or anything about one. */
+export interface Account {
+  id: number
+  username: string
+  firstName: string
+  lastName: string
+  displayName: string
+  email: string
+  /** What its permissions amount to; null for an account that may not use the console at all. */
+  role: UserRole | null
+  /** It sees every customer (every editor and administrator; a viewer or operator granted so). */
+  allCustomers: boolean
+  active: boolean
+  lastLoginAt: Iso | null
+  createdAt: Iso
+  /** The sign-in throttle refuses it until `lockedUntil`. */
+  locked: boolean
+  lockedUntil: Iso | null
+  /** This is the signed-in account. */
+  self: boolean
+  /** The customers and the sites it is granted (what it sees, unless it sees every customer). */
+  customers: CustomerGrant[]
+  sites: SiteGrant[]
+}
+
+export type AccountActiveFilter = 'all' | 'active' | 'inactive'
+export type AccountSortKey = 'username' | 'joined' | 'lastLogin'
+
+export interface AccountListOptions extends Pick<RequestOptions, 'signal'> {
+  /** Words, every one of which must appear in the user name, the names or the email. */
+  q?: string
+  active?: AccountActiveFilter
+  sort?: AccountSortKey
+  dir?: SortDirection
+  /** 1-based. */
+  page?: number
+  pageSize?: number
+}
+
+export interface AccountList extends RecordList<Account> {
+  /** Over the search, not the active filter: what each chip would show. */
+  counts: { active: number; inactive: number }
+}
+
+export interface AccountDetail {
+  generatedAt: Iso
+  item: Account
+}
+
+/** What creating an account sends: the user name, the first password and the role are required. */
+export interface AccountInput {
+  username: string
+  /** Typed by the administrator and told to the user, who changes it from their own account. Never answered. */
+  password: string
+  role: UserRole
+  email?: string
+  firstName?: string
+  lastName?: string
+  active?: boolean
+  /** Viewers and operators only: the other roles see every customer. */
+  allCustomers?: boolean
+  customerIds?: string[]
+  siteIds?: string[]
+}
+
+/** A change: only the fields that change. A password is set from its own method. */
+export type AccountPatch = Partial<Omit<AccountInput, 'password'>>
+
+export interface OwnPasswordInput {
+  currentPassword: string
+  newPassword: string
+}
+
+export interface PasswordChanged {
+  generatedAt: Iso
+  changedAt: Iso
+}
+
+/** A value an audit entry records: what JSON can hold, never a password, a hash, a token or a credential. */
+export type AuditValue = string | number | boolean | null | AuditValue[]
+
+export interface AuditChange {
+  before: AuditValue
+  after: AuditValue
+}
+
+/** One administrative action: who, when, what, on which object, and the fields that changed. */
+export interface AuditEntry {
+  id: number
+  at: Iso
+  /** `id` is null once the account is gone; the name stays. */
+  actor: { id: number | null; username: string }
+  action: string
+  actionLabel: string
+  targetType: string
+  targetTypeLabel: string
+  targetId: string
+  targetName: string
+  changes: Record<string, AuditChange>
+}
+
+export interface AuditOption {
+  value: string
+  label: string
+}
+
+export interface AuditLog extends RecordList<AuditEntry> {
+  /** Every action and every kind of object the trail knows, for the filters. */
+  actions: AuditOption[]
+  targetTypes: AuditOption[]
+}
+
+export interface AuditLogOptions extends Pick<RequestOptions, 'signal'> {
+  /** Words, every one of which must appear in the actor's name, the object's name or its id. */
+  q?: string
+  /** The id of an account. */
+  actor?: number
+  action?: string
+  targetType?: string
+  targetId?: string
+  /** 1-based. */
+  page?: number
+  pageSize?: number
+}
+
+/** How a device is polled. Never the credential profile: it is written and never read back. */
+export interface SnmpSettings {
+  version: SnmpVersion
+  port: number
+  pollIntervalSeconds: number
+  timeoutSeconds: number
+  retries: number
+}
+
+/** A device of the inventory as the console administers it, with or without an SNMP configuration. */
+export interface InventoryDevice {
+  id: string
+  name: string
+  type: DeviceType
+  address: string
+  enabled: boolean
+  description: string
+  siteId: string | null
+  customerName?: string
+  siteName?: string
+  agentAssigned: boolean
+  agent: DeviceAgent | null
+  /** Null for a device that is not polled. */
+  snmp: SnmpSettings | null
+  /** Polls or interface samples exist: it cannot be deleted until they are purged. */
+  hasHistory: boolean
+  createdAt: Iso
+  updatedAt: Iso
+}
+
+export type InventorySnmpFilter = 'all' | 'configured' | 'none'
+export type InventorySortKey = 'name' | 'type' | 'address' | 'created'
+
+export interface InventoryDeviceListOptions extends RequestOptions {
+  /** Words, every one of which must appear in the name, address, description, site or customer. */
+  q?: string
+  snmp?: InventorySnmpFilter
+  sort?: InventorySortKey
+  dir?: SortDirection
+  /** 1-based. */
+  page?: number
+  pageSize?: number
+}
+
+export type InventoryDeviceList = RecordList<InventoryDevice>
+
+export interface InventoryDeviceDetail {
+  generatedAt: Iso
+  item: InventoryDevice
+}
+
+/**
+ * The SNMP configuration a write sends. `credentialProfile` is the name of a profile in the agent's
+ * own credentials file: required when the configuration is created, left out to keep the one the
+ * device has; the credentials themselves never reach the server.
+ */
+export interface SnmpInput {
+  version?: SnmpVersion
+  port?: number
+  credentialProfile?: string
+  pollIntervalSeconds?: number
+  timeoutSeconds?: number
+  retries?: number
+}
+
+/** What adding a device sends (`name` and `address` required). `snmp: null` means the device is not polled. */
+export interface InventoryDeviceInput {
+  name: string
+  address: string
+  type?: DeviceType
+  enabled?: boolean
+  description?: string
+  siteId?: string | null
+  agentId?: string | null
+  snmp?: SnmpInput | null
+}
+
+/** A change: only the fields that change. `snmp` as an object changes the keys it holds; `snmp: null` removes it. */
+export type InventoryDevicePatch = Partial<InventoryDeviceInput>

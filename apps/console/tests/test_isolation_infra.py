@@ -339,17 +339,20 @@ class AuthenticationTests(ConsoleDataTestCase):
 
     def test_only_get_and_head_are_allowed(self):
         client = signed_in_client(make_user("all", all_customers=True), enforce_csrf=False)
+        detail = self.paths[2]
+        # servers/ also takes a POST (adding a server, apps.console.enrollment) and a server's page a PATCH
+        # and a DELETE (apps.console.server_config), refused to an account that may only read: the writes
+        # have their own tests (test_enrollment_api, test_server_config_api).
+        writes = {"servers/": ("post",), detail: ("patch", "delete")}
+        allowed = {"servers/": "GET, HEAD, POST", detail: "DELETE, GET, HEAD, PATCH"}
         for path in self.paths:
-            # servers/ also takes a POST (adding a server, apps.console.enrollment), refused to an account
-            # that may only read: the writes have their own tests (test_enrollment_api).
-            writes = ("post",) if path == "servers/" else ()
             for method in ("post", "put", "patch", "delete"):
                 response = getattr(client, method)(API + path)
-                if method in writes:
+                if method in writes.get(path, ()):
                     self.assertEqual(response.status_code, 403, (method, path))
                     continue
                 self.assertEqual(response.status_code, 405, (method, path))
-                self.assertEqual(response["Allow"], "GET, HEAD, POST" if writes else "GET, HEAD")
+                self.assertEqual(response["Allow"], allowed.get(path, "GET, HEAD"))
             self.assertEqual(client.head(API + path).status_code, 200)
 
     def test_responses_are_private_and_uncached(self):
@@ -410,7 +413,7 @@ class SecretsTests(ConsoleDataTestCase):
         self.assertEqual(server["agentVersion"], "1.4.2")
         self.assertEqual(
             set(server),
-            {"id", "name", "hostname", "ipAddress", "operatingSystem", "status", "siteId", "lastSeenAt", "agentVersion", "telemetry"},
+            {"id", "name", "hostname", "ipAddress", "operatingSystem", "description", "status", "siteId", "lastSeenAt", "agentVersion", "telemetry"},
         )
 
 

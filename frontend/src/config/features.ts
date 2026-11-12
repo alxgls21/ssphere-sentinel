@@ -128,8 +128,8 @@ export const FEATURES: Record<FeatureId, FeatureInfo> = {
     backend: 'console-api',
     connected: true,
     requires:
-      'an account with the console permissions for what is to be changed (alert rules, system status), and a mail server set in the deployment for email',
-    note: 'The console API serves the signed-in user’s own email preferences and test emails, the alert rules and the system status. What an account may do is its own: the console offers only that, and the server checks every request.',
+      'an account with the console permissions for what is to be changed (alert rules, customers and sites, targets, devices, accounts, system status), and a mail server set in the deployment for email',
+    note: 'The console API serves the signed-in user’s own email preferences, test emails and password, the alert rules, the system status, the customers and sites, the network targets, the devices, the accounts and the audit trail. What an account may do is its own: the console offers only that, and the server checks every request.',
   },
   events: {
     id: 'events',
@@ -152,7 +152,7 @@ export const FEATURES: Record<FeatureId, FeatureInfo> = {
     label: 'Customers & Sites',
     backend: 'console-api',
     connected: false,
-    note: 'The console API lists the customers and sites you may see (the scope selector uses it). They are managed in the Django admin; this screen is not built yet.',
+    note: 'The console API lists the customers and sites you may see (the scope selector uses it), and an account that may change them does so in Settings > Customers & sites. This screen of its own is not built yet.',
   },
 }
 

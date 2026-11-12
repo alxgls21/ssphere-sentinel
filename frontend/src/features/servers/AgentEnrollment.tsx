@@ -1,7 +1,6 @@
-import { useContext, useEffect, useId, useRef, useState } from 'react'
+import { useEffect, useId, useRef } from 'react'
 import type { AgentEnrollment as Enrollment } from '@/api/types'
-import { ShellContext } from '@/app/shell'
-import { copyText } from '@/lib/clipboard'
+import { CopyButton } from '@/ui/CopyButton'
 import { Button } from '@/ui/controls'
 import { Notice } from '@/ui/states'
 import {
@@ -10,34 +9,6 @@ import {
   installCommands,
   rotationCommands,
 } from './enrollment'
-
-/** How long a copy button says "Copied" before it offers to copy again. */
-const COPIED_MS = 2000
-
-function CopyButton({ text, label, what }: { text: string; label: string; what: string }) {
-  const shell = useContext(ShellContext)
-  const [copied, setCopied] = useState(false)
-  const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
-  useEffect(() => () => clearTimeout(timer.current), [])
-  return (
-    <Button
-      size="sm"
-      aria-label={copied ? `${what} copied` : label}
-      onClick={() => {
-        void copyText(text).then((ok) => {
-          setCopied(ok)
-          shell?.flashStatus(
-            ok ? `${what} copied` : `Could not copy: select the ${what.toLowerCase()} and copy it`,
-          )
-          clearTimeout(timer.current)
-          if (ok) timer.current = setTimeout(() => setCopied(false), COPIED_MS)
-        })
-      }}
-    >
-      {copied ? 'Copied' : label}
-    </Button>
-  )
-}
 
 interface AgentEnrollmentProps {
   enrollment: Enrollment

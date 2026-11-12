@@ -1,5 +1,13 @@
 import { describe, expect, it } from 'vitest'
-import { EMPTY_DRAFT, hasErrors, siteChoices, toInput, validate } from './serverDraft'
+import {
+  EMPTY_DRAFT,
+  draftFromServer,
+  hasErrors,
+  siteChoices,
+  toInput,
+  toPatch,
+  validate,
+} from './serverDraft'
 
 const draft = (over: Partial<typeof EMPTY_DRAFT> = {}) => ({ ...EMPTY_DRAFT, ...over })
 
@@ -82,5 +90,50 @@ describe('siteChoices', () => {
       { value: 's1', label: 'Meridian / Athens DC' },
       { value: 's2', label: 'Unknown customer / Orphan' },
     ])
+  })
+})
+
+describe('a change of a server', () => {
+  const server = {
+    id: 'srv-1',
+    name: 'web-1',
+    hostname: 'web-1.example.net',
+    ipAddress: '10.0.0.5',
+    operatingSystem: 'Debian 12',
+    description: 'front',
+    status: 'online' as const,
+    siteId: 's1',
+    lastSeenAt: null,
+    agentVersion: '',
+    telemetry: null,
+  }
+
+  it('starts from the server as it is', () => {
+    expect(draftFromServer(server)).toEqual({
+      name: 'web-1',
+      hostname: 'web-1.example.net',
+      siteId: 's1',
+      ipAddress: '10.0.0.5',
+      operatingSystem: 'Debian 12',
+      description: 'front',
+    })
+    expect(
+      draftFromServer({ ...server, siteId: null, ipAddress: null, description: undefined }),
+    ).toMatchObject({ siteId: '', ipAddress: '', description: '' })
+  })
+
+  it('sends only what changed, nothings as null, and nothing when nothing did', () => {
+    expect(toPatch(draftFromServer(server), server)).toBeNull()
+    expect(toPatch({ ...draftFromServer(server), name: ' web-01 ' }, server)).toEqual({
+      name: 'web-01',
+    })
+    expect(toPatch({ ...draftFromServer(server), ipAddress: '', siteId: '' }, server)).toEqual({
+      ipAddress: null,
+      siteId: null,
+    })
+    expect(toPatch({ ...draftFromServer(server), hostname: '', description: '' }, server)).toEqual({
+      hostname: '',
+      description: '',
+    })
   })
 })

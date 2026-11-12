@@ -10,11 +10,13 @@ import type {
   MonitoringAgent,
   Server,
   ServerContainer,
+  ServerDeleted,
   ServerDetail,
   ServerInput,
   ServerList,
   ServerListItem,
   ServerListOptions,
+  ServerPatch,
   ServerSeries,
   ServerSeriesOptions,
   ServerStatus,
@@ -91,6 +93,7 @@ function parseServer(raw: unknown): Server {
     hostname: text(row.hostname),
     ipAddress: nullableText(row.ipAddress),
     operatingSystem: text(row.operatingSystem),
+    ...(row.description === undefined ? {} : { description: text(row.description) }),
     status: oneOf(SERVER_STATUS, row.status),
     siteId: nullableText(row.siteId),
     lastSeenAt: nullableTime(row.lastSeenAt),
@@ -214,15 +217,16 @@ const serverPath = (id: string) => `servers/${encodeURIComponent(id)}/`
 const agentPath = (id: string) => `agents/${encodeURIComponent(id)}/`
 
 /**
- * The body of a new server, field by field: a field left out stays out (the server's default),
- * `null` is sent only for what means "none" (no address, no site), and a blank hostname is left
- * to the server, which names the host by its name.
+ * The body of a new server or of a change, field by field: a field left out stays out (the
+ * server's default, or the value as it is), `null` is sent only for what means "none" (no
+ * address, no site), and a blank hostname is left to the server, which names the host by its name.
  */
-function serverBody(input: ServerInput): Record<string, unknown> {
-  const out: Record<string, unknown> = { name: input.name }
+function serverBody(input: ServerPatch): Record<string, unknown> {
+  const out: Record<string, unknown> = {}
   const set = (name: string, value: unknown) => {
     if (value !== undefined) out[name] = value
   }
+  set('name', input.name)
   set('hostname', input.hostname)
   set('description', input.description)
   set('operatingSystem', input.operatingSystem)
@@ -231,12 +235,42 @@ function serverBody(input: ServerInput): Record<string, unknown> {
   return out
 }
 
+export function parseServerDeleted(raw: unknown): ServerDeleted {
+  const row = record(raw)
+  const deleted = record(row.deleted)
+  return {
+    generatedAt: time(row.generatedAt),
+    deleted: {
+      id: text(deleted.id),
+      name: text(deleted.name),
+      agent: flag(deleted.agent),
+      telemetrySamples: whole(deleted.telemetrySamples),
+      containers: whole(deleted.containers),
+      measurementsKept: whole(deleted.measurementsKept),
+      targetsUnassigned: whole(deleted.targetsUnassigned),
+      devicesUnassigned: whole(deleted.devicesUnassigned),
+    },
+  }
+}
+
 export const createServer =
   (transport: Transport): SentinelApi['createServer'] =>
-  async (input, options) =>
+  async (input: ServerInput, options) =>
     parseServerDetail(
       await transport.post('servers/', serverBody(input), { signal: options?.signal }),
     )
+
+export const updateServer =
+  (transport: Transport): SentinelApi['updateServer'] =>
+  async (id, patch, options) =>
+    parseServerDetail(
+      await transport.patch(serverPath(id), serverBody(patch), { signal: options?.signal }),
+    )
+
+export const deleteServer =
+  (transport: Transport): SentinelApi['deleteServer'] =>
+  async (id, options) =>
+    parseServerDeleted(await transport.delete(serverPath(id), { signal: options?.signal }))
 
 /** An agent's name, and nothing else: the token is the server's to make. */
 export const createAgent =

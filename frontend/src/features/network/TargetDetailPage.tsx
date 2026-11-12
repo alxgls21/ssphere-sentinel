@@ -3,7 +3,8 @@ import { Link, useLocation, useParams } from 'react-router'
 import { useApi } from '@/api/context'
 import { ApiError } from '@/api/errors'
 import type { TargetDetail, TargetListItem } from '@/api/types'
-import { useViewSearch } from '@/app/viewSearch'
+import { useAuth } from '@/app/auth/auth'
+import { useViewSearch, useViewTo } from '@/app/viewSearch'
 import { useRange } from '@/app/viewState'
 import { useLiveResource } from '@/hooks/useLiveResource'
 import type { Resource } from '@/hooks/useResource'
@@ -15,6 +16,8 @@ import {
   reasonWord,
   type TargetLimits,
 } from '@/lib/targets'
+import { CodeBlock } from '@/ui/CodeBlock'
+import { Panel } from '@/ui/Panel'
 import { PlaceName } from '@/ui/PlaceName'
 import { PanelBoundary } from '@/ui/PanelBoundary'
 import { EmptyState, Skeleton } from '@/ui/states'
@@ -155,6 +158,8 @@ export default function TargetDetailPage() {
   const api = useApi()
   const { id = '' } = useParams()
   const back = useBackTo()
+  const viewTo = useViewTo()
+  const { capabilities } = useAuth()
   const limits = useTargetLimits()
   const resource = useLiveResource(
     `target:${id}`,
@@ -197,6 +202,14 @@ export default function TargetDetailPage() {
               variant="tag"
             />
           ) : null}
+          {item && capabilities.manageTargets ? (
+            <Link
+              to={viewTo(`/settings/targets/${encodeURIComponent(item.target.id)}`)}
+              className="type-data text-primary underline underline-offset-2"
+            >
+              Configure
+            </Link>
+          ) : null}
         </div>
         {item ? (
           <p className="type-data flex flex-wrap items-center gap-x-3 gap-y-0.5 text-fg-muted">
@@ -214,6 +227,23 @@ export default function TargetDetailPage() {
       <div className="grid gap-3 lg:min-h-0 lg:flex-1 lg:grid-cols-12 lg:grid-rows-[auto_minmax(20.375rem,1fr)]">
         <TargetPanels key={id} id={id} resource={resource} limits={limits} />
       </div>
+
+      {detail ? (
+        <PanelBoundary title="Agent targets file" index={5} features="network">
+          <Panel index={5} title="Agent targets file" features="network" scope="NOW">
+            <CodeBlock
+              title="Entry for this target"
+              what="Entry"
+              text={JSON.stringify(detail.agentEntry, null, 2)}
+            >
+              The agent probes only what its own targets file holds: this is the entry for this
+              target, one object of the file's <code className="type-data">targets</code> list
+              (SENTINEL_NETWORK_TARGETS_FILE on the host; see agent/network_targets.example.json).
+              The agent reads the file at start.
+            </CodeBlock>
+          </Panel>
+        </PanelBoundary>
+      ) : null}
     </div>
   )
 }

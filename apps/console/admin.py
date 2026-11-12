@@ -1,7 +1,8 @@
 from django.contrib import admin
 
 from apps.console.admin_login import ThrottledAdminAuthenticationForm
-from apps.console.models import CustomerAccess, LoginThrottle, SiteAccess
+from apps.console.models import AuditEntry, CustomerAccess, LoginThrottle, SiteAccess
+from apps.core import admin as core_admin
 
 # The admin login shares the console's sign-in throttle (apps/console/admin_login.py).
 admin.site.login_form = ThrottledAdminAuthenticationForm
@@ -53,3 +54,14 @@ class LoginThrottleAdmin(admin.ModelAdmin):
 
     def has_change_permission(self, request, obj=None):
         return False
+
+
+@admin.register(AuditEntry)
+class AuditEntryAdmin(core_admin.ReadOnlyAdmin):
+    """The console's audit trail (who did what, on which object): append-only, read in the console too."""
+
+    list_display = ("at", "actor_name", "action", "target_type", "target_name")
+    list_filter = ("action", "target_type")
+    search_fields = ("actor_name", "target_name", "target_id")
+    date_hierarchy = "at"
+    ordering = ("-at", "-pk")

@@ -373,7 +373,42 @@ response only.
 
 The admin remains possible: add a **Server**, then an **Agent** for it (the
 token is shown once), or run `python manage.py create_agent`; all three make
-the token the same way. Optional **Network targets** are added in the admin.
+the token the same way.
+
+The rest of the administration is in the console as well, under **Settings**,
+each section offered only to an account that may use it and checked again by
+the server on every request ([security.md](security.md#console-authentication-and-access-control)):
+
+- **Customers & sites**: the customers and their sites, which decide who sees
+  what. A customer or a site is never deleted while anything still belongs to
+  it; the console says what does.
+- **Network targets**: the ICMP and TCP targets, with the agent that probes
+  each, switched on or off from the list. A target's page (there, and under
+  **Network**) shows the entry the agent's own targets file needs for it, to
+  copy to the host ([agent-deployment.md](agent-deployment.md#3-configure)):
+  the agent reads only its file, so a target saved here is probed once its
+  entry is on the host.
+- **Devices**: the inventory of devices and how each is polled by SNMP. Only
+  the name of a credential profile is kept on the server; the credentials stay
+  in the agent's own file ([snmp.md](snmp.md#credentials-are-never-stored)). A
+  device with SNMP history is disabled, and deleted after `purge_snmp_data` has
+  removed the history.
+- **Users & access** (administrators only): accounts, their role (viewer,
+  operator, editor, administrator), which customers and sites they see, a new
+  password, deactivation, and the unlock of a locked account. The first
+  administrator comes from the first-run setup; every other account is created
+  here, with a first password the administrator tells the user, who changes it
+  in **Settings → Account**.
+- **Audit log**: who changed what, and when. Every write above (and adding
+  hosts, acknowledging incidents, changing alert rules and domains) is
+  recorded; never a password, a token or a credential.
+- A server's own page has **Edit** (name, hostname, address, system,
+  description, site) and **Delete** (its agent, telemetry and containers go
+  with it; measurements, targets and devices stay), after the server's name is
+  typed back.
+
+The admin is still present in this version; a later release turns it off by
+default.
 
 ## Operations
 
@@ -1431,10 +1466,16 @@ docker compose exec -T maintenance python manage.py run_maintenance --once
 One at a time, with `--dry-run` or `--days` to see or change what a single run
 removes: `purge_network_measurements`, `purge_absent_docker_containers`,
 `purge_snmp_data`, `purge_telemetry_samples`, `purge_incidents`,
-`purge_notifications` and Django's `clearsessions`
+`purge_notifications`, `purge_audit_entries` and Django's `clearsessions`
 (`docker compose exec -T web python manage.py <command>`). A native
 installation runs `python manage.py run_maintenance` as a service of its own,
 or `run_maintenance --once` daily from cron.
+
+`purge_audit_entries` removes entries of the console's audit trail
+(**Settings → Audit log**) older than `SENTINEL_AUDIT_RETENTION_DAYS` (default
+365, between 30 and 3650), in batches; nothing else ever removes or changes an
+entry. Keep it as long as your records policy asks: the trail is the record of
+who changed what in the console.
 
 `purge_incidents` removes incidents that ended more than
 `SENTINEL_INCIDENT_RETENTION_DAYS` ago (default 365, at least 7), with their

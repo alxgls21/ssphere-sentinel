@@ -19,7 +19,7 @@ and lightweight host agents.
   counters (optional).
 
 The server stores current state and bounded history in PostgreSQL. Operators
-add monitored hosts in the console (or manage inventory and agents in Django admin); the web console, served on the
+administer everything in the console (hosts, customers and sites, targets, devices, accounts; the Django admin is still present); the web console, served on the
 same address by the Compose deployment, reads the session-authenticated console
 API.
 
@@ -203,10 +203,13 @@ the foreground, logs to stderr, and exits cleanly on `SIGINT` or `SIGTERM`.
 Use the [systemd deployment guide](docs/agent-deployment.md) on monitored Linux
 hosts.
 
-For network monitoring, create and assign Network targets in Django admin, then
-copy [`agent/network_targets.example.json`](agent/network_targets.example.json)
-and set `SENTINEL_NETWORK_TARGETS_FILE` to its absolute path. Target IDs in the
-file must match the assigned database records. ICMP requires the narrow
+For network monitoring, create the Network targets in the console (**Settings →
+Network targets**, each assigned to the agent that probes it; the admin remains
+possible), then write a targets file in the format of
+[`agent/network_targets.example.json`](agent/network_targets.example.json) and
+set `SENTINEL_NETWORK_TARGETS_FILE` to its absolute path. Each target's page in
+the console shows the entry the file needs for it, to copy; target IDs in the
+file must match the database records. ICMP requires the narrow
 unprivileged-ping setup described in the agent deployment guide; TCP probes do
 not.
 
@@ -258,9 +261,14 @@ starting point for network and SNMP configuration.
 The browser console uses Django sessions and CSRF protection, never agent
 tokens. Besides the first-run setup, sign-in and sign-out it writes only what
 an account is permitted to administer (acknowledging incidents, alert rules,
-its own email preferences, test emails, monitored domains, and adding servers
-with their agents), every change checked on the server. Access is
-deny-by-default and filtered by customer/site grants; see
+its own email preferences and password, test emails, monitored domains,
+servers with their agents, customers and sites, network targets, devices with
+their SNMP configuration, and, for administrators, the accounts and their
+access), every change checked on the server and recorded in the console's
+audit trail. The Django admin is still present in this version, but nothing
+needs it: everything an administrator does is under **Settings** in the console
+([server deployment guide](docs/server-deployment.md#4-add-monitored-hosts)).
+Access is deny-by-default and filtered by customer/site grants; see
 [console access control](docs/security.md#console-authentication-and-access-control).
 
 | Endpoint | Purpose |
@@ -271,12 +279,18 @@ deny-by-default and filtered by customer/site grants; see
 | `POST /api/v1/console/auth/logout/` | Session sign-out |
 | `GET /api/v1/console/scope/` | Visible customers and sites |
 | `GET`, `POST /api/v1/console/servers/` | Filtered, sorted, paginated servers and status counts; adding a server |
-| `GET /api/v1/console/servers/<id>/` | One visible server, its agent (never a token) and its containers |
+| `GET`, `PATCH`, `DELETE /api/v1/console/servers/<id>/` | One visible server, its agent (never a token) and its containers; changing it; deleting it with its agent, telemetry and containers |
+| `GET /api/v1/console/agents/` | The agents of the visible servers, to assign one to a target or a device |
 | `POST /api/v1/console/servers/<id>/agents/`; `POST .../agents/<id>/rotate-token/`; `PATCH .../agents/<id>/` | A server's agent: created (the token is answered once, with the server's address), its token rotated (the old one stops at once), and enabled or disabled |
 | `GET /api/v1/console/servers/<id>/series/` | CPU, memory, and disk series for `15m`, `1h`, `6h`, or `24h` |
 | `GET /api/v1/console/containers/` | Filtered, sorted, paginated containers |
-| `GET /api/v1/console/targets/`; `GET .../targets/<id>/`; `GET .../targets/<id>/series/` | Network targets: the list, one visible target, and its measurement series for a `range` |
+| `GET`, `POST /api/v1/console/targets/`; `GET`, `PATCH`, `DELETE .../targets/<id>/`; `GET .../targets/<id>/series/` | Network targets: the list, adding one, one visible target (with the entry for the agent's targets file), changing or deleting it, and its measurement series for a `range` |
 | `GET /api/v1/console/devices/`; `GET .../devices/<id>/`; `GET .../devices/<id>/series/`; `GET .../devices/<id>/interfaces/<ifIndex>/series/` | SNMP devices: the list, one visible device, its series, and one interface's series for a `range` |
+| `GET`, `POST /api/v1/console/inventory/devices/`; `GET`, `PATCH`, `DELETE .../inventory/devices/<id>/` | The inventory of devices with their SNMP configuration (never the credential profile): list, add, change, delete |
+| `GET`, `POST /api/v1/console/customers/`; `GET`, `PATCH`, `DELETE .../customers/<id>/`; the same under `.../sites/` | Customers and sites: list, add, change, delete (refused while anything still belongs to them) |
+| `GET`, `POST /api/v1/console/users/`; `GET`, `PATCH .../users/<id>/`; `POST .../users/<id>/password/`; `POST .../users/<id>/unlock/` | Accounts (administrators only): list, create, change (role, access, active), set a password, unlock a sign-in |
+| `PUT /api/v1/console/account/password/` | The signed-in user's own password |
+| `GET /api/v1/console/audit-log/` | The audit trail of the console's writes, filtered and paged |
 | `GET /api/v1/console/topology/` | Topology of what the session may see |
 | `GET /api/v1/console/incidents/`; `GET .../incidents/<id>/` | Incidents: the list and one visible incident |
 | `POST /api/v1/console/incidents/<id>/acknowledge/` | Acknowledge an incident |
@@ -322,6 +336,7 @@ python manage.py purge_snmp_data
 python manage.py purge_telemetry_samples
 python manage.py purge_incidents
 python manage.py purge_notifications
+python manage.py purge_audit_entries
 python manage.py clearsessions
 ```
 
@@ -329,7 +344,10 @@ Ended incidents are kept for `SENTINEL_INCIDENT_RETENTION_DAYS` with their
 history; open ones, and those with an email still to be sent, are never removed.
 The record of each email is kept for `SENTINEL_NOTIFICATION_RETENTION_DAYS`
 (and goes with its incident if that is sooner); an email not sent within
-`SENTINEL_NOTIFICATION_MAX_AGE_HOURS` is given up.
+`SENTINEL_NOTIFICATION_MAX_AGE_HOURS` is given up. The console's audit trail
+(who changed what, **Settings → Audit log**) is kept for
+`SENTINEL_AUDIT_RETENTION_DAYS` (365 by default); nothing else removes or
+changes an entry.
 
 Every purge command supports bounded batches; the Sentinel commands also support
 `--dry-run`. With Compose, run them through

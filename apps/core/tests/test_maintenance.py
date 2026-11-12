@@ -19,7 +19,8 @@ class MaintenanceTests(TransactionTestCase):
     def test_every_cleanup_the_guide_lists_runs(self):
         self.assertEqual(set(TASKS), {
             "purge_network_measurements", "purge_snmp_data", "purge_telemetry_samples",
-            "purge_absent_docker_containers", "purge_incidents", "purge_notifications", "clearsessions",
+            "purge_absent_docker_containers", "purge_incidents", "purge_notifications", "purge_audit_entries",
+            "clearsessions",
         })
 
     def test_once_runs_each_cleanup_with_its_own_retention(self):

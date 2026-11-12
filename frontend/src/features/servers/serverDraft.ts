@@ -1,9 +1,10 @@
-import type { ScopeOptions, ServerInput } from '@/api/types'
+import type { ScopeOptions, Server, ServerInput, ServerPatch } from '@/api/types'
 
 /**
- * The form that adds a server: what is typed, what is wrong with it, and what is sent. Pure, so
- * it is tested without a screen. The server checks everything again (the address properly, the
- * site's existence, the unique name): the checks here only save a round trip for the obvious.
+ * The form that adds a server, and the one that changes it: what is typed, what is wrong with it,
+ * and what is sent (everything on creation, only what changed on a change). Pure, so it is tested
+ * without a screen. The server checks everything again (the address properly, the site's
+ * existence, the unique name): the checks here only save a round trip for the obvious.
  */
 
 export interface ServerDraft {
@@ -78,6 +79,37 @@ export function toInput(draft: ServerDraft): ServerInput {
   input.ipAddress = address === '' ? null : address
   input.siteId = draft.siteId === '' ? null : draft.siteId
   return input
+}
+
+/** The server as it is, to be changed. */
+export const draftFromServer = (server: Server): ServerDraft => ({
+  name: server.name,
+  hostname: server.hostname,
+  siteId: server.siteId ?? '',
+  ipAddress: server.ipAddress ?? '',
+  operatingSystem: server.operatingSystem,
+  description: server.description ?? '',
+})
+
+/**
+ * Only what changed against the server as read; null when nothing did. A hostname emptied is sent
+ * blank: the server then names the host by its name.
+ */
+export function toPatch(draft: ServerDraft, server: Server): ServerPatch | null {
+  const patch: ServerPatch = {}
+  const name = draft.name.trim()
+  if (name !== server.name) patch.name = name
+  const hostname = draft.hostname.trim()
+  if (hostname !== server.hostname) patch.hostname = hostname
+  const operatingSystem = draft.operatingSystem.trim()
+  if (operatingSystem !== server.operatingSystem) patch.operatingSystem = operatingSystem
+  if (draft.description !== (server.description ?? '')) patch.description = draft.description
+  const address = draft.ipAddress.trim()
+  if ((address === '' ? null : address) !== server.ipAddress)
+    patch.ipAddress = address === '' ? null : address
+  const siteId = draft.siteId === '' ? null : draft.siteId
+  if (siteId !== server.siteId) patch.siteId = siteId
+  return Object.keys(patch).length > 0 ? patch : null
 }
 
 /** The site choices: none first, then every site the account may see, named with its customer. */

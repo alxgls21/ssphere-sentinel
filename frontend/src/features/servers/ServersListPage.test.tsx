@@ -56,6 +56,39 @@ const hostnames = (t: HTMLElement) =>
     .map((link) => link.textContent)
 
 describe('ServersListPage', () => {
+  it('says what a deletion took with it when a server’s page sends the operator here', async () => {
+    const user = userEvent.setup()
+    renderApp(
+      <Routes>
+        <Route path="/servers" element={<ServersListPage />} />
+      </Routes>,
+      {
+        api: mock(),
+        route: {
+          pathname: '/servers',
+          state: {
+            deleted: {
+              id: 'srv-1',
+              name: 'web-1',
+              agent: true,
+              telemetrySamples: 3,
+              containers: 2,
+              measurementsKept: 5,
+              targetsUnassigned: 1,
+              devicesUnassigned: 0,
+            },
+          },
+        },
+      },
+    )
+    const notice = await screen.findByText(/The server “web-1” is deleted/)
+    expect(notice).toHaveTextContent('with its agent (its token no longer works)')
+    expect(notice).toHaveTextContent('3 telemetry samples and 2 containers')
+    expect(notice).toHaveTextContent('Kept: 5 network measurements')
+    await user.click(screen.getByRole('button', { name: 'Dismiss' }))
+    expect(screen.queryByText(/is deleted/)).not.toBeInTheDocument()
+  })
+
   it('lists every server worst first, with status words, and says how many it shows', async () => {
     page()
     const t = await table()

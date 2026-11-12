@@ -62,6 +62,25 @@ def make_user(
     return user
 
 
+def make_editor(username: str = "editor", **extra):
+    """An account with the editor role's permissions (apps.console.permissions): it configures monitoring for every customer."""
+    from apps.console.permissions import EDITOR, ROLE_PERMISSIONS
+
+    return grant(make_user(username, all_customers=True, **extra), *sorted(ROLE_PERMISSIONS[EDITOR]))
+
+
+def make_admin(username: str = "admin", **extra):
+    """An administrator: a superuser (who may use the console as any superuser may)."""
+    return make_user(username, superuser=True, **extra)
+
+
+def send(client: Client, method: str, path: str, body=None, **extra):
+    """A JSON write (``body`` an object), or one with no body at all (``None``)."""
+    if body is None:
+        return getattr(client, method)(path, **extra)
+    return getattr(client, method)(path, json.dumps(body), content_type="application/json", **extra)
+
+
 class Org:
     """Three customers; two with sites; devices (the one model with a site today) in each."""
 

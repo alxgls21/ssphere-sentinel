@@ -211,6 +211,7 @@ def environment_payload() -> dict:
             "snmpDays": settings.SENTINEL_SNMP_RETENTION_DAYS,
             "telemetryDays": settings.SENTINEL_TELEMETRY_RETENTION_DAYS,
             "absentContainerDays": settings.SENTINEL_DOCKER_ABSENT_CONTAINER_RETENTION_DAYS,
+            "auditDays": settings.SENTINEL_AUDIT_RETENTION_DAYS,
         },
         "monitoring": {"offlineThresholdSeconds": offline_threshold_seconds(), "thresholds": thresholds()},
     }

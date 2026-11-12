@@ -10,7 +10,7 @@ The detail is ``{"generatedAt", "item": ServerListItem, "agent": Agent | null, "
 ``agent`` describes the server's agent (``{"id", "name", "enabled", "lastSeenAt", "agentVersion",
 "createdAt", "updatedAt"}``), never its token or the token's hash; it is null for a server that has
 none yet. Adding a server or an agent, and rotating a token, is ``apps.console.enrollment``
-(``POST /servers/``).
+(``POST /servers/``); changing or deleting a server is ``apps.console.server_config``.
 
 ``counts`` is per health status over the requested scope and search (not the
 status filter), so the UI's status chips stay true; ``scopeTotal`` is the size
@@ -69,7 +69,6 @@ from apps.console.health import (
     empty_counts,
     server_load,
 )
-from apps.console.http import console_api
 from apps.console.listing import filter_list, name_order, page_envelope
 from apps.console.params import PAGE_PARAMS, SCOPE_PARAMS, PageRequest, QueryParams
 from apps.console.serializers import iso, iso_or_none
@@ -104,6 +103,7 @@ FIELDS = (
     "hostname",
     "ip_address",
     "operating_system",
+    "description",
     "site_id",
     "site__name",
     "site__customer__name",
@@ -188,6 +188,7 @@ def serialize(row: dict, container_counts: dict[str, int]) -> dict:
             "hostname": row["hostname"],
             "ipAddress": str(row["ip_address"]) if row["ip_address"] is not None else None,
             "operatingSystem": row["operating_system"],
+            "description": row["description"],
             "status": row["liveness"],
             "siteId": str(row["site_id"]) if row["site_id"] is not None else None,
             "lastSeenAt": iso(row["last_seen_at"]) if row["last_seen_at"] is not None else None,
@@ -264,8 +265,8 @@ def detail_payload(visibility: Visibility, server_id: UUID, now: datetime) -> di
     }
 
 
-@console_api()
 def server_detail(request, server_id: UUID):
+    """``GET /servers/<id>/``: the body of ``apps.console.server_config.server_item`` (which also takes the writes)."""
     now = timezone.now()
     QueryParams(request, ())  # no parameters: a stray one is a mistake, not ignored
     return JsonResponse(detail_payload(request.visibility, server_id, now))

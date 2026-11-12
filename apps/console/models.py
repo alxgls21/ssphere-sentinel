@@ -135,6 +135,62 @@ class LoginThrottle(models.Model):
         return self.key
 
 
+class AuditEntry(models.Model):
+    """One administrative action made from the console: an append-only trail (``apps.console.audit``).
+
+    Who (the account, and the user name it had then), when, what (``action``), on what
+    (``target_type``, ``target_id`` and the name the object had then) and a safe summary of
+    the change: ``changes`` is ``{"field": {"before": value, "after": value}}`` of the fields
+    that changed, by the names the console API gives them. Never a password, a hash, an
+    agent token or an SNMP credential: ``apps.console.audit`` decides what is recorded, and
+    a password change is recorded as the action alone. Written in the transaction of the
+    change, so a change and its record exist together or not at all. A row is never changed
+    or deleted by the application; ``purge_audit_entries`` removes rows older than
+    ``SENTINEL_AUDIT_RETENTION_DAYS``. The account is kept by name once it is gone.
+    """
+
+    id = models.BigAutoField(primary_key=True)
+    at = models.DateTimeField()
+    actor = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="+",
+        # Covered by the (actor, at) index.
+        db_index=False,
+    )
+    actor_name = models.CharField(max_length=150)
+    source = models.CharField(max_length=16)
+    action = models.CharField(max_length=48)
+    target_type = models.CharField(max_length=32)
+    target_id = models.CharField(max_length=64)
+    target_name = models.CharField(max_length=255)
+    changes = models.JSONField(default=dict, blank=True)
+
+    class Meta:
+        ordering = ["-at", "-id"]
+        verbose_name = "audit entry"
+        verbose_name_plural = "audit entries"
+        default_permissions = ("view",)
+        indexes = [
+            models.Index(fields=["at"], name="console_audit_at"),
+            models.Index(fields=["actor", "at"], name="console_audit_actor_at"),
+            models.Index(fields=["target_type", "target_id"], name="console_audit_target"),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.action}: {self.target_name} by {self.actor_name}"
+
+    def save(self, *args, **kwargs):
+        if not self._state.adding:
+            raise ValueError("an audit entry is never changed")
+        return super().save(*args, **kwargs)
+
+    def delete(self, *args, **kwargs):
+        raise ValueError("an audit entry is never deleted")
+
+
 class SetupCode(models.Model):
     """The one-time code that creates the first administrator from the console (``apps.console.setup``).
 

@@ -52,6 +52,14 @@ function parseCapabilities(raw: unknown): SessionCapabilities {
     sendTestEmail: flag(raw.sendTestEmail),
     viewSystemStatus: flag(raw.viewSystemStatus),
     manageServers: flag(raw.manageServers),
+    editServers: flag(raw.editServers),
+    deleteServers: flag(raw.deleteServers),
+    manageCustomers: flag(raw.manageCustomers),
+    manageTargets: flag(raw.manageTargets),
+    manageDevices: flag(raw.manageDevices),
+    manageUsers: flag(raw.manageUsers),
+    viewAuditLog: flag(raw.viewAuditLog),
+    manageOwnAccount: flag(raw.manageOwnAccount),
   }
 }
 

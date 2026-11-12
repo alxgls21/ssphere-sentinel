@@ -31,6 +31,8 @@ export interface Transport {
   post<T>(path: string, body?: unknown, init?: RequestInitLite): Promise<T>
   put<T>(path: string, body: unknown, init?: RequestInitLite): Promise<T>
   patch<T>(path: string, body: unknown, init?: RequestInitLite): Promise<T>
+  /** A deletion has no body: the server refuses options, and none are ever sent. */
+  delete<T>(path: string, init?: RequestInitLite): Promise<T>
 }
 
 interface ErrorBody {
@@ -122,15 +124,17 @@ export function createTransport({
   }
 
   async function send<T>(
-    method: 'GET' | 'POST' | 'PUT' | 'PATCH',
+    method: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE',
     path: string,
     body: unknown,
     init: RequestInitLite | undefined,
     retriedCsrf: boolean,
   ): Promise<T> {
     const headers: Record<string, string> = { Accept: 'application/json' }
+    // A deletion is a write without a body: the CSRF token, no content.
+    const withBody = method !== 'GET' && method !== 'DELETE'
     if (method !== 'GET') {
-      headers['Content-Type'] = 'application/json'
+      if (withBody) headers['Content-Type'] = 'application/json'
       // The token comes from the session answer; without it Django would refuse the write.
       if (csrfToken === null) await send<unknown>('GET', 'session/', undefined, init, true)
       if (csrfToken !== null) headers['X-CSRFToken'] = csrfToken
@@ -140,7 +144,7 @@ export function createTransport({
       response = await fetchImpl(url(path, init?.query), {
         method,
         headers,
-        body: method === 'GET' ? undefined : JSON.stringify(body ?? {}),
+        body: withBody ? JSON.stringify(body ?? {}) : undefined,
         credentials: 'same-origin',
         cache: 'no-store',
         redirect: 'error',
@@ -183,5 +187,6 @@ export function createTransport({
     post: (path, body, init) => send('POST', path, body, init, false),
     put: (path, body, init) => send('PUT', path, body, init, false),
     patch: (path, body, init) => send('PATCH', path, body, init, false),
+    delete: (path, init) => send('DELETE', path, undefined, init, false),
   }
 }

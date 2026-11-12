@@ -272,6 +272,13 @@ SENTINEL_NOTIFICATION_RETENTION_DAYS = env_int("SENTINEL_NOTIFICATION_RETENTION_
 if not 1 <= SENTINEL_NOTIFICATION_RETENTION_DAYS <= 3650:
     raise RuntimeError("SENTINEL_NOTIFICATION_RETENTION_DAYS must be between 1 and 3650")
 
+# The console's audit trail (who did what, from the console: apps.console.audit) is kept
+# for this long. Cleanup via:
+#   python manage.py purge_audit_entries
+SENTINEL_AUDIT_RETENTION_DAYS = env_int("SENTINEL_AUDIT_RETENTION_DAYS", default=365)
+if not 30 <= SENTINEL_AUDIT_RETENTION_DAYS <= 3650:
+    raise RuntimeError("SENTINEL_AUDIT_RETENTION_DAYS must be between 30 and 3650")
+
 # Email notifications: optional, and off unless SENTINEL_SMTP_HOST is set. The
 # credentials come from the environment only, never from the database, and in
 # Docker Compose reach the notifier service only. Only console users who have a

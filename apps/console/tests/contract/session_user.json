@@ -12,12 +12,20 @@
     "createAlertRules": false,
     "editAlertRules": false,
     "manageOwnNotifications": true,
+    "manageOwnAccount": true,
     "sendTestEmail": false,
     "viewSystemStatus": false,
     "viewDomains": false,
     "addDomains": false,
     "verifyDomains": false,
-    "manageServers": false
+    "manageServers": false,
+    "editServers": false,
+    "deleteServers": false,
+    "manageCustomers": false,
+    "manageTargets": false,
+    "manageDevices": false,
+    "manageUsers": false,
+    "viewAuditLog": false
   },
   "thresholds": {
     "resourceWarnPercent": 80,
