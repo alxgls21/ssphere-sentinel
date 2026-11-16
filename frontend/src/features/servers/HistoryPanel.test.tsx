@@ -31,10 +31,20 @@ const resource = (over: Partial<Resource<ServerSeries>> = {}): Resource<ServerSe
 })
 
 const panel = (given: Resource<ServerSeries>, route = '/', source: 'mock' | 'http' = 'mock') =>
-  renderApp(<HistoryPanel index={2} resource={given} name="ath-db-01" />, {
-    route,
-    api: createTestApi({ source }),
-  })
+  renderApp(
+    <HistoryPanel
+      index={2}
+      resource={given}
+      name="ath-db-01"
+      serverId="srv-ath-db-01"
+      incidents={[]}
+      incidentsAtMs={0}
+    />,
+    {
+      route,
+      api: createTestApi({ source }),
+    },
+  )
 
 const DEMO_FOOTER = /the console API serves this history, but this screen is not connected/
 

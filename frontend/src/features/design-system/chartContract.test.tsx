@@ -79,7 +79,16 @@ const CHARTS: readonly ChartCase[] = [
   },
   {
     name: 'server resource history (three grids)',
-    element: () => <ServerHistoryChart name="ath-db-01" series={HISTORY} range="1h" />,
+    element: () => (
+      <ServerHistoryChart
+        name="ath-db-01"
+        series={HISTORY}
+        range="1h"
+        serverId="srv-ath-db-01"
+        incidents={[]}
+        incidentsAtMs={0}
+      />
+    ),
     count: HISTORY.t.length,
     series: ['cpu', 'memory', 'disk'],
     references: [],
@@ -94,6 +103,9 @@ const CHARTS: readonly ChartCase[] = [
         series={TARGET}
         range="1h"
         limits={DEFAULT_TARGET_LIMITS}
+        targetId="target-1"
+        incidents={[]}
+        incidentsAtMs={0}
       />
     ),
     count: TARGET.t.length,

@@ -83,12 +83,14 @@ export function summarizeHistory(
   protocol: TargetProtocol,
   series: TargetSeries,
   range: RangeKey,
+  incidents = '',
 ): string {
+  const marks = incidents === '' ? '' : `. ${incidents}`
   const head = `Latency and ${LOSS_LABEL[protocol].toLowerCase()} history of ${name}, ${RANGE_WORDS[range]}`
-  if (!hasHistory(series)) return `${head}: no measurements`
+  if (!hasHistory(series)) return `${head}: no measurements${marks}`
   const total = series.measurements.reduce((sum, count) => sum + count, 0)
   const failed = series.failed.reduce((sum, count) => sum + count, 0)
-  return `${head}: ${total} measurements, ${failed} failed. A gap is a bucket with no successful measurement; failed measurements are counted apart`
+  return `${head}: ${total} measurements, ${failed} failed. A gap is a bucket with no successful measurement; failed measurements are counted apart${marks}`
 }
 
 export function describeSample(

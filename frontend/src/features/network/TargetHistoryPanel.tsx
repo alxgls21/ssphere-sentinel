@@ -1,5 +1,5 @@
 import { lazy, Suspense } from 'react'
-import type { TargetProtocol, TargetSeries } from '@/api/types'
+import type { IncidentItem, TargetProtocol, TargetSeries } from '@/api/types'
 import { useLive } from '@/app/live'
 import { useRange } from '@/app/viewState'
 import type { Resource } from '@/hooks/useResource'
@@ -21,6 +21,10 @@ interface TargetHistoryPanelProps {
   name: string
   protocol: TargetProtocol
   limits: TargetLimits
+  targetId: string
+  /** The target's incidents, drawn on the chart where they overlap the range. */
+  incidents: readonly IncidentItem[]
+  incidentsAtMs: number
   className?: string
 }
 
@@ -35,6 +39,9 @@ export function TargetHistoryPanel({
   name,
   protocol,
   limits,
+  targetId,
+  incidents,
+  incidentsAtMs,
   className,
 }: TargetHistoryPanelProps) {
   const { pollMs } = useLive()
@@ -75,6 +82,9 @@ export function TargetHistoryPanel({
             series={series}
             range={range}
             limits={limits}
+            targetId={targetId}
+            incidents={incidents}
+            incidentsAtMs={incidentsAtMs}
           />
         </Suspense>
       ) : null}

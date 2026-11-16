@@ -7,6 +7,7 @@ import { ApiError } from '@/api/errors'
 import type { TargetDetail, TargetListItem, TargetSeries } from '@/api/types'
 import { fakeCharts, resetFakeCharts } from '@/charts/testing/fakeEcharts'
 import { registryOverrides } from '@/config/testing'
+import { incident, list as incidentList } from '@/features/alerts/testing'
 import { createTestApi, renderApp } from '@/test/render'
 import TargetDetailPage from './TargetDetailPage'
 import { detail, item, iso, measurement, series } from './testing'
@@ -426,5 +427,48 @@ describe('missing, failing and provenance', () => {
     page(showing(item()).api)
     const panel = await summary()
     expect(within(panel).queryByText(/^live/)).toBeNull()
+  })
+})
+
+describe('incident marks on the history', () => {
+  const open = {
+    ...incident({ kind: 'target', ref: 'tgt-1', rule: 'Probe failing' }),
+    startedAt: iso(1800),
+    recoveredAt: null,
+    closedAt: null,
+  }
+  const withIncidents = (listIncidents: SentinelApi['listIncidents']) => {
+    const { api } = showing(item())
+    return createTestApi({ ...api, listIncidents })
+  }
+  const figure = () => screen.findByRole('figure', { name: /history of ath-gateway/ })
+
+  it('asks for the incidents of this target by its id, every status', async () => {
+    const listIncidents = vi.fn(async () => incidentList([]))
+    page(withIncidents(listIncidents))
+    await figure()
+    await waitFor(() => expect(listIncidents).toHaveBeenCalled())
+    expect(listIncidents).toHaveBeenCalledWith(
+      expect.objectContaining({ kind: 'target', q: 'tgt-1', status: 'all', pageSize: 200 }),
+    )
+  })
+
+  it('says the incident in the chart’s summary, where it overlaps the range', async () => {
+    page(withIncidents(vi.fn(async () => incidentList([open]))))
+    await figure()
+    await waitFor(() =>
+      expect(screen.getByRole('figure', { name: /history of ath-gateway/ })).toHaveAccessibleName(
+        /1 incident marked: critical “Probe failing”.*still open/,
+      ),
+    )
+  })
+
+  it('draws the chart without marks, and no banner, when the incidents cannot be read', async () => {
+    const listIncidents = vi.fn(async () => Promise.reject(new ApiError('Busy.', 503)))
+    page(withIncidents(listIncidents))
+    const chart = await figure()
+    await waitFor(() => expect(listIncidents).toHaveBeenCalled())
+    expect(chart).not.toHaveAccessibleName(/incident/)
+    expect(screen.queryByText('Refresh failed')).toBeNull()
   })
 })

@@ -1,8 +1,9 @@
 import { useCallback, useMemo } from 'react'
-import type { RangeKey, TargetProtocol, TargetSeries } from '@/api/types'
+import type { IncidentItem, RangeKey, TargetProtocol, TargetSeries } from '@/api/types'
 import { usePrefs } from '@/app/prefs'
 import { ChartFrame, type ChartNavigation } from '@/charts/ChartFrame'
 import type { LegendEntry } from '@/charts/ChartLegend'
+import { incidentSentence, incidentSpans } from '@/charts/incidentSpans'
 import { cssColor } from '@/charts/theme'
 import type { ChartEnv } from '@/charts/useECharts'
 import { useSeriesVisibility } from '@/charts/useSeriesVisibility'
@@ -22,6 +23,10 @@ interface TargetHistoryChartProps {
   series: TargetSeries
   range: RangeKey
   limits: TargetLimits
+  /** The target's id and its incidents: shown on the chart where they overlap the range. */
+  targetId: string
+  incidents: readonly IncidentItem[]
+  incidentsAtMs: number
 }
 
 /**
@@ -35,10 +40,25 @@ export default function TargetHistoryChart({
   series,
   range,
   limits,
+  targetId,
+  incidents,
+  incidentsAtMs,
 }: TargetHistoryChartProps) {
   const { tz } = usePrefs()
   const visibility = useSeriesVisibility(HISTORY_IDS)
   const { hidden } = visibility
+  const spans = useMemo(() => {
+    const first = series.t[0]
+    const last = series.t[series.t.length - 1]
+    if (first === undefined || last === undefined) return []
+    return incidentSpans(
+      incidents,
+      targetId,
+      first - series.bucketMs / 2,
+      last + series.bucketMs / 2,
+      incidentsAtMs || last,
+    )
+  }, [incidents, targetId, series, incidentsAtMs])
 
   const legend = useMemo<readonly LegendEntry[]>(
     () =>
@@ -52,8 +72,17 @@ export default function TargetHistoryChart({
   )
   const build = useCallback(
     ({ tokens, height }: ChartEnv) =>
-      buildTargetOption({ protocol, series, tz, hidden, tokens, height, limits }),
-    [protocol, series, tz, hidden, limits],
+      buildTargetOption({
+        protocol,
+        series,
+        tz,
+        hidden,
+        tokens,
+        height,
+        limits,
+        incidents: spans,
+      }),
+    [protocol, series, tz, hidden, limits, spans],
   )
   const navigation = useMemo<ChartNavigation>(
     () => ({
@@ -70,7 +99,7 @@ export default function TargetHistoryChart({
 
   return (
     <ChartFrame
-      summary={summarizeHistory(name, protocol, series, range)}
+      summary={summarizeHistory(name, protocol, series, range, incidentSentence(spans, tz))}
       cursorLabel="Target history cursor"
       build={build}
       legend={legend}

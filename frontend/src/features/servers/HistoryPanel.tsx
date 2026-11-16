@@ -1,5 +1,5 @@
 import { lazy, Suspense } from 'react'
-import type { ServerSeries } from '@/api/types'
+import type { IncidentItem, ServerSeries } from '@/api/types'
 import { useLive } from '@/app/live'
 import { useRange } from '@/app/viewState'
 import { useProvenance } from '@/hooks/useProvenance'
@@ -19,6 +19,10 @@ interface HistoryPanelProps {
   /** The series over the range in the top bar: the page requests it once for this panel and the Summary. */
   resource: Resource<ServerSeries>
   name: string
+  serverId: string
+  /** The server's incidents, drawn on the chart where they overlap the range. */
+  incidents: readonly IncidentItem[]
+  incidentsAtMs: number
   className?: string
 }
 
@@ -27,7 +31,15 @@ interface HistoryPanelProps {
  * The console API serves this history. While the servers are not read from it
  * (sample data), the footer says so and the SOURCE tag says mock.
  */
-export function HistoryPanel({ index, resource, name, className }: HistoryPanelProps) {
+export function HistoryPanel({
+  index,
+  resource,
+  name,
+  serverId,
+  incidents,
+  incidentsAtMs,
+  className,
+}: HistoryPanelProps) {
   const { pollMs } = useLive()
   const [range] = useRange()
   const series = resource.data
@@ -66,7 +78,14 @@ export function HistoryPanel({ index, resource, name, className }: HistoryPanelP
     >
       {series ? (
         <Suspense fallback={<Skeleton className={`${BODY_MIN} w-full flex-1`} />}>
-          <ServerHistoryChart name={name} series={series} range={range} />
+          <ServerHistoryChart
+            name={name}
+            series={series}
+            range={range}
+            serverId={serverId}
+            incidents={incidents}
+            incidentsAtMs={incidentsAtMs}
+          />
         </Suspense>
       ) : null}
     </Panel>

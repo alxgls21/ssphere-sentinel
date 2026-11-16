@@ -1,5 +1,6 @@
 import type { ServerSeries } from '@/api/types'
 import type { ChartInstance, ChartOption, LineSeriesOption } from '@/charts/echarts'
+import { incidentSeries, type IncidentSpan } from '@/charts/incidentSpans'
 import { BASE_ROOT_PX, readRootFontSize, type ChartTokens } from '@/charts/theme'
 import {
   growingGridHeight,
@@ -45,6 +46,8 @@ export interface HistoryOptionInput {
   height?: number
   /** The warning limit to draw, and whose it is. Omitted: the console's default. */
   limit?: { warn: number; origin: 'server' | 'default' }
+  /** Incidents of this server inside the range, drawn as shaded spans on every grid. */
+  incidents?: readonly IncidentSpan[]
 }
 
 export function buildHistoryOption({
@@ -54,6 +57,7 @@ export function buildHistoryOption({
   tokens,
   height,
   limit = { warn: RESOURCE_WARN_PERCENT, origin: 'default' },
+  incidents = [],
 }: HistoryOptionInput): ChartOption {
   const { colors, fontFamily, scale } = tokens
   const px = (value: number) => value * scale
@@ -143,7 +147,21 @@ export function buildHistoryOption({
       tz,
       content: (index) => tooltipContent(series, index, tz, hidden, colors),
     }),
-    series: lines,
+    series: [
+      ...lines,
+      // After the lines, so the marks of a hidden line stay: they belong to the server, not to a metric.
+      ...(incidents.length === 0
+        ? []
+        : HISTORY_SERIES.map((_, gridIndex) =>
+            incidentSeries(`incidents-${gridIndex}`, gridIndex, {
+              spans: incidents,
+              colors,
+              fontFamily,
+              px,
+              labelled: gridIndex === 0,
+            }),
+          )),
+    ],
   }
 }
 
