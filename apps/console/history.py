@@ -1,4 +1,5 @@
-"""Resource history: ``GET /servers/<id>/series/?range=15m|1h|6h|24h`` (the UI's ``ServerSeries``).
+"""Resource history: ``GET /servers/<id>/series/?range=15m|1h|6h|24h`` (the UI's ``ServerSeries``), and the
+sparklines of a page of the server list, ``GET /servers/series/`` (at the end of this docstring).
 
     {"generatedAt", "bucketMs", "t": [bucket start, epoch ms], "cpu": [..], "memory": [..], "disk": [..]}
 
@@ -17,6 +18,22 @@ the same 404) and the samples themselves are read through ``Visibility.filter``
 as well. At most ``range / sample grid`` rows are read for a request, from the
 primary key's index, and they are averaged here, in Python, so the result does
 not depend on any database-specific date arithmetic.
+
+``GET /servers/series/?range=`` takes the list's own parameters too (customer, site, q, status, sort, dir,
+page, pageSize at most 50, default 50) and answers for the rows of that page of ``GET /servers/``, in its order
+(``apps.console.servers.list_page`` serves both):
+
+    {"generatedAt", "range", "bucketMs", "t": [N bucket starts, epoch ms],
+     "items": [{"serverId", "cpu": [N], "memory": [N], "disk": [N]}], "page": the list's page object}
+
+``serverId`` is the join key with the list's items, and ``page`` is the list's ``page`` unchanged. The buckets
+are at most 24 (``SPARK_BUCKETS``): the range divided by 24, rounded up to a whole multiple of the sample grid,
+clock-aligned, completed buckets only, so ``N`` may be fewer (read ``t``). A value is the mean percent of the
+bucket's samples, to two decimals, ``null`` for a bucket without one: a server that never reported has ``N``
+nulls (a row the same length as the others, unlike the single series' empty arrays). The means are taken in
+the database: at most 50 servers over the range, one row per server and bucket comes back. Errors are the
+list's: 400 for an unknown or repeated parameter or a bad value (pageSize above 50 included), 404 for a hidden
+or unknown customer or site.
 """
 
 from __future__ import annotations
@@ -25,10 +42,12 @@ from datetime import datetime, timedelta
 from uuid import UUID
 
 from django.conf import settings
-from django.db.models import Exists, OuterRef
+from django.db.models import Avg, Exists, ExpressionWrapper, FloatField, OuterRef, Value
+from django.db.models.functions import Extract, Floor
 from django.http import JsonResponse
 from django.utils import timezone
 
+from apps.console import servers
 from apps.console.http import console_api
 from apps.console.params import QueryParams
 from apps.console.serializers import iso
@@ -116,3 +135,67 @@ def server_series(request, server_id: UUID):
         ).order_by().values_list("sampled_at", "cpu_percent", "memory_percent", "disk_percent")
         series = build_series(rows, range_key=range_key, now=now)
     return JsonResponse({"generatedAt": iso(now), **series})
+
+
+# --- the whole list at once: GET /servers/series/ ------------------------------------------------------------------
+
+# A row's sparkline: at most this many buckets over the range, and at most this many rows a request.
+SPARK_BUCKETS = 24
+MAX_SPARK_ROWS = 50
+
+
+def spark_window(range_key: str, grid_seconds: int, now: datetime) -> tuple[int, int, int]:
+    """``(step, count, first)`` of a sparkline: the range in ``SPARK_BUCKETS`` buckets at most, each a whole
+    multiple of ``grid_seconds`` (the samples' grid: a finer bucket would be empty every other time), aligned to
+    the clock, completed buckets only."""
+    length = int(RANGES[range_key][0].total_seconds())
+    wanted = -(-length // SPARK_BUCKETS)  # rounded up
+    step = max(grid_seconds, -(-wanted // grid_seconds) * grid_seconds)
+    count = length // step
+    first = int(now.timestamp()) // step * step - count * step
+    return step, count, first
+
+
+def bucket_index(field: str, first: int, step: int):
+    """The bucket of a row, counted from ``first`` in steps of ``step`` seconds, in the database."""
+    return Floor(
+        ExpressionWrapper((Extract(field, "epoch") - Value(first)) / Value(step), output_field=FloatField())
+    )
+
+
+@console_api()
+def fleet_series(request):
+    """``GET /servers/series/``: the sparklines of a page of the server list (see the module docstring)."""
+    now = timezone.now()
+    params = QueryParams(request, ("range", *servers.LIST_PARAMS))
+    range_key = params.choice("range", RANGES, DEFAULT_RANGE)
+    visibility = request.visibility
+    listed = servers.list_page(params, visibility, now, max_page_size=MAX_SPARK_ROWS)
+    step, count, first = spark_window(range_key, int(settings.SENTINEL_TELEMETRY_SAMPLE_SECONDS), now)
+    ids = [row["id"] for row in listed.rows]
+    series = {server_id: {name: [None] * count for name in METRICS} for server_id in ids}
+    if ids:
+        start, end = bounds(first, step, count, now)
+        buckets = (
+            visibility.filter(
+                ServerTelemetrySample.objects.filter(server_id__in=ids, sampled_at__gte=start, sampled_at__lt=end),
+                site_path="server__site",
+            )
+            .annotate(bucket=bucket_index("sampled_at", first, step))
+            .values("server_id", "bucket")
+            .annotate(cpu=Avg("cpu_percent"), memory=Avg("memory_percent"), disk=Avg("disk_percent"))
+            .order_by()
+        )
+        for row in buckets:
+            index = int(row["bucket"])
+            if 0 <= index < count:
+                for name in METRICS:
+                    series[row["server_id"]][name][index] = round(row[name], 2)
+    return JsonResponse({
+        "generatedAt": iso(now),
+        "range": range_key,
+        "bucketMs": step * 1000,
+        "t": bucket_starts_ms(first, step, count),
+        "items": [{"serverId": str(server_id), **series[server_id]} for server_id in ids],
+        "page": listed.page.payload(listed.total),
+    })
