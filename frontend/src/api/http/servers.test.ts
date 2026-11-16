@@ -6,6 +6,7 @@ import {
   getFleetLoad,
   getServer,
   getServerSeries,
+  listServerSeries,
   listServers,
   parseServerList,
   rotateAgentToken,
@@ -520,5 +521,77 @@ describe('fleet load', () => {
     const result = await getFleetLoad(t)({ metric: 'cpu' })
     expect(result.rows.map((r) => r.name)).toEqual(['fresh'])
     expect(result.excluded).toEqual(['gone', 'new', 'stale'])
+  })
+})
+
+describe('server list series', () => {
+  const answer = (over: Record<string, unknown> = {}) => ({
+    generatedAt: '2026-10-17T10:00:00.000Z',
+    range: '1h',
+    bucketMs: 180000,
+    t: [1, 2, 3],
+    items: [
+      { serverId: 'a', cpu: [10, null, 12.5], memory: [1, 2, 3], disk: [4, 5, 6] },
+      {
+        serverId: 'b',
+        cpu: [null, null, null],
+        memory: [null, null, null],
+        disk: [null, null, null],
+      },
+    ],
+    page: { number: 1, size: 50, total: 2, pages: 1 },
+    ...over,
+  })
+
+  it('asks with the list query and the range, and keeps the gaps and the order', async () => {
+    const t = transport(answer())
+    const result = await listServerSeries(t)({
+      scope: { customerId: 'c1', siteId: 's1' },
+      q: ' db ',
+      status: 'warning',
+      sort: 'cpu',
+      dir: 'desc',
+      page: 2,
+      pageSize: 50,
+      range: '6h',
+    })
+    expect(t.get).toHaveBeenCalledWith('servers/series/', {
+      signal: undefined,
+      query: {
+        customer: 'c1',
+        site: 's1',
+        q: 'db',
+        status: 'warning',
+        sort: 'cpu',
+        dir: 'desc',
+        page: '2',
+        pageSize: '50',
+        range: '6h',
+      },
+    })
+    expect(result.items.map((entry) => entry.serverId)).toEqual(['a', 'b'])
+    expect(result.items[0]?.cpu).toEqual([10, null, 12.5])
+    expect(result.items[1]?.cpu).toEqual([null, null, null])
+    expect(result.bucketMs).toBe(180000)
+  })
+
+  it.each([
+    [
+      'a metric shorter than the buckets',
+      answer({ items: [{ serverId: 'a', cpu: [1], memory: [1, 2, 3], disk: [1, 2, 3] }] }),
+    ],
+    [
+      'a sample that is not a number',
+      answer({ items: [{ serverId: 'a', cpu: [1, 'x', 3], memory: [1, 2, 3], disk: [1, 2, 3] }] }),
+    ],
+    ['a range that is not offered', answer({ range: '7d' })],
+    [
+      'a row with no server',
+      answer({ items: [{ cpu: [1, 2, 3], memory: [1, 2, 3], disk: [1, 2, 3] }] }),
+    ],
+  ])('refuses %s', async (_what, body) => {
+    await expect(listServerSeries(transport(body))({ range: '1h' })).rejects.toMatchObject({
+      code: 'bad_response',
+    })
   })
 })

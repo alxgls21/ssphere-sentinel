@@ -139,6 +139,8 @@ describe('createConsoleApi', () => {
         'listIncidents',
         'listTargets',
         'listServers',
+        'listServerSeries',
+        'listTargetSeries',
         'createAlertRule',
         'getAlertRule',
         'getAlertRuleOptions',

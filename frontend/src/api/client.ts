@@ -61,6 +61,8 @@ import type {
   ServerInput,
   ServerList,
   ServerListOptions,
+  ServerListSeries,
+  ServerListSeriesOptions,
   ServerPatch,
   ServerSeries,
   ServerSeriesOptions,
@@ -75,6 +77,8 @@ import type {
   TargetInput,
   TargetList,
   TargetListOptions,
+  TargetListSeries,
+  TargetListSeriesOptions,
   TargetPatch,
   TargetSeries,
   TargetSeriesOptions,
@@ -121,11 +125,17 @@ export interface SentinelApi {
   /** One page of the servers in scope that match the query, with their latest telemetry and the counts the filter chips show. */
   listServers(options?: ServerListOptions): Promise<ServerList>
 
+  /** A short history for each server of that same page of the list (same query, same order). */
+  listServerSeries(options: ServerListSeriesOptions): Promise<ServerListSeries>
+
   /** One page of the containers of every visible server, searched, filtered, sorted and paged by the answerer. */
   listContainers(options?: ContainerListOptions): Promise<ContainerList>
 
   /** One page of the network targets in scope, searched, filtered, sorted and paged by the answerer. */
   listTargets(options?: TargetListOptions): Promise<TargetList>
+
+  /** A short history for each target of that same page of the list (same query, same order). */
+  listTargetSeries(options: TargetListSeriesOptions): Promise<TargetListSeries>
 
   /** One target with its recent measurements, what the last 24 hours observed and its entry for the agent's file. 404 for an unknown or hidden id. */
   getTarget(id: string, options?: Signal): Promise<TargetDetail>

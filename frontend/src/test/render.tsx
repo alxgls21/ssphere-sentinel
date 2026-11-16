@@ -36,6 +36,8 @@ export function createTestApi(overrides: Partial<SentinelApi> = {}): SentinelApi
     getInterfaceSeries: unstubbed('getInterfaceSeries'),
     getServer: unstubbed('getServer'),
     getServerSeries: unstubbed('getServerSeries'),
+    listServerSeries: unstubbed('listServerSeries'),
+    listTargetSeries: unstubbed('listTargetSeries'),
     getTopology: unstubbed('getTopology'),
     listIncidents: unstubbed('listIncidents'),
     getIncident: unstubbed('getIncident'),

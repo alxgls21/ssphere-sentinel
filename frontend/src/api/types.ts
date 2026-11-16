@@ -536,6 +536,30 @@ export interface ServerSeries {
   disk: (number | null)[]
 }
 
+/** The list's own query plus the range: the series of the rows of that same page. */
+export interface ServerListSeriesOptions extends ServerListOptions {
+  range: RangeKey
+}
+
+/**
+ * A short CPU, memory and disk history for every server of one page of the list, in the page's
+ * order, on one shared set of buckets (`servers/series/`). A server that never reported has a row
+ * of nulls.
+ */
+export interface ServerListSeries {
+  generatedAt: Iso
+  range: RangeKey
+  bucketMs: number
+  /** Bucket start, epoch ms, shared by every row. */
+  t: number[]
+  items: {
+    serverId: string
+    cpu: (number | null)[]
+    memory: (number | null)[]
+    disk: (number | null)[]
+  }[]
+}
+
 /* ---------------------------------------------------------- network targets */
 
 export type TargetProtocol = 'icmp' | 'tcp'
@@ -738,6 +762,20 @@ export interface TargetSeries {
   lossPercent: (number | null)[]
   measurements: number[]
   failed: number[]
+}
+
+/** The list's own query plus the range: the series of the rows of that same page. */
+export interface TargetListSeriesOptions extends TargetListOptions {
+  range: RangeKey
+}
+
+/** A short latency and loss history for every target of one page of the list (`targets/series/`). */
+export interface TargetListSeries {
+  generatedAt: Iso
+  range: RangeKey
+  bucketMs: number
+  t: number[]
+  items: { targetId: string; latencyMs: (number | null)[]; lossPercent: (number | null)[] }[]
 }
 
 /* -------------------------------------------------------------- SNMP devices */

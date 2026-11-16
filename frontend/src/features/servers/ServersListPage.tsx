@@ -7,8 +7,9 @@ import { useAuth } from '@/app/auth/auth'
 import { useLive } from '@/app/live'
 import { usePrefs } from '@/app/prefs'
 import { useViewTo } from '@/app/viewSearch'
-import { scopeKey, useScope } from '@/app/viewState'
+import { scopeKey, useRange, useScope } from '@/app/viewState'
 import { useDebouncedValue } from '@/hooks/useDebouncedValue'
+import { useListSeries } from '@/hooks/useListSeries'
 import { useLiveResource } from '@/hooks/useLiveResource'
 import { useMediaQuery } from '@/hooks/useMediaQuery'
 import { formatInteger } from '@/lib/format'
@@ -84,6 +85,12 @@ export default function ServersListPage() {
     (signal) => api.listServers({ scope, ...asked, pageSize: SERVERS_PAGE_SIZE, signal }),
     // A new query or scope keeps the previous rows, dimmed, instead of flashing a skeleton.
     { keepPreviousData: true },
+  )
+  const [range] = useRange()
+  const trends = useListSeries(
+    `server-series:${scopeKey(scope)}:${range}:${JSON.stringify(asked)}`,
+    (signal) =>
+      api.listServerSeries({ scope, ...asked, pageSize: SERVERS_PAGE_SIZE, range, signal }),
   )
   const list = resource.data
   const rows = list?.items ?? []
@@ -260,7 +267,15 @@ export default function ServersListPage() {
         className="min-h-[20rem] flex-1"
       >
         {wide ? (
-          <ServersTable rows={rows} query={query} onSort={update} nowMs={nowMs} tz={tz} />
+          <ServersTable
+            rows={rows}
+            query={query}
+            onSort={update}
+            nowMs={nowMs}
+            tz={tz}
+            trends={trends.data}
+            trendsStale={trends.stale}
+          />
         ) : (
           <ServerCards rows={rows} nowMs={nowMs} />
         )}

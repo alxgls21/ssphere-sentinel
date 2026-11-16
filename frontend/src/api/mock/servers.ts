@@ -10,6 +10,8 @@ import type {
   ServerList,
   ServerListItem,
   ServerListOptions,
+  ServerListSeries,
+  ServerListSeriesOptions,
   ServerSeries,
 } from '../types'
 import { RANGE_MS } from '@/lib/range'
@@ -51,6 +53,34 @@ export function listServers(
   const lookup = makeLookup(fleet)
   const everyone = fleet.servers.map((server) => itemOf(server, fleet, lookup))
   return queryServers(everyone, toIso(now), options)
+}
+
+/** A short history for every server of the page a query asks for, on the buckets they share; a server with no telemetry has a row of nulls. */
+export function listServerSeries(
+  fleet: Fleet,
+  now: number,
+  options: ServerListSeriesOptions,
+): ServerListSeries {
+  const page = listServers(fleet, now, options).items
+  const built = page.map(({ server }) => ({
+    id: server.id,
+    series: buildServerSeries(server, options.range, now),
+  }))
+  const t = built.find(({ series }) => series.t.length > 0)?.series.t ?? []
+  const filled = (values: (number | null)[]) =>
+    values.length === t.length ? values : t.map(() => null)
+  return {
+    generatedAt: toIso(now),
+    range: options.range,
+    bucketMs: BUCKET_MS[options.range],
+    t,
+    items: built.map(({ id, series }) => ({
+      serverId: id,
+      cpu: filled(series.cpu),
+      memory: filled(series.memory),
+      disk: filled(series.disk),
+    })),
+  }
 }
 
 /** The page of containers a query asks for, by the rules the console API applies (see lib/containerList). */

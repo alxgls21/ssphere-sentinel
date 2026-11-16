@@ -5,8 +5,9 @@ import { useApi } from '@/api/context'
 import { useLive } from '@/app/live'
 import { usePrefs } from '@/app/prefs'
 import { useViewTo } from '@/app/viewSearch'
-import { scopeKey, useScope } from '@/app/viewState'
+import { scopeKey, useRange, useScope } from '@/app/viewState'
 import { useDebouncedValue } from '@/hooks/useDebouncedValue'
+import { useListSeries } from '@/hooks/useListSeries'
 import { useLiveResource } from '@/hooks/useLiveResource'
 import { useMediaQuery } from '@/hooks/useMediaQuery'
 import { formatInteger } from '@/lib/format'
@@ -75,6 +76,11 @@ export default function NetworkPage() {
     (signal) => api.listTargets({ scope, ...asked, signal }),
     // A new query or scope keeps the previous rows, dimmed, instead of flashing a skeleton.
     { keepPreviousData: true },
+  )
+  const [range] = useRange()
+  const trends = useListSeries(
+    `target-list-series:${scopeKey(scope)}:${range}:${JSON.stringify(asked)}`,
+    (signal) => api.listTargetSeries({ scope, ...asked, range, signal }),
   )
   const list = resource.data
   const rows = list?.items ?? []
@@ -223,6 +229,8 @@ export default function NetworkPage() {
             nowMs={nowMs}
             tz={tz}
             limits={limits}
+            trends={trends.data}
+            trendsStale={trends.stale}
           />
         ) : (
           <NetworkCards rows={rows} nowMs={nowMs} limits={limits} />

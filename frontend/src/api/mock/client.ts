@@ -3,7 +3,13 @@ import { ApiError } from '../errors'
 import type { RequestOptions, Scope } from '../types'
 import { listAttention } from './attention'
 import { entityIndex, fleetLoad, healthBreakdown, scopeOptions, summarize } from './derive'
-import { buildServerSeries, listContainers, listServers, serverDetail } from './servers'
+import {
+  buildServerSeries,
+  listContainers,
+  listServerSeries,
+  listServers,
+  serverDetail,
+} from './servers'
 import { buildEstate, scopeEstate, type Estate, type FleetProfile } from './fixtures'
 import { emptyCounts } from '@/lib/status'
 import { hash01, hashString } from './random'
@@ -139,6 +145,20 @@ export function createMockApi(options: MockApiOptions = {}): SentinelApi {
 
     listServers: (request) =>
       scoped('listServers', request, ({ fleet }, { now }) => listServers(fleet, now, request)),
+
+    listServerSeries: (request) =>
+      scoped('listServerSeries', request, ({ fleet }, { now }) =>
+        listServerSeries(fleet, now, request),
+      ),
+
+    listTargetSeries: (request) =>
+      scoped('listTargetSeries', request, (_estate, { now }) => ({
+        generatedAt: toIso(now),
+        range: request.range,
+        bucketMs: 60_000,
+        t: [],
+        items: [],
+      })),
 
     listContainers: (request) =>
       scoped('listContainers', request, ({ fleet }, { now }) =>

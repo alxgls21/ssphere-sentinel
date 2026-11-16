@@ -44,6 +44,7 @@ import {
   deleteTarget,
   getTarget,
   getTargetSeries,
+  listTargetSeries,
   listTargets,
   updateTarget,
 } from './targets'
@@ -56,6 +57,7 @@ import {
   getFleetLoad,
   getServer,
   getServerSeries,
+  listServerSeries,
   listServers,
   rotateAgentToken,
   setAgentEnabled,
@@ -76,6 +78,8 @@ import { createTransport, type TransportOptions } from './transport'
 export interface ConsoleHttp extends Pick<
   SentinelApi,
   | 'listServers'
+  | 'listServerSeries'
+  | 'listTargetSeries'
   | 'getServer'
   | 'getServerSeries'
   | 'getFleetLoad'
@@ -153,6 +157,8 @@ export function createConsoleHttp(options: TransportOptions = {}): ConsoleHttp {
     auth: createAuthClient(transport),
     getScopeOptions: getScopeOptions(transport),
     listServers: listServers(transport),
+    listServerSeries: listServerSeries(transport),
+    listTargetSeries: listTargetSeries(transport),
     getServer: getServer(transport),
     getServerSeries: getServerSeries(transport),
     getFleetLoad: getFleetLoad(transport),

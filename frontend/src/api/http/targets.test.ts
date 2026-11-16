@@ -7,6 +7,7 @@ import {
   parseTargetDetail,
   parseTargetList,
   parseTargetSeries,
+  listTargetSeries,
 } from './targets'
 import type { Transport } from './transport'
 
@@ -338,5 +339,42 @@ describe('target series', () => {
     expect(() => parseTargetSeries(series({ failed: [0, 0] }))).toThrow(ApiError)
     expect(() => parseTargetSeries(series({ measurements: [1, 0.5, 2] }))).toThrow(ApiError)
     expect(() => parseTargetSeries(series({ lossPercent: [0, 'x', 1] }))).toThrow(ApiError)
+  })
+})
+
+describe('target list series', () => {
+  const answer = (over: Record<string, unknown> = {}) => ({
+    generatedAt: '2026-10-17T10:00:00.000Z',
+    range: '1h',
+    bucketMs: 180000,
+    t: [1, 2],
+    items: [
+      { targetId: 'a', latencyMs: [12.5, null], lossPercent: [0, 100] },
+      { targetId: 'b', latencyMs: [null, null], lossPercent: [null, null] },
+    ],
+    page: { number: 1, size: 50, total: 2, pages: 1 },
+    ...over,
+  })
+
+  it('asks with the list query and the range, and keeps the gaps', async () => {
+    const t = transport(answer())
+    const result = await listTargetSeries(t)({ q: ' core ', page: 1, pageSize: 50, range: '24h' })
+    expect(t.get).toHaveBeenCalledWith('targets/series/', {
+      signal: undefined,
+      query: { q: 'core', page: '1', pageSize: '50', range: '24h' },
+    })
+    expect(result.items[0]).toEqual({
+      targetId: 'a',
+      latencyMs: [12.5, null],
+      lossPercent: [0, 100],
+    })
+    expect(result.items[1]?.latencyMs).toEqual([null, null])
+  })
+
+  it('refuses a metric that does not match the buckets', async () => {
+    const body = answer({ items: [{ targetId: 'a', latencyMs: [1], lossPercent: [0, 0] }] })
+    await expect(listTargetSeries(transport(body))({ range: '1h' })).rejects.toMatchObject({
+      code: 'bad_response',
+    })
   })
 })
