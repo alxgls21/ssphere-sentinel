@@ -1,12 +1,13 @@
 import { createSortHead } from '@/ui/SortHead'
 import { Link, useLocation, useNavigate } from 'react-router'
-import type { ServerListItem } from '@/api/types'
+import type { ServerListItem, ServerListSeries } from '@/api/types'
 import { useViewTo } from '@/app/viewSearch'
 import { cn } from '@/lib/cn'
+import { RANGE_WORDS } from '@/lib/range'
 import { EMPTY, formatClock, type Timezone } from '@/lib/format'
 import { PlaceName } from '@/ui/PlaceName'
 import { Tooltip } from '@/ui/controls'
-import { useResourceLimits } from '@/ui/meters'
+import { Sparkline, useResourceLimits } from '@/ui/meters'
 import { STATUS_EDGE, StatusTag } from '@/ui/status'
 import { LoadCell } from './LoadCell'
 import {
@@ -37,6 +38,9 @@ interface ServersTableProps {
   onSort: (next: Pick<ServersQuery, 'sort' | 'dir'>) => void
   nowMs: number
   tz: Timezone
+  /** The short histories of these rows, when they have been read; a row without one shows no trend. */
+  trends?: ServerListSeries
+  trendsStale?: boolean
 }
 
 /**
@@ -45,7 +49,15 @@ interface ServersTableProps {
  * drop out with the room the panel has (container query), so a tablet loses
  * SITE and UPTIME before it loses a number.
  */
-export function ServersTable({ rows, query, onSort, nowMs, tz }: ServersTableProps) {
+export function ServersTable({
+  rows,
+  query,
+  onSort,
+  nowMs,
+  tz,
+  trends,
+  trendsStale = false,
+}: ServersTableProps) {
   const viewTo = useViewTo()
   const navigate = useNavigate()
   const location = useLocation()
@@ -61,7 +73,12 @@ export function ServersTable({ rows, query, onSort, nowMs, tz }: ServersTablePro
             <th scope="col" className={cn(HEAD, 'hidden px-3 @4xl:table-cell')}>
               SITE
             </th>
-            <SortHead sortKey="cpu" query={query} onSort={onSort} className="w-36 @4xl:w-44" />
+            <SortHead
+              sortKey="cpu"
+              query={query}
+              onSort={onSort}
+              className="w-36 @4xl:w-44 @7xl:w-64"
+            />
             <SortHead sortKey="memory" query={query} onSort={onSort} className="w-36 @4xl:w-44" />
             <SortHead sortKey="disk" query={query} onSort={onSort} className="w-36 @4xl:w-44" />
             <SortHead
@@ -79,6 +96,7 @@ export function ServersTable({ rows, query, onSort, nowMs, tz }: ServersTablePro
             const to = viewTo(serverPath(server.id))
             const reason = noLoadReason(item)
             const seen = seenAtOf(item)
+            const trend = trends?.items.find((entry) => entry.serverId === server.id)
             return (
               <tr
                 key={server.id}
@@ -130,7 +148,21 @@ export function ServersTable({ rows, query, onSort, nowMs, tz }: ServersTablePro
                 {reportsLoad(item) ? (
                   (['cpu', 'memory', 'disk'] as const).map((metric) => (
                     <td key={metric} className={cn(CELL, 'px-3')}>
-                      <LoadCell item={item} metric={metric} />
+                      {metric === 'cpu' && trends && trend ? (
+                        <span className="flex items-center gap-3">
+                          <LoadCell item={item} metric={metric} />
+                          <Sparkline
+                            values={trend.cpu}
+                            times={trends.t}
+                            tz={tz}
+                            stale={trendsStale}
+                            label={`CPU of ${server.name}, ${RANGE_WORDS[trends.range]}`}
+                            className="hidden @7xl:inline-flex"
+                          />
+                        </span>
+                      ) : (
+                        <LoadCell item={item} metric={metric} />
+                      )}
                     </td>
                   ))
                 ) : (

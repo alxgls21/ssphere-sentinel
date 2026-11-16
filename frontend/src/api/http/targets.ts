@@ -9,6 +9,8 @@ import type {
   TargetList,
   TargetListItem,
   TargetListOptions,
+  TargetListSeries,
+  TargetListSeriesOptions,
   TargetMeasurement,
   TargetPatch,
   TargetProtocol,
@@ -217,6 +219,36 @@ export function parseTargetSeries(raw: unknown): TargetSeries {
     failed: column(row.failed, (sample) => whole(sample)),
   }
 }
+
+export function parseTargetListSeries(raw: unknown): TargetListSeries {
+  const row = record(raw)
+  const t = array(row.t).map(number)
+  const column = parallel(t)
+  return {
+    generatedAt: time(row.generatedAt),
+    range: oneOf(['15m', '1h', '6h', '24h'] as const, row.range),
+    bucketMs: number(row.bucketMs),
+    t,
+    items: array(row.items).map((entry) => {
+      const item = record(entry)
+      return {
+        targetId: text(item.targetId),
+        latencyMs: column(item.latencyMs, nullableNumber),
+        lossPercent: column(item.lossPercent, nullableNumber),
+      }
+    }),
+  }
+}
+
+export const listTargetSeries =
+  (transport: Transport): SentinelApi['listTargetSeries'] =>
+  async (options: TargetListSeriesOptions) =>
+    parseTargetListSeries(
+      await transport.get('targets/series/', {
+        signal: options.signal,
+        query: { ...listQuery(options), range: options.range },
+      }),
+    )
 
 export const listTargets =
   (transport: Transport): SentinelApi['listTargets'] =>

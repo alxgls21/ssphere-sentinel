@@ -4,9 +4,10 @@ import { Reading } from '@/ui/Reading'
    A value that is not a current reading, and the status word, carry their reason in a tooltip. They
    take a tab stop so a keyboard user can open it, and name the same sentence for a screen reader. */
 import { Link, useLocation, useNavigate } from 'react-router'
-import type { TargetListItem } from '@/api/types'
+import type { TargetListItem, TargetListSeries } from '@/api/types'
 import { useViewTo } from '@/app/viewSearch'
 import { cn } from '@/lib/cn'
+import { RANGE_WORDS } from '@/lib/range'
 import { EMPTY, formatClock, type Timezone } from '@/lib/format'
 import {
   PROTOCOL_LABEL,
@@ -19,6 +20,7 @@ import {
 } from '@/lib/targets'
 import { PlaceName } from '@/ui/PlaceName'
 import { Tooltip } from '@/ui/controls'
+import { Sparkline } from '@/ui/meters'
 import { STATUS_EDGE, StatusTag } from '@/ui/status'
 import {
   SORT_LABEL,
@@ -46,6 +48,9 @@ interface NetworkTableProps {
   nowMs: number
   tz: Timezone
   limits: TargetLimits
+  /** The short histories of these rows, when they have been read; a row without one shows no trend. */
+  trends?: TargetListSeries
+  trendsStale?: boolean
 }
 
 /**
@@ -55,7 +60,16 @@ interface NetworkTableProps {
  * lost packets for ICMP and failed connection attempts for TCP. Columns drop out with the room the
  * panel has (container query).
  */
-export function NetworkTable({ rows, query, onSort, nowMs, tz, limits }: NetworkTableProps) {
+export function NetworkTable({
+  rows,
+  query,
+  onSort,
+  nowMs,
+  tz,
+  limits,
+  trends,
+  trendsStale = false,
+}: NetworkTableProps) {
   const viewTo = useViewTo()
   const navigate = useNavigate()
   const location = useLocation()
@@ -77,7 +91,7 @@ export function NetworkTable({ rows, query, onSort, nowMs, tz, limits }: Network
               sortKey="latency"
               query={query}
               onSort={onSort}
-              className="hidden text-right @xl:table-cell"
+              className="hidden text-right @xl:table-cell @6xl:w-44"
             />
             <SortHead
               sortKey="loss"
@@ -103,6 +117,8 @@ export function NetworkTable({ rows, query, onSort, nowMs, tz, limits }: Network
             const to = viewTo(targetPath(target.id))
             const latency = latencyCell(item, nowMs, limits)
             const loss = lossCell(item, nowMs, limits)
+            const trend = trends?.items.find((entry) => entry.targetId === target.id)
+            const peak = Math.max(1, ...(trend?.latencyMs ?? []).map((value) => value ?? 0))
             return (
               <tr
                 key={target.id}
@@ -167,7 +183,23 @@ export function NetworkTable({ rows, query, onSort, nowMs, tz, limits }: Network
                   )}
                 </td>
                 <td className={cn(CELL, 'type-data tnum hidden px-3 text-right @xl:table-cell')}>
-                  <Reading {...latency} />
+                  {trends && trend ? (
+                    <span className="flex items-center justify-end gap-3">
+                      <Sparkline
+                        values={trend.latencyMs}
+                        times={trends.t}
+                        tz={tz}
+                        domain={[0, peak]}
+                        unit="milliseconds"
+                        stale={trendsStale}
+                        label={`Latency of ${target.name}, ${RANGE_WORDS[trends.range]}`}
+                        className="hidden @6xl:inline-flex"
+                      />
+                      <Reading {...latency} />
+                    </span>
+                  ) : (
+                    <Reading {...latency} />
+                  )}
                 </td>
                 <td className={cn(CELL, 'type-data tnum hidden px-3 text-right @xl:table-cell')}>
                   <Reading {...loss} />

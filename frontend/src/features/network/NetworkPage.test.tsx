@@ -8,7 +8,7 @@ import type { TargetList, TargetListItem } from '@/api/types'
 import { registryOverrides } from '@/config/testing'
 import { createTestApi, renderApp } from '@/test/render'
 import NetworkPage from './NetworkPage'
-import { item, iso, list, measurement } from './testing'
+import { NOW, item, iso, list, measurement } from './testing'
 
 /** jsdom has no viewport: every media query answers the same, so a test picks "desktop" or "phone". */
 function stubViewport(wide: boolean) {
@@ -393,5 +393,59 @@ describe('on a phone', () => {
     expect(within(card('spare')).getByText(/switched off/)).toBeInTheDocument()
     await user.selectOptions(screen.getByRole('combobox', { name: 'Sort by' }), 'latency')
     await waitFor(() => expect(screen.getByLabelText('location')).toHaveTextContent('sort=latency'))
+  })
+})
+
+describe('trends on the inventory', () => {
+  const trendFor = (targetId: string, latencyMs: (number | null)[]) => ({
+    targetId,
+    latencyMs,
+    lossPercent: latencyMs.map(() => 0),
+  })
+  const answer = (items: ReturnType<typeof trendFor>[]) => ({
+    generatedAt: iso(0),
+    range: '1h' as const,
+    bucketMs: 180_000,
+    t: [1, 2, 3].map((n) => NOW - (4 - n) * 180_000),
+    items,
+  })
+
+  it('asks for the series of the same query and draws one under the latency of the rows it has', async () => {
+    const listTargetSeries = vi.fn<SentinelApi['listTargetSeries']>(async () =>
+      answer([trendFor('t-ok', [10, 12, 11])]),
+    )
+    const api = createTestApi({
+      listTargets: async () => list(FLEET),
+      listTargetSeries,
+      source: 'http',
+    })
+    page('/network?q=ath', api)
+    const t = await table()
+    await waitFor(() =>
+      expect(
+        within(rowOf(t, 'ath-gateway')).getByRole('img', {
+          name: /Latency of ath-gateway, last hour/,
+        }),
+      ).toBeInTheDocument(),
+    )
+    expect(within(rowOf(t, 'old-probe')).queryByRole('img')).toBeNull()
+    expect(listTargetSeries).toHaveBeenCalledWith(
+      expect.objectContaining({ q: 'ath', range: '1h', pageSize: 50 }),
+    )
+  })
+
+  it('shows the inventory unchanged when the series cannot be read', async () => {
+    const api = createTestApi({
+      listTargets: async () => list(FLEET),
+      listTargetSeries: async () => {
+        throw new ApiError('Cannot reach the server.', null, 'network')
+      },
+      source: 'http',
+    })
+    page('/network', api)
+    const t = await table()
+    expect(names(t)).toHaveLength(FLEET.length)
+    expect(within(t).queryByRole('img')).toBeNull()
+    expect(screen.queryByText('Cannot reach the server.')).toBeNull()
   })
 })

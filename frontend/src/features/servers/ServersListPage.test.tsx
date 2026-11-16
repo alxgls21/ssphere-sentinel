@@ -538,3 +538,47 @@ describe('ServersListPage over the console API', () => {
     expect(await screen.findByText('The server sent an unexpected answer.')).toBeInTheDocument()
   })
 })
+
+describe('trends on the servers list', () => {
+  it('draws a CPU trend for every row the series answers, and asks for the same page', async () => {
+    const listServerSeries = vi.fn<SentinelApi['listServerSeries']>(async (options) => {
+      const rows = (await mock().listServers(options)).items
+      const t = [NOW - 120_000, NOW - 60_000]
+      return {
+        generatedAt: new Date(NOW).toISOString(),
+        range: options.range,
+        bucketMs: 60_000,
+        t,
+        items: rows.map(({ server }) => ({
+          serverId: server.id,
+          cpu: [20, 30],
+          memory: [1, 2],
+          disk: [3, 4],
+        })),
+      }
+    })
+    const api = { ...mock(), listServerSeries }
+    page('/servers?q=web', api)
+    const t = await table()
+    await waitFor(() =>
+      expect(within(t).getAllByRole('img', { name: /^CPU of / }).length).toBeGreaterThan(0),
+    )
+    expect(listServerSeries).toHaveBeenCalledWith(
+      expect.objectContaining({ q: 'web', range: '1h', pageSize: 50 }),
+    )
+  })
+
+  it('keeps the list as it is when the series cannot be read', async () => {
+    const api = {
+      ...mock(),
+      listServerSeries: async () => {
+        throw new ApiError('Cannot reach the server.', null, 'network')
+      },
+    }
+    page('/servers', api)
+    const t = await table()
+    expect(within(t).getAllByRole('link').length).toBeGreaterThan(0)
+    expect(within(t).queryByRole('img', { name: /^CPU of / })).toBeNull()
+    expect(screen.queryByText('Cannot reach the server.')).toBeNull()
+  })
+})

@@ -8,6 +8,7 @@ import type {
   FleetLoad,
   FleetLoadOptions,
   MonitoringAgent,
+  RangeKey,
   Server,
   ServerContainer,
   ServerDeleted,
@@ -16,6 +17,8 @@ import type {
   ServerList,
   ServerListItem,
   ServerListOptions,
+  ServerListSeries,
+  ServerListSeriesOptions,
   ServerPatch,
   ServerSeries,
   ServerSeriesOptions,
@@ -51,6 +54,7 @@ import type { Transport } from './transport'
  * carries is named field by field: nothing else the caller holds can go out.
  */
 
+const RANGES: readonly RangeKey[] = ['15m', '1h', '6h', '24h']
 const SERVER_STATUS: readonly ServerStatus[] = ['online', 'offline', 'warning', 'unknown']
 const CONTAINER_STATE: readonly ContainerState[] = [
   'running',
@@ -189,6 +193,37 @@ export function parseServerSeries(raw: unknown): ServerSeries {
     disk: column(row.disk, nullableNumber),
   }
 }
+
+export function parseServerListSeries(raw: unknown): ServerListSeries {
+  const row = record(raw)
+  const t = array(row.t).map(number)
+  const column = parallel(t)
+  return {
+    generatedAt: time(row.generatedAt),
+    range: oneOf(RANGES, row.range),
+    bucketMs: number(row.bucketMs),
+    t,
+    items: array(row.items).map((entry) => {
+      const item = record(entry)
+      return {
+        serverId: text(item.serverId),
+        cpu: column(item.cpu, nullableNumber),
+        memory: column(item.memory, nullableNumber),
+        disk: column(item.disk, nullableNumber),
+      }
+    }),
+  }
+}
+
+export const listServerSeries =
+  (transport: Transport) =>
+  async (options: ServerListSeriesOptions): Promise<ServerListSeries> =>
+    parseServerListSeries(
+      await transport.get('servers/series/', {
+        signal: options.signal,
+        query: { ...listQuery(options), range: options.range },
+      }),
+    )
 
 export const listServers =
   (transport: Transport) =>

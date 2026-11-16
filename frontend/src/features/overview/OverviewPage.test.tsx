@@ -138,6 +138,8 @@ describe('OverviewPage', () => {
         'listIncidents',
         'listTargets',
         'listServers',
+        'listServerSeries',
+        'listTargetSeries',
         'createAlertRule',
         'getAlertRule',
         'getAlertRuleOptions',
