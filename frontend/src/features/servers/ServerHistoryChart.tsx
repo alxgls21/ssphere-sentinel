@@ -50,7 +50,7 @@ export default function ServerHistoryChart({
   const { tz } = usePrefs()
   const visibility = useSeriesVisibility(HISTORY_IDS)
   const { hidden } = visibility
-  const { warn, origin } = useResourceLimits()
+  const { warn, crit, origin } = useResourceLimits()
   const spans = useMemo(() => {
     const first = series.t[0]
     const last = series.t[series.t.length - 1]
@@ -72,10 +72,10 @@ export default function ServerHistoryChart({
         hidden,
         tokens,
         height,
-        limit: { warn, origin },
+        limit: { warn, crit, origin },
         incidents: spans,
       }),
-    [series, tz, hidden, warn, origin, spans],
+    [series, tz, hidden, warn, crit, origin, spans],
   )
   const navigation = useMemo<ChartNavigation>(
     () => ({

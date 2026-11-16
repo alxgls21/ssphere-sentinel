@@ -3,13 +3,13 @@ import { Link, useLocation, useNavigate } from 'react-router'
 import type { ServerListItem, ServerListSeries } from '@/api/types'
 import { useViewTo } from '@/app/viewSearch'
 import { cn } from '@/lib/cn'
-import { RANGE_WORDS } from '@/lib/range'
 import { EMPTY, formatClock, type Timezone } from '@/lib/format'
 import { PlaceName } from '@/ui/PlaceName'
 import { Tooltip } from '@/ui/controls'
-import { Sparkline, useResourceLimits } from '@/ui/meters'
+import { useResourceLimits } from '@/ui/meters'
 import { STATUS_EDGE, StatusTag } from '@/ui/status'
 import { LoadCell } from './LoadCell'
+import { LoadTrend } from './LoadTrend'
 import {
   SORT_LABEL,
   heartbeatText,
@@ -79,8 +79,18 @@ export function ServersTable({
               onSort={onSort}
               className="w-36 @4xl:w-44 @7xl:w-64"
             />
-            <SortHead sortKey="memory" query={query} onSort={onSort} className="w-36 @4xl:w-44" />
-            <SortHead sortKey="disk" query={query} onSort={onSort} className="w-36 @4xl:w-44" />
+            <SortHead
+              sortKey="memory"
+              query={query}
+              onSort={onSort}
+              className="w-36 @4xl:w-44 @7xl:w-64"
+            />
+            <SortHead
+              sortKey="disk"
+              query={query}
+              onSort={onSort}
+              className="w-36 @4xl:w-44 @7xl:w-64"
+            />
             <SortHead
               sortKey="uptime"
               query={query}
@@ -96,7 +106,6 @@ export function ServersTable({
             const to = viewTo(serverPath(server.id))
             const reason = noLoadReason(item)
             const seen = seenAtOf(item)
-            const trend = trends?.items.find((entry) => entry.serverId === server.id)
             return (
               <tr
                 key={server.id}
@@ -148,21 +157,18 @@ export function ServersTable({
                 {reportsLoad(item) ? (
                   (['cpu', 'memory', 'disk'] as const).map((metric) => (
                     <td key={metric} className={cn(CELL, 'px-3')}>
-                      {metric === 'cpu' && trends && trend ? (
-                        <span className="flex items-center gap-3">
-                          <LoadCell item={item} metric={metric} />
-                          <Sparkline
-                            values={trend.cpu}
-                            times={trends.t}
-                            tz={tz}
-                            stale={trendsStale}
-                            label={`CPU of ${server.name}, ${RANGE_WORDS[trends.range]}`}
-                            className="hidden @7xl:inline-flex"
-                          />
-                        </span>
-                      ) : (
+                      <span className="flex items-center gap-3">
                         <LoadCell item={item} metric={metric} />
-                      )}
+                        <LoadTrend
+                          trends={trends}
+                          serverId={server.id}
+                          serverName={server.name}
+                          metric={metric}
+                          tz={tz}
+                          stale={trendsStale}
+                          className="hidden @7xl:inline-flex"
+                        />
+                      </span>
                     </td>
                   ))
                 ) : (

@@ -295,6 +295,12 @@ export function createMockApi(options: MockApiOptions = {}): SentinelApi {
     updateTarget: (_id, _patch, request) => noSettings('updateTarget', request?.signal),
     deleteTarget: (_id, request) => noSettings('deleteTarget', request?.signal),
     listCustomers: (request) => noSettings('listCustomers', request?.signal),
+    listDomains: (request) => noSettings('listDomains', request?.signal),
+    getDomain: (_id, request) => noSettings('getDomain', request?.signal),
+    createDomain: (_input, request) => noSettings('createDomain', request?.signal),
+    verifyDomain: (_id, request) => noSettings('verifyDomain', request?.signal),
+    getDomainVerification: (_domainId, _verificationId, request) =>
+      noSettings('getDomainVerification', request?.signal),
     getCustomer: (_id, request) => noSettings('getCustomer', request?.signal),
     createCustomer: (_input, request) => noSettings('createCustomer', request?.signal),
     updateCustomer: (_id, _patch, request) => noSettings('updateCustomer', request?.signal),

@@ -97,7 +97,7 @@ export function NetworkTable({
               sortKey="loss"
               query={query}
               onSort={onSort}
-              className="hidden text-right @xl:table-cell"
+              className="hidden text-right @xl:table-cell @6xl:w-44"
               title="ICMP: probe packets lost. TCP: connection attempts that failed."
             />
             <th scope="col" className={cn(HEAD, 'hidden px-3 @4xl:table-cell')}>
@@ -119,6 +119,7 @@ export function NetworkTable({
             const loss = lossCell(item, nowMs, limits)
             const trend = trends?.items.find((entry) => entry.targetId === target.id)
             const peak = Math.max(1, ...(trend?.latencyMs ?? []).map((value) => value ?? 0))
+            const lossPeak = Math.max(5, ...(trend?.lossPercent ?? []).map((value) => value ?? 0))
             return (
               <tr
                 key={target.id}
@@ -202,7 +203,22 @@ export function NetworkTable({
                   )}
                 </td>
                 <td className={cn(CELL, 'type-data tnum hidden px-3 text-right @xl:table-cell')}>
-                  <Reading {...loss} />
+                  {trends && trend ? (
+                    <span className="flex items-center justify-end gap-3">
+                      <Sparkline
+                        values={trend.lossPercent}
+                        times={trends.t}
+                        tz={tz}
+                        domain={[0, lossPeak]}
+                        stale={trendsStale}
+                        label={`Loss of ${target.name}, ${RANGE_WORDS[trends.range]}`}
+                        className="hidden @6xl:inline-flex"
+                      />
+                      <Reading {...loss} />
+                    </span>
+                  ) : (
+                    <Reading {...loss} />
+                  )}
                 </td>
                 <td className={cn(CELL, 'type-data hidden max-w-40 truncate px-3 @4xl:table-cell')}>
                   <span className={target.agent === null ? 'text-fg-muted' : undefined}>

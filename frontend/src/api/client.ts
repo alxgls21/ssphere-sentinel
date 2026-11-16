@@ -23,6 +23,11 @@ import type {
   ContainerList,
   ContainerListOptions,
   CustomerDetail,
+  DomainDetail,
+  DomainInput,
+  DomainList,
+  DomainListOptions,
+  VerificationAnswer,
   CustomerInput,
   CustomerList,
   CustomerPatch,
@@ -279,6 +284,25 @@ export interface SentinelApi {
 
   /** One page of the customers the account may see, searched, sorted and paged by the answerer. */
   listCustomers(options?: RecordListOptions): Promise<CustomerList>
+
+  /** One page of the monitored domains of every customer (global visibility), searched, filtered, sorted and paged by the answerer. 403 without it. */
+  listDomains(options?: DomainListOptions): Promise<DomainList>
+
+  /** One domain with the DNS record to add and its latest verification. 404 for an unknown id. */
+  getDomain(id: string, options?: Signal): Promise<DomainDetail>
+
+  /** Adds a domain to a customer. Rejects: 400 `validation_error` (`name`, `customerId`), 409 `domain_exists` or `domain_limit`, 403. */
+  createDomain(input: DomainInput, options?: Signal): Promise<DomainDetail>
+
+  /** Asks for a verification. Rejects: 409 `verification_active`, 429 `rate_limited` and 503 `queue_full` (with a wait), 403. */
+  verifyDomain(id: string, options?: Signal): Promise<VerificationAnswer>
+
+  /** One verification of the domain, to poll until it is done or expired. */
+  getDomainVerification(
+    domainId: string,
+    verificationId: string,
+    options?: Signal,
+  ): Promise<VerificationAnswer>
 
   /** One customer with its sites. 404 for an unknown or hidden id. */
   getCustomer(id: string, options?: Signal): Promise<CustomerDetail>

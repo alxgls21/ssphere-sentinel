@@ -10,7 +10,9 @@ User::
 
     {"id": int, "username", "firstName", "lastName", "displayName", "email",
      "role": viewer | operator | editor | administrator | null, "allCustomers": bool, "active": bool,
-     "lastLoginAt": str | null, "createdAt", "locked": bool, "lockedUntil": str | null, "self": bool,
+     "lastLoginAt": str | null, "createdAt", "locked": bool, "lockedUntil": str | null,
+     "failedSignIns": int, "maxFailedSignIns": int, "self": bool,
+     "notifications": {"enabled": bool, "minSeverity": critical | warning | null, "receiving": bool},
      "customers": [{"id", "name"}], "sites": [{"id", "customerId", "customerName", "name"}]}
 
 ``role`` is what the account's permissions amount to (``apps.console.permissions``: the highest
@@ -18,11 +20,22 @@ role whose every permission it holds, directly or through its groups), null for 
 may not use the console. ``allCustomers``: it sees every customer (an editor, an administrator,
 or a viewer or operator granted so); otherwise ``customers`` and ``sites`` are what it sees.
 ``locked``: the sign-in throttle refuses it until ``lockedUntil`` (``apps.console.throttle``).
+``failedSignIns``: the failed sign-ins that still count, of the ``maxFailedSignIns`` after which it
+locks (``SENTINEL_CONSOLE_LOGIN_MAX_ATTEMPTS``); none once a lockout or the window of the count is over.
+``notifications``: its incident emails (``/users/<id>/notifications/``). ``minSeverity`` is null
+for an account that never had any; ``receiving``: they are on, and the account is active, has an
+address and console access, so incidents of its sites are emailed to it (when this server sends
+email at all: ``/system/status/``).
 ``self``: this is the signed-in account. Never a password, a hash, or anything about one.
 
-List: ``{"generatedAt", "items", "page": {number, size, total, pages}, "counts": {"active", "inactive"},
-"scopeTotal"}`` with ``q`` (words, every one in the user name, the names or the email), ``active``
-(all | active | inactive), ``sort`` (username | joined | lastLogin), ``dir``, ``page``, ``pageSize``.
+List: ``{"generatedAt", "items", "page": {number, size, total, pages},
+"counts": {"active", "inactive", "locked", "notified"}, "scopeTotal"}`` with ``q`` (words, every one
+in the user name, the names or the email), ``active`` (all | active | inactive), ``locked`` (all |
+locked: refused by the sign-in throttle now), ``notifications`` (all | on | off: incident emails
+switched on or not), ``sort`` (username | joined | lastLogin), ``dir``, ``page``, ``pageSize``. Each
+count is over every filter but its own: ``active`` and ``inactive`` over all but ``active``,
+``locked`` over all but ``locked``, ``notified`` (emails on) over all but ``notifications``.
+``scopeTotal`` is every account.
 The detail is ``{"generatedAt", "item": User}``.
 
 Create, ``POST /users/`` (``username``, ``password`` and ``role`` required)::
@@ -71,22 +84,24 @@ import logging
 import unicodedata
 from itertools import chain
 
+from django.conf import settings
 from django.contrib.auth import get_user_model, update_session_auth_hash
 from django.contrib.auth.models import Permission
 from django.contrib.auth.password_validation import validate_password
 from django.core.exceptions import NON_FIELD_ERRORS, ValidationError
 from django.core.validators import validate_email
 from django.db import IntegrityError, transaction
-from django.db.models import Count, F, Q
+from django.db.models import Count, Exists, F, OuterRef, Q
 from django.http import JsonResponse
 from django.utils import timezone
 
+from apps.alerts.models import NotificationSubscription
 from apps.console import audit, throttle
 from apps.console.access import VIEW_ALL_CUSTOMERS
 from apps.console.fields import boolean, choice, model_errors, text, unknown_fields
 from apps.console.http import ApiError, console_api, json_object, storable_text, validation_error
 from apps.console.listing import apply_search, name_order
-from apps.console.models import CustomerAccess, SiteAccess
+from apps.console.models import CustomerAccess, LoginThrottle, SiteAccess
 from apps.console.params import PAGE_PARAMS, PageRequest, QueryParams, canonical_uuid
 from apps.console.permissions import (
     ADMINISTRATOR,
@@ -119,7 +134,9 @@ ACTIVE_FILTERS = ("all", "active", "inactive")
 SORT_KEYS = ("username", "joined", "lastLogin")
 DIRECTIONS = ("asc", "desc")
 DEFAULT_DIRECTION = {"username": "asc", "joined": "desc", "lastLogin": "desc"}
-LIST_PARAMS = ("q", "active", "sort", "dir", *PAGE_PARAMS)
+LOCKED_FILTERS = ("all", "locked")
+NOTIFICATION_FILTERS = ("all", "on", "off")
+LIST_PARAMS = ("q", "active", "locked", "notifications", "sort", "dir", *PAGE_PARAMS)
 SEARCH_FIELDS = ("username", "first_name", "last_name", "email")
 BODY_FIELDS = ("username", "password", "email", "firstName", "lastName", "role", "active", "allCustomers", "customerIds", "siteIds")
 REQUIRED_ON_CREATE = ("username", "password", "role")
@@ -174,9 +191,17 @@ def serialize_users(users: list, now, self_id: int) -> list[dict]:
     held = held_permissions(ids)
     customers, sites = grants_of(ids)
     locked = throttle.locked_until(ids, now)
+    failed = throttle.failed_attempts(ids, now)
+    max_failed = settings.SENTINEL_CONSOLE_LOGIN_MAX_ATTEMPTS
+    subscriptions = {
+        row["user_id"]: row
+        for row in NotificationSubscription.objects.filter(user_id__in=ids).values("user_id", "enabled", "min_severity")
+    }
     items = []
     for user in users:
         role = role_of(user.is_superuser, held[user.pk])
+        subscription = subscriptions.get(user.pk)
+        emails_on = subscription is not None and subscription["enabled"]
         items.append(
             {
                 "id": user.pk,
@@ -192,7 +217,14 @@ def serialize_users(users: list, now, self_id: int) -> list[dict]:
                 "createdAt": iso(user.date_joined),
                 "locked": user.pk in locked,
                 "lockedUntil": iso_or_none(locked.get(user.pk)),
+                "failedSignIns": failed.get(user.pk, 0),
+                "maxFailedSignIns": max_failed,
                 "self": user.pk == self_id,
+                "notifications": {
+                    "enabled": emails_on,
+                    "minSeverity": subscription["min_severity"] if subscription is not None else None,
+                    "receiving": emails_on and user.is_active and bool(user.email) and role is not None,
+                },
                 "customers": customers[user.pk],
                 "sites": sites[user.pk],
             }
@@ -226,19 +258,34 @@ def user_collection(request):
     params = QueryParams(request, LIST_PARAMS)
     words = params.search()
     active = params.choice("active", ACTIVE_FILTERS, "all")
+    locked = params.choice("locked", LOCKED_FILTERS, "all")
+    notifications = params.choice("notifications", NOTIFICATION_FILTERS, "all")
     sort = params.choice("sort", SORT_KEYS, "username")
     direction = params.choice("dir", DIRECTIONS, DEFAULT_DIRECTION[sort])
     page = PageRequest.from_params(params)
     every = User.objects.all()
+    is_locked = Exists(LoginThrottle.objects.filter(user_id=OuterRef("pk"), locked_until__gt=now))
+    emails_on = Exists(NotificationSubscription.objects.filter(user_id=OuterRef("pk"), enabled=True))
+    filters = {
+        "active": Q() if active == "all" else Q(is_active=active == "active"),
+        "locked": Q() if locked == "all" else Q(is_locked),
+        "notifications": Q() if notifications == "all" else (Q(emails_on) if notifications == "on" else ~Q(emails_on)),
+    }
     matching = apply_search(every, words, SEARCH_FIELDS)
+
+    def but(name: str):
+        return matching.filter(*(condition for other, condition in filters.items() if other != name))
+
     counts = {"active": 0, "inactive": 0}
-    for row in matching.order_by().values("is_active").annotate(n=Count("pk")):
+    for row in but("active").order_by().values("is_active").annotate(n=Count("pk")):
         counts["active" if row["is_active"] else "inactive"] = row["n"]
-    scope_total = every.count() if words else sum(counts.values())
-    total = sum(counts.values()) if active == "all" else counts[active]
+    counts["locked"] = but("locked").filter(is_locked).count()
+    counts["notified"] = but("notifications").filter(emails_on).count()
+    scope_total = every.count()
+    total = counts["active"] + counts["inactive"] if active == "all" else counts[active]
     items: list[dict] = []
     if page.offset < total:
-        rows = matching if active == "all" else matching.filter(is_active=active == "active")
+        rows = matching.filter(*filters.values())
         users = list(rows.order_by(*ordering(sort, direction))[page.offset : page.offset + page.size])
         items = serialize_users(users, now, request.user.pk)
     return JsonResponse(

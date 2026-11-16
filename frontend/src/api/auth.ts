@@ -46,6 +46,10 @@ export interface SessionCapabilities {
   manageUsers: boolean
   /** Read the audit trail. */
   viewAuditLog: boolean
+  /** Monitored domains: see them, add one, ask for a verification. */
+  viewDomains: boolean
+  addDomains: boolean
+  verifyDomains: boolean
   /** The signed-in account's own settings: its password. */
   manageOwnAccount: boolean
 }
@@ -67,6 +71,9 @@ export const NO_CAPABILITIES: SessionCapabilities = {
   manageDevices: false,
   manageUsers: false,
   viewAuditLog: false,
+  viewDomains: false,
+  addDomains: false,
+  verifyDomains: false,
   manageOwnAccount: false,
 }
 

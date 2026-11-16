@@ -61,6 +61,7 @@ ACTIONS = {
     "user_password_reset": "User password reset",
     "user_password_changed": "Own password changed",
     "user_unlocked": "User sign-in unlocked",
+    "user_notifications_changed": "User's incident emails changed",
     "target_created": "Network target created",
     "target_changed": "Network target changed",
     "target_enabled": "Network target enabled",

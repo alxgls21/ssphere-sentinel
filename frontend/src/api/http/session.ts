@@ -59,6 +59,9 @@ function parseCapabilities(raw: unknown): SessionCapabilities {
     manageDevices: flag(raw.manageDevices),
     manageUsers: flag(raw.manageUsers),
     viewAuditLog: flag(raw.viewAuditLog),
+    viewDomains: flag(raw.viewDomains),
+    addDomains: flag(raw.addDomains),
+    verifyDomains: flag(raw.verifyDomains),
     manageOwnAccount: flag(raw.manageOwnAccount),
   }
 }

@@ -61,6 +61,11 @@ urlpatterns = [
     path("users/<int:user_id>/", users.user_item, name="console-user"),
     path("users/<int:user_id>/password/", users.reset_password, name="console-user-password"),
     path("users/<int:user_id>/unlock/", users.unlock_user, name="console-user-unlock"),
+    path(
+        "users/<int:user_id>/notifications/",
+        notification_settings.user_preferences,
+        name="console-user-notifications",
+    ),
     path("account/password/", users.account_password, name="console-account-password"),
     path("audit-log/", audit_log.audit_log, name="console-audit-log"),
     path("topology/", topology.topology, name="console-topology"),

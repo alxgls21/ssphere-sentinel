@@ -110,3 +110,29 @@ def locked_until(user_pks, now: datetime) -> dict[int, datetime]:
             "user_id", "locked_until"
         )
     }
+
+
+def failed_attempts(user_pks, now: datetime) -> dict[int, int]:
+    """For each of ``user_pks`` with failed sign-ins that still count at ``now``, how many.
+
+    The ones of the current window, or of a lockout still running; a window or a lockout that is
+    over counts nothing, as the next attempt starts again from none.
+    """
+    lockout = timedelta(seconds=settings.SENTINEL_CONSOLE_LOGIN_LOCKOUT_SECONDS)
+    counted = {}
+    for user_id, attempts, started, until in LoginThrottle.objects.filter(user_id__in=list(user_pks)).values_list(
+        "user_id", "attempts", "window_started_at", "locked_until"
+    ):
+        current = until > now if until is not None else now - started < lockout
+        if current and attempts:
+            counted[user_id] = attempts
+    return counted
+
+
+def lockouts(now: datetime) -> dict[str, int]:
+    """How many accounts, and how many of the shared keys of user names that do not exist, are locked at ``now``."""
+    locked = LoginThrottle.objects.filter(locked_until__gt=now)
+    return {
+        "accounts": locked.filter(key__startswith="u:").count(),
+        "unknownNameBuckets": locked.filter(key__startswith="x:").count(),
+    }

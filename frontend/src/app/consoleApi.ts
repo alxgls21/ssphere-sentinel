@@ -133,6 +133,12 @@ export function createConsoleApi(http: ConsoleHttp): SentinelApi {
     getInterfaceSeries: (options) => http.getInterfaceSeries(options),
     getServer: (id, options) => http.getServer(id, options),
     getServerSeries: (options) => http.getServerSeries(options),
+    listDomains: (options) => http.listDomains(options),
+    getDomain: (id, options) => http.getDomain(id, options),
+    createDomain: (input, options) => http.createDomain(input, options),
+    verifyDomain: (id, options) => http.verifyDomain(id, options),
+    getDomainVerification: (domainId, verificationId, options) =>
+      http.getDomainVerification(domainId, verificationId, options),
     listServerSeries: (options) => http.listServerSeries(options),
     listTargetSeries: (options) => http.listTargetSeries(options),
     createServer: (input, options) => http.createServer(input, options),
