@@ -16,10 +16,12 @@ import type {
   InventoryDevice,
   InventoryDeviceDetail,
   InventoryDeviceList,
+  PreferenceChange,
   ScopeOptions,
   SiteDetail,
   SiteList,
   SiteRecord,
+  UserNotifications,
   VerificationAnswer,
 } from '@/api/types'
 
@@ -109,6 +111,9 @@ export function account(over: Partial<Account> = {}): Account {
     createdAt: iso(86_400 * 60),
     locked: false,
     lockedUntil: null,
+    failedSignIns: 0,
+    maxFailedSignIns: 5,
+    notifications: { enabled: false, minSeverity: null, receiving: false },
     self: false,
     customers: [{ id: 'c1', name: 'Meridian' }],
     sites: [],
@@ -124,6 +129,8 @@ export const accountList = (items: Account[]): AccountList => ({
   counts: {
     active: items.filter((item) => item.active).length,
     inactive: items.filter((item) => !item.active).length,
+    locked: items.filter((item) => item.locked).length,
+    notified: items.filter((item) => item.notifications.enabled).length,
   },
 })
 
@@ -286,5 +293,46 @@ export function domainDetail(
       value: 'ssphere-verification=abc123',
     },
     latestVerification: latest,
+  }
+}
+
+/** Another account's incident email preferences: off, with an address, able to receive, unless a test says otherwise. */
+export function userNotifications(
+  over: {
+    enabled?: boolean
+    minSeverity?: 'critical' | 'warning'
+    sendRecovery?: boolean
+    email?: string | null
+    available?: boolean
+    blockedBy?: UserNotifications['receivingBlockedBy']
+    changedBy?: PreferenceChange | null
+    active?: boolean
+  } = {},
+): UserNotifications {
+  const enabled = over.enabled ?? false
+  const blockedBy = over.blockedBy ?? null
+  const email = over.email === undefined ? 'maria@example.com' : over.email
+  return {
+    generatedAt: iso(0),
+    user: {
+      id: 7,
+      username: 'maria',
+      displayName: 'Maria Papadopoulou',
+      active: over.active ?? true,
+    },
+    preferences: {
+      enabled,
+      minSeverity: over.minSeverity ?? 'critical',
+      sendRecovery: over.sendRecovery ?? false,
+      updatedAt: over.changedBy ? over.changedBy.at : null,
+      changedBy: over.changedBy ?? null,
+    },
+    account: { email },
+    email: {
+      available: over.available ?? true,
+      deliverable: (over.available ?? true) && email !== null,
+    },
+    receiving: enabled && blockedBy === null,
+    receivingBlockedBy: blockedBy,
   }
 }

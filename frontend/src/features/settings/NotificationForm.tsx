@@ -5,7 +5,7 @@ import { usePrefs } from '@/app/prefs'
 import { ShellContext } from '@/app/shell'
 import { describeWriteFailure, summaryOf, type FormFailure } from '@/lib/forms'
 import { formatStamp } from '@/lib/format'
-import { SEVERITY_CHOICES } from '@/lib/settings'
+import { SEVERITY_CHOICES, changedByText } from '@/lib/settings'
 import { Panel } from '@/ui/Panel'
 import { Button, Checkbox, Field, RadioGroup, controlClass } from '@/ui/controls'
 import { Notice } from '@/ui/states'
@@ -89,9 +89,16 @@ export function NotificationForm({ settings, onSaved, className }: NotificationF
       className={className}
       footer={
         <span className="truncate">
-          {settings.preferences.updatedAt
-            ? `Saved ${formatStamp(Date.parse(settings.preferences.updatedAt), tz, Date.parse(settings.generatedAt))}`
-            : 'Not saved yet: these are the defaults.'}
+          {settings.preferences.changedBy
+            ? changedByText(
+                settings.preferences.changedBy,
+                tz,
+                Date.parse(settings.generatedAt),
+                'own',
+              )
+            : settings.preferences.updatedAt
+              ? `Saved ${formatStamp(Date.parse(settings.preferences.updatedAt), tz, Date.parse(settings.generatedAt))}`
+              : 'Not saved yet: these are the defaults.'}
         </span>
       }
     >

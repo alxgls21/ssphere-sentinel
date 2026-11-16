@@ -49,6 +49,13 @@ const wire = (over: Record<string, unknown> = {}) => ({
     },
     testEmails: { open: 1, last24Hours: { sent: 2, failed: 1 } },
   },
+  signIn: {
+    lockedAccounts: 1,
+    lockedUnknownNameBuckets: 0,
+    unknownNameBuckets: 1024,
+    maxFailedAttempts: 5,
+    lockoutSeconds: 900,
+  },
   environment: {
     email: {
       enabled: true,

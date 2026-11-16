@@ -270,6 +270,9 @@ export function createMockApi(options: MockApiOptions = {}): SentinelApi {
     // The sample fleet has no accounts, no alert rules and no notifier: nothing of the settings
     // exists in it, and every method says so. The screens never ask: no capability is offered.
     getNotificationSettings: (request) => noSettings('getNotificationSettings', request?.signal),
+    getUserNotifications: (_id, request) => noSettings('getUserNotifications', request?.signal),
+    saveUserNotifications: (_id, _input, request) =>
+      noSettings('saveUserNotifications', request?.signal),
     saveNotificationPreferences: (_input, request) =>
       noSettings('saveNotificationPreferences', request?.signal),
     requestTestEmail: (request) => noSettings('requestTestEmail', request?.signal),

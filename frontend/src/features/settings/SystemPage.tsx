@@ -1,8 +1,10 @@
 import { useMemo, type ReactNode } from 'react'
+import { Link } from 'react-router'
 import { useApi } from '@/api/context'
 import { ApiError } from '@/api/errors'
 import type { EngineStatus, SystemStatus } from '@/api/types'
 import { useAuth } from '@/app/auth/auth'
+import { useViewTo } from '@/app/viewSearch'
 import { useLiveResource } from '@/hooks/useLiveResource'
 import type { Resource } from '@/hooks/useResource'
 import { EMPTY, formatAge, formatDuration, formatInteger } from '@/lib/format'
@@ -23,6 +25,66 @@ function Fact({ label, children }: { label: string; children: ReactNode }) {
 }
 
 const SECURITY_WORD = { starttls: 'STARTTLS', tls: 'TLS', none: 'none (unencrypted)' } as const
+
+/**
+ * The sign-in throttle now: accounts locked (a link to them, for an administrator), the rule it applies,
+ * and how many buckets for names that do not exist are locked: only a count, with no name and no address,
+ * since they cannot be unlocked and expire. More than none suggests user names are being guessed.
+ */
+function SignInPanel({
+  status,
+  mayManageUsers,
+  className,
+}: {
+  status: SystemStatus
+  mayManageUsers: boolean
+  className?: string
+}) {
+  const viewTo = useViewTo()
+  const { signIn } = status
+  const locked = formatInteger(signIn.lockedAccounts)
+  return (
+    <Panel title="Sign-in" features="settings" scope="NOW" className={className}>
+      <div className="flex flex-col gap-3">
+        <dl className="grid grid-cols-2 gap-x-6 gap-y-3 @2xl:grid-cols-4">
+          <Fact label="Locked accounts">
+            <span className="flex flex-wrap items-center gap-2">
+              {signIn.lockedAccounts > 0 && mayManageUsers ? (
+                <Link
+                  to={viewTo('/settings/users', { locked: 'locked' })}
+                  className="text-primary underline underline-offset-2"
+                >
+                  {locked}
+                </Link>
+              ) : (
+                locked
+              )}
+              {signIn.lockedAccounts > 0 ? <StatusTag status="warning" word="LOCKED" /> : null}
+            </span>
+          </Fact>
+          <Fact label="Guessed names locked">
+            <span className="flex flex-wrap items-center gap-2">
+              {formatInteger(signIn.lockedUnknownNameBuckets)}
+              {signIn.lockedUnknownNameBuckets > 0 ? (
+                <StatusTag status="warning" word="CHECK" />
+              ) : null}
+            </span>
+          </Fact>
+          <Fact label="Failures that lock">{formatInteger(signIn.maxFailedAttempts)}</Fact>
+          <Fact label="Lockout lasts">{formatDuration(signIn.lockoutSeconds)}</Fact>
+        </dl>
+        {signIn.lockedUnknownNameBuckets > 0 ? (
+          <p className="type-body text-fg-muted">
+            Sign-ins with user names that do not exist have locked{' '}
+            {formatInteger(signIn.lockedUnknownNameBuckets)} of{' '}
+            {formatInteger(signIn.unknownNameBuckets)} buckets: someone may be guessing names. The
+            buckets hold no name and no address, and they expire by themselves.
+          </p>
+        ) : null}
+      </div>
+    </Panel>
+  )
+}
 
 function OutboxPanel({ status, className }: { status: SystemStatus; className?: string }) {
   const { outbox, environment } = status
@@ -269,6 +331,11 @@ export default function SystemPage() {
       <NotifierBanner status={status.notifier} generatedAt={status.generatedAt} />
       <div className="grid gap-3 xl:grid-cols-2">
         <OutboxPanel status={status} className="xl:col-span-2" />
+        <SignInPanel
+          status={status}
+          mayManageUsers={capabilities.manageUsers}
+          className="xl:col-span-2"
+        />
         <DeploymentPanel status={status} />
         <RetentionPanel status={status} />
         <MonitoringPanel status={status} />

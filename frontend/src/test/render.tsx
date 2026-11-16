@@ -50,6 +50,8 @@ export function createTestApi(overrides: Partial<SentinelApi> = {}): SentinelApi
     getEngineStatus: unstubbed('getEngineStatus'),
     getIncidentOverview: unstubbed('getIncidentOverview'),
     getNotificationSettings: unstubbed('getNotificationSettings'),
+    getUserNotifications: unstubbed('getUserNotifications'),
+    saveUserNotifications: unstubbed('saveUserNotifications'),
     saveNotificationPreferences: unstubbed('saveNotificationPreferences'),
     requestTestEmail: unstubbed('requestTestEmail'),
     getTestEmail: unstubbed('getTestEmail'),

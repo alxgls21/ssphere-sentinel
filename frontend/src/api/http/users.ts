@@ -30,6 +30,16 @@ function userId(value: unknown): number {
   return id
 }
 
+function parseAccountNotifications(raw: unknown): Account['notifications'] {
+  const row = record(raw)
+  return {
+    enabled: flag(row.enabled),
+    minSeverity:
+      row.minSeverity === null ? null : oneOf(['critical', 'warning'] as const, row.minSeverity),
+    receiving: flag(row.receiving),
+  }
+}
+
 export function parseAccount(raw: unknown): Account {
   const row = record(raw)
   return {
@@ -46,6 +56,9 @@ export function parseAccount(raw: unknown): Account {
     createdAt: time(row.createdAt),
     locked: flag(row.locked),
     lockedUntil: nullableTime(row.lockedUntil),
+    failedSignIns: whole(row.failedSignIns),
+    maxFailedSignIns: whole(row.maxFailedSignIns),
+    notifications: parseAccountNotifications(row.notifications),
     self: flag(row.self),
     customers: array(row.customers).map((value) => {
       const grant = record(value)
@@ -71,7 +84,12 @@ export function parseAccountList(raw: unknown): AccountList {
     items: array(row.items).map(parseAccount),
     page: parsePage(row.page),
     scopeTotal: whole(row.scopeTotal),
-    counts: { active: whole(counts.active), inactive: whole(counts.inactive) },
+    counts: {
+      active: whole(counts.active),
+      inactive: whole(counts.inactive),
+      locked: whole(counts.locked),
+      notified: whole(counts.notified),
+    },
   }
 }
 
@@ -89,6 +107,8 @@ function listQuery(options: AccountListOptions): Record<string, string | undefin
   return {
     q: searchText(options.q),
     active: notAll(options.active),
+    locked: notAll(options.locked),
+    notifications: notAll(options.notifications),
     sort: options.sort,
     dir: options.dir,
     page: pageText(options.page),

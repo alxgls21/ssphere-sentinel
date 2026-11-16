@@ -107,6 +107,56 @@ describe('the list', () => {
     expect(screen.getByRole('button', { name: 'INACTIVE 1' })).toBeInTheDocument()
   })
 
+  it('says how many failed sign-ins count, when the lock ends, and whether incident emails are received', async () => {
+    setup({
+      listUsers: vi.fn(async () =>
+        accountList([
+          account({ failedSignIns: 2, maxFailedSignIns: 5 }),
+          account({
+            id: 9,
+            username: 'former',
+            locked: true,
+            lockedUntil: '2026-10-18T10:15:00.000Z',
+            failedSignIns: 5,
+            notifications: { enabled: true, minSeverity: 'critical', receiving: false },
+          }),
+          account({
+            id: 3,
+            username: 'carol',
+            notifications: { enabled: true, minSeverity: 'warning', receiving: true },
+          }),
+        ]),
+      ),
+    })
+    await table()
+    expect(rowOf('maria')).toHaveTextContent('2 of 5 failed sign-ins')
+    expect(rowOf('maria')).toHaveTextContent('Off')
+    expect(rowOf('former')).toHaveTextContent(/Locked until/)
+    expect(rowOf('former')).toHaveTextContent('ON, NOT RECEIVED')
+    expect(rowOf('carol')).toHaveTextContent('Warning and critical')
+  })
+
+  it('filters the locked accounts and those with emails on, asking the server and counting each', async () => {
+    const user = userEvent.setup()
+    const { listUsers } = setup({
+      listUsers: vi.fn(async () => ({
+        ...accountList(ACCOUNTS),
+        counts: { active: 2, inactive: 1, locked: 1, notified: 2 },
+      })),
+    })
+    await table()
+    await user.click(screen.getByRole('button', { name: 'LOCKED 1' }))
+    await waitFor(() =>
+      expect(listUsers).toHaveBeenLastCalledWith(expect.objectContaining({ locked: 'locked' })),
+    )
+    await user.click(screen.getByRole('button', { name: 'EMAILS ON 2' }))
+    await waitFor(() =>
+      expect(listUsers).toHaveBeenLastCalledWith(
+        expect.objectContaining({ locked: 'locked', notifications: 'on' }),
+      ),
+    )
+  })
+
   it('filters by state and searches with the server', async () => {
     const user = userEvent.setup()
     const { listUsers } = setup()

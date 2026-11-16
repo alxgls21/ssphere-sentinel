@@ -59,11 +59,12 @@ class AccountNotificationTests(TestCase):
 
     def test_an_administrator_reads_an_account_s_preferences_without_its_test_emails(self):
         body = self.client_.get(self.path(self.vera)).json()
-        self.assertEqual(set(body), {"generatedAt", "preferences", "account", "email", "user", "receiving"})
+        self.assertEqual(set(body), {"generatedAt", "preferences", "account", "email", "user", "receiving", "receivingBlockedBy"})
         self.assertEqual(body["user"], {"id": self.vera.pk, "username": "vera", "displayName": "Vera Viewer", "active": True})
         self.assertEqual(body["preferences"], {**OFF, "updatedAt": None, "changedBy": None})
         self.assertEqual((body["account"], body["email"], body["receiving"]),
                          ({"email": "vera@example.com"}, {"available": True, "deliverable": True}, False))
+        self.assertIsNone(body["receivingBlockedBy"])
 
     def test_an_administrator_turns_emails_on_and_it_is_recorded_and_shown_to_the_user(self):
         response = self.put(self.vera, ON)
@@ -100,6 +101,8 @@ class AccountNotificationTests(TestCase):
             with self.subTest(code=code):
                 response = self.put(user, ON)
                 self.assertEqual((response.status_code, response.json()["error"]["code"]), (409, code))
+                self.assertTrue(response.json()["error"]["message"].endswith("."))
+                self.assertEqual(self.client_.get(self.path(user)).json()["receivingBlockedBy"], code)
                 # Switching off is accepted, and keeps nothing for an account that cannot receive emails.
                 self.assertEqual(self.put(user, OFF).status_code, 200)
         self.assertFalse(NotificationSubscription.objects.exists())
@@ -113,7 +116,13 @@ class AccountNotificationTests(TestCase):
         response = self.put(self.vera, {**OFF, "minSeverity": "warning"})
         self.assertEqual(response.status_code, 200, response.content)
         self.assertFalse(NotificationSubscription.objects.get(user=self.vera).enabled)
-        self.assertFalse(response.json()["receiving"])
+        self.assertEqual((response.json()["receiving"], response.json()["receivingBlockedBy"]), (False, "no_email_address"))
+        # Who changed them stays known after that administrator's account is gone.
+        other = make_admin("other")
+        send(signed_in_client(other), "put", self.path(self.vera), OFF)
+        other.delete()
+        changed = self.client_.get(self.path(self.vera)).json()["preferences"]["changedBy"]
+        self.assertEqual((changed["username"], changed["self"], changed["source"]), ("other", False, "console"))
 
     def test_only_the_preferences_and_never_an_address(self):
         for body in ({**ON, "email": "attacker@example.net"}, {**ON, "user": self.admin.pk}, {"enabled": True}, {**ON, "minSeverity": "info"}):

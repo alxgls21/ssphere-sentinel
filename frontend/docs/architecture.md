@@ -411,7 +411,10 @@ for it.
 (`/settings/domains`, `/:id`; offered to an account that sees every customer and holds the domain
 permissions: the session's `viewDomains`, `addDomains` and `verifyDomains`), **Users &
 access** (`/settings/users`, `/new`, `/:id`), **Audit log** (`/settings/audit-log`) and **System**
-(`/settings/system`). The section links shown are the ones this account is offered; `/settings` itself
+(`/settings/system`). The account page of **Users & access** also holds the account's sign-in (failed attempts, lockout, unlock)
+and a **Notifications** panel with its incident email preferences (`getUserNotifications`,
+`saveUserNotifications`: administrators only, with the reason an account cannot receive emails); the list
+filters the locked accounts and those with emails on, and **System** counts the sign-in lockouts. The section links shown are the ones this account is offered; `/settings` itself
 goes to the first of them. There is no General section: nothing in the console is a global preference.
 The methods of `SentinelApi` that serve it are the notifications', the rules' and the status's
 (`getNotificationSettings`, `saveNotificationPreferences`, `requestTestEmail`, `getTestEmail`,

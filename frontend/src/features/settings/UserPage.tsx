@@ -34,6 +34,7 @@ import {
   validatePassword,
   type AccountDraft,
 } from './usersModel'
+import { UserNotificationsPanel } from './UserNotificationsPanel'
 import { userPath } from './sections'
 
 const NOT_PERMITTED = (
@@ -443,6 +444,9 @@ function SignInPanel({
             <StatusTag status="healthy" word="ALLOWED" variant="tag" />
           )}
         </Fact>
+        <Fact label="Failed sign-ins">
+          {account.failedSignIns} of {account.maxFailedSignIns}
+        </Fact>
         <Fact label="Locked until">
           {account.lockedUntil ? formatClock(Date.parse(account.lockedUntil), tz) : '—'}
         </Fact>
@@ -594,6 +598,7 @@ export default function UserPage() {
           <Panel title="Sign-in" features="settings" scope="NOW" className="max-w-4xl">
             <SignInPanel account={account} nowMs={nowMs} onDone={answered} />
           </Panel>
+          <UserNotificationsPanel userId={account.id} />
         </>
       ) : null}
     </div>

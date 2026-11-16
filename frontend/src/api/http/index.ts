@@ -34,6 +34,8 @@ import {
 } from './inventory'
 import {
   getNotificationSettings,
+  getUserNotifications,
+  saveUserNotifications,
   getTestEmail,
   requestTestEmail,
   saveNotificationPreferences,
@@ -123,6 +125,8 @@ export interface ConsoleHttp extends Pick<
   | 'acknowledgeIncident'
   | 'getEngineStatus'
   | 'getNotificationSettings'
+  | 'getUserNotifications'
+  | 'saveUserNotifications'
   | 'saveNotificationPreferences'
   | 'requestTestEmail'
   | 'getTestEmail'
@@ -208,6 +212,8 @@ export function createConsoleHttp(options: TransportOptions = {}): ConsoleHttp {
     acknowledgeIncident: acknowledgeIncident(transport),
     getEngineStatus: getEngineStatus(transport),
     getNotificationSettings: getNotificationSettings(transport),
+    getUserNotifications: getUserNotifications(transport),
+    saveUserNotifications: saveUserNotifications(transport),
     saveNotificationPreferences: saveNotificationPreferences(transport),
     requestTestEmail: requestTestEmail(transport),
     getTestEmail: getTestEmail(transport),

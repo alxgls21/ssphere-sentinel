@@ -180,6 +180,8 @@ export function createConsoleApi(http: ConsoleHttp): SentinelApi {
     acknowledgeIncident: (id, options) => http.acknowledgeIncident(id, options),
     getEngineStatus: (options) => http.getEngineStatus(options),
     getNotificationSettings: (options) => http.getNotificationSettings(options),
+    getUserNotifications: (id, options) => http.getUserNotifications(id, options),
+    saveUserNotifications: (id, input, options) => http.saveUserNotifications(id, input, options),
     saveNotificationPreferences: (input, options) =>
       http.saveNotificationPreferences(input, options),
     requestTestEmail: (options) => http.requestTestEmail(options),

@@ -6,7 +6,7 @@ import type { SentinelApi } from '@/api/client'
 import { ApiError } from '@/api/errors'
 import { createFakeAuth, createFakeShell, createTestApi, renderApp } from '@/test/render'
 import UserPage from './UserPage'
-import { SCOPE, account, accountDetail, iso } from './adminTesting'
+import { SCOPE, account, accountDetail, iso, userNotifications } from './adminTesting'
 import { can } from './testing'
 
 const shell = createFakeShell()
@@ -49,6 +49,12 @@ function setup({
   unlockUser = vi.fn<SentinelApi['unlockUser']>(async () =>
     accountDetail(account({ locked: false })),
   ),
+  getUserNotifications = vi.fn<SentinelApi['getUserNotifications']>(async () =>
+    userNotifications(),
+  ),
+  saveUserNotifications = vi.fn<SentinelApi['saveUserNotifications']>(async (_id, input) =>
+    userNotifications({ ...input, blockedBy: null }),
+  ),
 } = {}) {
   const getScopeOptions = vi.fn<SentinelApi['getScopeOptions']>(async () => SCOPE)
   const api = createTestApi({
@@ -59,6 +65,8 @@ function setup({
     updateUser,
     resetUserPassword,
     unlockUser,
+    getUserNotifications,
+    saveUserNotifications,
   })
   renderApp(
     <>
@@ -71,7 +79,15 @@ function setup({
     </>,
     { api, route, withShell: shell, auth: createFakeAuth({ capabilities }) },
   )
-  return { getUser, createUser, updateUser, resetUserPassword, unlockUser }
+  return {
+    getUser,
+    createUser,
+    updateUser,
+    resetUserPassword,
+    unlockUser,
+    getUserNotifications,
+    saveUserNotifications,
+  }
 }
 
 const where = () => screen.getByTestId('where').textContent
@@ -267,5 +283,108 @@ describe('the password and the lockout', () => {
     await waitFor(() => expect(unlockUser).toHaveBeenCalledWith(7))
     expect(await within(panel).findByText(/the account may sign in now/)).toBeInTheDocument()
     expect(within(panel).getByText('ALLOWED')).toBeInTheDocument()
+  })
+})
+
+describe('the sign-in failures', () => {
+  it('says how many failed sign-ins still count, of how many lock the account', async () => {
+    setup({
+      getUser: vi.fn(async () => accountDetail(account({ failedSignIns: 2, maxFailedSignIns: 5 }))),
+    })
+    const panel = await screen.findByRole('region', { name: 'Sign-in' })
+    expect(within(panel).getByText('2 of 5')).toBeInTheDocument()
+  })
+})
+
+describe('the notifications of the account', () => {
+  const panel = () => screen.findByRole('region', { name: 'Notifications' })
+
+  it('shows whether the account receives incident emails, its address and who changed it last', async () => {
+    setup({
+      getUserNotifications: vi.fn(async () =>
+        userNotifications({
+          enabled: true,
+          changedBy: { at: iso(3600), username: 'root', self: false, source: 'console' },
+        }),
+      ),
+    })
+    const region = within(await panel())
+    expect(await region.findByText('RECEIVING')).toBeInTheDocument()
+    expect(region.getByText('maria@example.com')).toBeInTheDocument()
+    expect(region.getByText(/Last changed by root on /)).toBeInTheDocument()
+  })
+
+  it('says why an account cannot receive emails, in the server’s words, and cannot be switched on', async () => {
+    setup({
+      getUserNotifications: vi.fn(async () =>
+        userNotifications({ email: null, blockedBy: 'no_email_address' }),
+      ),
+    })
+    const region = within(await panel())
+    expect(
+      await region.findByText('This account has no email address. Add one to the account first.'),
+    ).toBeInTheDocument()
+    expect(region.getByText('NOT RECEIVING')).toBeInTheDocument()
+    expect(region.getByLabelText('Email this account about incidents')).toBeDisabled()
+  })
+
+  it('says a server that sends no email sends none, whatever is saved', async () => {
+    setup({ getUserNotifications: vi.fn(async () => userNotifications({ available: false })) })
+    expect(await within(await panel()).findByText(/This server sends no email/)).toBeInTheDocument()
+  })
+
+  it('saves exactly the three preferences and shows what the server kept', async () => {
+    const user = userEvent.setup()
+    const { saveUserNotifications } = setup()
+    const region = within(await panel())
+    await user.click(await region.findByLabelText('Email this account about incidents'))
+    await user.click(region.getByLabelText('Email when an incident recovers'))
+    await user.click(region.getByRole('button', { name: 'Save preferences' }))
+    await waitFor(() =>
+      expect(saveUserNotifications).toHaveBeenCalledWith(7, {
+        enabled: true,
+        minSeverity: 'critical',
+        sendRecovery: true,
+      }),
+    )
+    expect(await region.findByText('RECEIVING')).toBeInTheDocument()
+  })
+
+  it('shows the server’s refusal to switch emails on for an account that cannot receive them', async () => {
+    const user = userEvent.setup()
+    setup({
+      saveUserNotifications: vi.fn(async () => {
+        throw new ApiError(
+          'This account is deactivated, so it receives no emails.',
+          409,
+          'account_inactive',
+        )
+      }),
+    })
+    const region = within(await panel())
+    await user.click(await region.findByLabelText('Email this account about incidents'))
+    await user.click(region.getByRole('button', { name: 'Save preferences' }))
+    expect(
+      await region.findByText('This account is deactivated, so it receives no emails.'),
+    ).toBeInTheDocument()
+  })
+
+  it('reloads and says so when another save got there first', async () => {
+    const user = userEvent.setup()
+    const getUserNotifications = vi
+      .fn<SentinelApi['getUserNotifications']>()
+      .mockResolvedValueOnce(userNotifications())
+      .mockResolvedValue(userNotifications({ enabled: true, sendRecovery: true }))
+    setup({
+      getUserNotifications,
+      saveUserNotifications: vi.fn(async () => {
+        throw new ApiError('Another change was saved at the same moment.', 409, 'conflict')
+      }),
+    })
+    const region = within(await panel())
+    await user.click(await region.findByLabelText('Email this account about incidents'))
+    await user.click(region.getByRole('button', { name: 'Save preferences' }))
+    expect(await region.findByText(/Someone else changed this just now/)).toBeInTheDocument()
+    expect(region.getByLabelText('Email when an incident recovers')).toBeChecked()
   })
 })

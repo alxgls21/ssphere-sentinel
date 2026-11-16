@@ -27,6 +27,9 @@ const account = (over: Record<string, unknown> = {}) => ({
   createdAt: '2026-09-01T08:00:00.000Z',
   locked: false,
   lockedUntil: null,
+  failedSignIns: 0,
+  maxFailedSignIns: 5,
+  notifications: { enabled: false, minSeverity: null, receiving: false },
   self: false,
   customers: [{ id: 'c1', name: 'Meridian' }],
   sites: [{ id: 's1', customerId: 'c2', customerName: 'Globex', name: 'Plant' }],
@@ -36,7 +39,7 @@ const list = (items: unknown[]) => ({
   generatedAt: '2026-10-17T10:00:05.000Z',
   items,
   page: { number: 1, size: 50, total: items.length, pages: 1 },
-  counts: { active: 3, inactive: 1 },
+  counts: { active: 3, inactive: 1, locked: 0, notified: 2 },
   scopeTotal: 4,
 })
 const detail = (over: Record<string, unknown> = {}) => ({
@@ -73,12 +76,19 @@ describe('accounts', () => {
       locked: false,
       customers: [{ id: 'c1', name: 'Meridian' }],
     })
-    expect(result.counts).toEqual({ active: 3, inactive: 1 })
+    expect(result.counts).toEqual({ active: 3, inactive: 1, locked: 0, notified: 2 })
+    expect(result.items[0]).toMatchObject({
+      failedSignIns: 0,
+      maxFailedSignIns: 5,
+      notifications: { enabled: false, minSeverity: null, receiving: false },
+    })
     expect(t.get).toHaveBeenCalledWith('users/', {
       signal: undefined,
       query: {
         q: 'mar',
         active: 'active',
+        locked: undefined,
+        notifications: undefined,
         sort: 'lastLogin',
         dir: 'desc',
         page: undefined,
@@ -92,6 +102,8 @@ describe('accounts', () => {
       query: {
         q: undefined,
         active: undefined,
+        locked: undefined,
+        notifications: undefined,
         sort: undefined,
         dir: undefined,
         page: undefined,

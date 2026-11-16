@@ -2,12 +2,15 @@ import type {
   Account,
   AccountActiveFilter,
   AccountInput,
+  AccountLockedFilter,
+  AccountNotificationsFilter,
   AccountListOptions,
   AccountPatch,
   AccountSortKey,
   SortDirection,
   UserRole,
 } from '@/api/types'
+import { formatStamp, type Timezone } from '@/lib/format'
 import type { FieldErrors } from '@/hooks/useSaveForm'
 import { isOneOf, nextListSort, setQueryParam, wholePage } from '@/lib/listQuery'
 import { ADMIN_PAGE_SIZE, tooLong } from './adminModel'
@@ -21,6 +24,8 @@ import { ADMIN_PAGE_SIZE, tooLong } from './adminModel'
 export interface UsersQuery {
   q: string
   active: AccountActiveFilter
+  locked: AccountLockedFilter
+  notifications: AccountNotificationsFilter
   sort: AccountSortKey
   dir: SortDirection
   /** 1-based. */
@@ -30,6 +35,8 @@ export interface UsersQuery {
 export const DEFAULT_USERS_QUERY: UsersQuery = {
   q: '',
   active: 'all',
+  locked: 'all',
+  notifications: 'all',
   sort: 'username',
   dir: 'asc',
   page: 1,
@@ -41,6 +48,28 @@ export const ACTIVE_LABEL: Record<AccountActiveFilter, string> = {
   active: 'ACTIVE',
   inactive: 'INACTIVE',
 }
+export const NOTIFICATION_FILTERS: readonly AccountNotificationsFilter[] = ['all', 'on', 'off']
+
+/** What the sign-in throttle says about an account: locked until when, how many failures count, or nothing. */
+export function signInText(account: Account, nowMs: number, tz: Timezone): string | null {
+  if (account.locked && account.lockedUntil) {
+    return `Locked until ${formatStamp(Date.parse(account.lockedUntil), tz, nowMs)}`
+  }
+  if (account.locked) return 'Locked'
+  if (account.failedSignIns > 0) {
+    return `${account.failedSignIns} of ${account.maxFailedSignIns} failed sign-ins`
+  }
+  return null
+}
+
+/** An account's incident emails in a few words: off, on and received, or on and not received. */
+export function emailsText(account: Account): string {
+  const { enabled, minSeverity, receiving } = account.notifications
+  if (!enabled) return 'Off'
+  if (!receiving) return 'On, not received'
+  return minSeverity === 'critical' ? 'Critical only' : 'Warning and critical'
+}
+
 export const USER_SORT_KEYS: readonly AccountSortKey[] = ['username', 'joined', 'lastLogin']
 export const USER_SORT_LABEL: Record<AccountSortKey, string> = {
   username: 'User name',
@@ -62,6 +91,10 @@ export function parseUsersQuery(params: URLSearchParams): UsersQuery {
   return {
     q: params.get('q') ?? '',
     active: isOneOf(ACTIVE_FILTERS, active) ? active : DEFAULT_USERS_QUERY.active,
+    locked: params.get('locked') === 'locked' ? 'locked' : 'all',
+    notifications: isOneOf(NOTIFICATION_FILTERS, params.get('notifications'))
+      ? (params.get('notifications') as AccountNotificationsFilter)
+      : 'all',
     sort: key,
     dir: dir === 'asc' || dir === 'desc' ? dir : USER_FIRST_DIR[key],
     page: wholePage(params.get('page')),
@@ -72,6 +105,8 @@ export function writeUsersQuery(params: URLSearchParams, query: UsersQuery): URL
   const next = new URLSearchParams(params)
   setQueryParam(next, 'q', query.q, query.q.trim() === '')
   setQueryParam(next, 'active', query.active, query.active === DEFAULT_USERS_QUERY.active)
+  setQueryParam(next, 'locked', query.locked, query.locked === 'all')
+  setQueryParam(next, 'notifications', query.notifications, query.notifications === 'all')
   setQueryParam(next, 'sort', query.sort, query.sort === DEFAULT_USERS_QUERY.sort)
   setQueryParam(next, 'dir', query.dir, query.dir === USER_FIRST_DIR[query.sort])
   setQueryParam(next, 'page', String(query.page), query.page === DEFAULT_USERS_QUERY.page)
@@ -86,6 +121,8 @@ export const nextUsersSort = (
 export const usersRequest = (query: UsersQuery, q: string): AccountListOptions => ({
   q,
   active: query.active,
+  locked: query.locked,
+  notifications: query.notifications,
   sort: query.sort,
   dir: query.dir,
   page: query.page,

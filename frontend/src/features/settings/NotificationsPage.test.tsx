@@ -91,6 +91,19 @@ describe('reading the preferences', () => {
     expect(screen.getByText('Saved Sat 08:00:00Z')).toBeInTheDocument()
   })
 
+  it('says an administrator changed the preferences, who and when', async () => {
+    setup(
+      notificationSettings({
+        updatedAt: iso(3600),
+        changedBy: { at: iso(3600), username: 'root', self: false, source: 'admin' },
+      }),
+    )
+    await loaded()
+    expect(
+      screen.getByText(/Last changed by an administrator \(root\) on .* in the admin\./),
+    ).toBeInTheDocument()
+  })
+
   it('shows the defaults of an account that never saved, and says so', async () => {
     setup()
     expect(await loaded()).not.toBeChecked()

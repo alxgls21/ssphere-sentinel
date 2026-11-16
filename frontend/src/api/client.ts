@@ -55,6 +55,7 @@ import type {
   InventoryDevicePatch,
   NotificationPreferencesInput,
   NotificationSettings,
+  UserNotifications,
   OverviewSummary,
   OwnPasswordInput,
   PasswordChanged,
@@ -194,6 +195,20 @@ export interface SentinelApi {
 
   /** The signed-in user's own email preferences, with the account's address and whether this server sends email. */
   getNotificationSettings(options?: Signal): Promise<NotificationSettings>
+
+  /** Another account's email preferences (administrators only; 403 for anyone else, 404 for an unknown id). */
+  getUserNotifications(id: number, options?: Signal): Promise<UserNotifications>
+
+  /**
+   * Sets another account's email preferences. Rejects: 409 `no_email_address`, `account_inactive` or
+   * `no_console_access` when turning emails on for an account that cannot receive them, 409 `conflict`
+   * for two saves at once (nothing was saved), 400 `validation_error`, 403.
+   */
+  saveUserNotifications(
+    id: number,
+    input: NotificationPreferencesInput,
+    options?: Signal,
+  ): Promise<UserNotifications>
 
   /**
    * Saves the user's own preferences (exactly three fields) and answers with them as they now are.
