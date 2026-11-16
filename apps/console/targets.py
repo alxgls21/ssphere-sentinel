@@ -53,6 +53,18 @@ timeout_seconds, probe_count}``), and what the last 24 hours observed::
 have measured all along, so ``expectedMeasurements`` (the window over the
 current interval) and ``coveragePercent`` say how much of the window it covers.
 
+``GET /targets/series/?range=`` is the sparklines of a page of the list: the list's own parameters (pageSize
+at most 50, default 50) and its rows, in its order (``list_page`` serves both), and the conventions of
+``GET /servers/series/`` (``apps.console.history``), with a 60-second grid:
+
+    {"generatedAt", "range", "bucketMs", "t": [N], "items": [{"targetId", "latencyMs": [N], "lossPercent": [N]}],
+     "page": the list's page object}
+
+``latencyMs`` is the mean latency of the bucket's successful measurements (three decimals), ``lossPercent`` the
+mean loss of all its measurements, a failed one counting as 100 % (two decimals), so an outage shows as loss;
+both ``null`` for a bucket without a measurement. A target measured less often than the bucket has nulls
+between its measurements.
+
 The series is ``{generatedAt, bucketMs, t, latencyMs, latencyMaxMs, lossPercent,
 measurements, failed}``, the conventions of ``apps.console.history``: parallel
 arrays, oldest first, clock-aligned completed buckets only, ``null`` where a
@@ -72,18 +84,28 @@ agent's token hash is never read.
 from __future__ import annotations
 
 from datetime import datetime, timedelta
+from typing import NamedTuple
 from uuid import UUID
 
-from django.db.models import Case, Count, F, FloatField, Q, When
+from django.db.models import Avg, Case, Count, F, FloatField, Q, Value, When
 from django.http import JsonResponse
 from django.utils import timezone
 
 from apps.console.access import Scope, Visibility
 from apps.console.health import HEALTH_NAMES, annotate_targets, offline_cutoff
-from apps.console.history import DEFAULT_RANGE, RANGES, bounds, bucket_starts_ms, window
+from apps.console.history import (
+    DEFAULT_RANGE,
+    MAX_SPARK_ROWS,
+    RANGES,
+    bounds,
+    bucket_index,
+    bucket_starts_ms,
+    spark_window,
+    window,
+)
 from apps.console.http import console_api
 from apps.console.listing import filter_list, name_order, page_envelope
-from apps.console.params import PAGE_PARAMS, SCOPE_PARAMS, PageRequest, QueryParams
+from apps.console.params import MAX_PAGE_SIZE, PAGE_PARAMS, SCOPE_PARAMS, PageRequest, QueryParams
 from apps.console.serializers import agent_server_names, assigned_agent_payload, iso
 from apps.network.models import NetworkMeasurement, NetworkTarget
 
@@ -237,26 +259,43 @@ def serialize_rows(visibility: Visibility, rows: list[dict], now: datetime, scop
     return [serialize(row, latest.get(row["latest_id"]), servers, now) for row in rows]
 
 
-def target_list(request):
-    """``GET /targets/``: the body of ``apps.console.target_config.target_collection`` (which also takes the POST)."""
-    now = timezone.now()
-    params = QueryParams(request, LIST_PARAMS)
-    scope = params.scope(request.visibility)
+class ListPage(NamedTuple):
+    """The rows of one page of ``GET /targets/`` for a request's parameters, in the list's order."""
+
+    rows: list[dict]
+    page: PageRequest
+    total: int
+    counts: dict[str, int]
+    scope_total: int
+    scope: Scope | None
+
+
+def list_page(params: QueryParams, visibility: Visibility, now: datetime, *, max_page_size: int = MAX_PAGE_SIZE) -> ListPage:
+    """What the list shows for ``params``: also the rows of ``GET /targets/series/``, which must be the same."""
+    scope = params.scope(visibility)
     words = params.search()
     status = params.choice("status", STATUS_FILTERS, "all")
     sort = params.choice("sort", SORT_KEYS, "status")
     direction = params.choice("dir", DIRECTIONS, DEFAULT_DIRECTION[sort])
-    page = PageRequest.from_params(params)
+    page = PageRequest.from_params(params, maximum=max_page_size)
 
-    in_scope = visible_targets(request.visibility, now, scope)
+    in_scope = visible_targets(visibility, now, scope)
     rows, counts, total, scope_total = filter_list(in_scope, words=words, fields=SEARCH_FIELDS, status=status)
-
-    items: list[dict] = []
+    page_rows: list[dict] = []
     if page.offset < total:
         annotations, order = ordering(sort, direction, now)
-        rows = list(rows.annotate(**annotations).order_by(*order).values(*FIELDS)[page.offset : page.offset + page.size])
-        items = serialize_rows(request.visibility, rows, now, scope)
-    return JsonResponse(page_envelope(now, items, page, total=total, counts=counts, scope_total=scope_total))
+        page_rows = list(rows.annotate(**annotations).order_by(*order).values(*FIELDS)[page.offset : page.offset + page.size])
+    return ListPage(page_rows, page, total, counts, scope_total, scope)
+
+
+def target_list(request):
+    """``GET /targets/``: the body of ``apps.console.target_config.target_collection`` (which also takes the POST)."""
+    now = timezone.now()
+    listed = list_page(QueryParams(request, LIST_PARAMS), request.visibility, now)
+    items = serialize_rows(request.visibility, listed.rows, now, listed.scope) if listed.rows else []
+    return JsonResponse(
+        page_envelope(now, items, listed.page, total=listed.total, counts=listed.counts, scope_total=listed.scope_total)
+    )
 
 
 def availability(visibility: Visibility, target_id: UUID, interval_seconds: int, now: datetime) -> dict:
@@ -379,3 +418,46 @@ def target_series(request, target_id: UUID):
         )
         series = build_series(rows, range_key=range_key, interval_seconds=interval, now=now)
     return JsonResponse({"generatedAt": iso(now), **series})
+
+
+# The sample grid of a target sparkline: measurements are taken every 10 s or more (most every minute or more).
+SPARK_GRID_SECONDS = 60
+
+
+@console_api()
+def fleet_series(request):
+    """``GET /targets/series/``: the sparklines of a page of the target list (see the module docstring)."""
+    now = timezone.now()
+    params = QueryParams(request, ("range", *LIST_PARAMS))
+    range_key = params.choice("range", RANGES, DEFAULT_RANGE)
+    visibility = request.visibility
+    listed = list_page(params, visibility, now, max_page_size=MAX_SPARK_ROWS)
+    step, count, first = spark_window(range_key, SPARK_GRID_SECONDS, now)
+    ids = [row["id"] for row in listed.rows]
+    series = {target_id: {"latencyMs": [None] * count, "lossPercent": [None] * count} for target_id in ids}
+    if ids:
+        start, end = bounds(first, step, count, now)
+        # A failed measurement got no answer at all: 100 % of its probes lost.
+        loss = Case(When(success=False, then=Value(100.0)), default=F("packet_loss_percentage"), output_field=FloatField())
+        buckets = (
+            visible_measurements(visibility)
+            .filter(target_id__in=ids, measured_at__gte=start, measured_at__lt=end)
+            .annotate(bucket=bucket_index("measured_at", first, step))
+            .values("target_id", "bucket")
+            .annotate(latency=Avg("latency_ms", filter=Q(success=True)), loss=Avg(loss))
+            .order_by()
+        )
+        for row in buckets:
+            index = int(row["bucket"])
+            if 0 <= index < count:
+                values = series[row["target_id"]]
+                values["latencyMs"][index] = round(row["latency"], 3) if row["latency"] is not None else None
+                values["lossPercent"][index] = round(row["loss"], 2) if row["loss"] is not None else None
+    return JsonResponse({
+        "generatedAt": iso(now),
+        "range": range_key,
+        "bucketMs": step * 1000,
+        "t": bucket_starts_ms(first, step, count),
+        "items": [{"targetId": str(target_id), **series[target_id]} for target_id in ids],
+        "page": listed.page.payload(listed.total),
+    })

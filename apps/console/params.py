@@ -142,10 +142,11 @@ class PageRequest:
         self.size = size
 
     @classmethod
-    def from_params(cls, params: QueryParams) -> PageRequest:
+    def from_params(cls, params: QueryParams, *, maximum: int = MAX_PAGE_SIZE) -> PageRequest:
+        """``maximum`` caps ``pageSize`` (and the default) below the lists' for a costlier view of the same rows."""
         return cls(
             params.integer("page", minimum=1, maximum=MAX_PAGE, default=1),
-            params.integer("pageSize", minimum=1, maximum=MAX_PAGE_SIZE, default=DEFAULT_PAGE_SIZE),
+            params.integer("pageSize", minimum=1, maximum=maximum, default=min(DEFAULT_PAGE_SIZE, maximum)),
         )
 
     @property

@@ -55,6 +55,7 @@ the agent's identity, ``AGENT_FIELDS``).
 from __future__ import annotations
 
 from datetime import datetime
+from typing import NamedTuple
 from uuid import UUID
 
 from django.db.models import F
@@ -70,7 +71,7 @@ from apps.console.health import (
     server_load,
 )
 from apps.console.listing import filter_list, name_order, page_envelope
-from apps.console.params import PAGE_PARAMS, SCOPE_PARAMS, PageRequest, QueryParams
+from apps.console.params import MAX_PAGE_SIZE, PAGE_PARAMS, SCOPE_PARAMS, PageRequest, QueryParams
 from apps.console.serializers import iso, iso_or_none
 from apps.infrastructure.models import Server
 
@@ -226,31 +227,51 @@ def agent_of(server_id: UUID) -> dict | None:
     return agent_payload(row) if row is not None else None
 
 
-def server_list(request):
-    """``GET /servers/``: the body of ``apps.console.enrollment.server_collection`` (which also takes the POST)."""
-    now = timezone.now()
-    params = QueryParams(request, LIST_PARAMS)
-    scope = params.scope(request.visibility)
+class ListPage(NamedTuple):
+    """The rows of one page of ``GET /servers/`` for a request's parameters, in the list's order."""
+
+    rows: list[dict]
+    page: PageRequest
+    total: int
+    counts: dict[str, int]
+    scope_total: int
+    scope: Scope | None
+
+
+def list_page(params: QueryParams, visibility: Visibility, now: datetime, *, max_page_size: int = MAX_PAGE_SIZE) -> ListPage:
+    """What the list shows for ``params``: also the rows of ``GET /servers/series/``, which must be the same."""
+    scope = params.scope(visibility)
     words = params.search()
     status = params.choice("status", STATUS_FILTERS, "all")
     sort = params.choice("sort", SORT_KEYS, "status")
     direction = params.choice("dir", DIRECTIONS, DEFAULT_DIRECTION[sort])
-    page = PageRequest.from_params(params)
+    page = PageRequest.from_params(params, maximum=max_page_size)
 
-    in_scope = visible_servers(request.visibility, now, scope)
+    in_scope = visible_servers(visibility, now, scope)
     rows, counts, total, scope_total = filter_list(in_scope, words=words, fields=SEARCH_FIELDS, status=status)
-
-    items: list[dict] = []
+    page_rows: list[dict] = []
     if page.offset < total:
         annotations, order = ordering(sort, direction, now)
-        rows = list(
+        page_rows = list(
             rows.annotate(**annotations)
             .order_by(*order)
             .values(*FIELDS)[page.offset : page.offset + page.size]
         )
-        per_server = container_counts_by_server(request.visibility, [row["id"] for row in rows], now, scope=scope)
-        items = [serialize(row, per_server.get(row["id"], empty_counts())) for row in rows]
-    return JsonResponse(page_envelope(now, items, page, total=total, counts=counts, scope_total=scope_total))
+    return ListPage(page_rows, page, total, counts, scope_total, scope)
+
+
+def server_list(request):
+    """``GET /servers/``: the body of ``apps.console.enrollment.server_collection`` (which also takes the POST)."""
+    now = timezone.now()
+    listed = list_page(QueryParams(request, LIST_PARAMS), request.visibility, now)
+    items: list[dict] = []
+    if listed.rows:
+        ids = [row["id"] for row in listed.rows]
+        per_server = container_counts_by_server(request.visibility, ids, now, scope=listed.scope)
+        items = [serialize(row, per_server.get(row["id"], empty_counts())) for row in listed.rows]
+    return JsonResponse(
+        page_envelope(now, items, listed.page, total=listed.total, counts=listed.counts, scope_total=listed.scope_total)
+    )
 
 
 def detail_payload(visibility: Visibility, server_id: UUID, now: datetime) -> dict:
