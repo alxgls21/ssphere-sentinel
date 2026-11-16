@@ -563,9 +563,36 @@ describe('trends on the servers list', () => {
     await waitFor(() =>
       expect(within(t).getAllByRole('img', { name: /^CPU of / }).length).toBeGreaterThan(0),
     )
+    expect(within(t).getAllByRole('img', { name: /^RAM of / }).length).toBeGreaterThan(0)
+    expect(within(t).getAllByRole('img', { name: /^Disk of / }).length).toBeGreaterThan(0)
     expect(listServerSeries).toHaveBeenCalledWith(
       expect.objectContaining({ q: 'web', range: '1h', pageSize: 50 }),
     )
+  })
+
+  it('gives each card on a phone its three trends', async () => {
+    stubViewport(false)
+    const listServerSeries = vi.fn<SentinelApi['listServerSeries']>(async (options) => {
+      const rows = (await mock().listServers(options)).items
+      return {
+        generatedAt: new Date(NOW).toISOString(),
+        range: options.range,
+        bucketMs: 60_000,
+        t: [NOW - 120_000, NOW - 60_000],
+        items: rows.map(({ server }) => ({
+          serverId: server.id,
+          cpu: [20, 30],
+          memory: [1, 2],
+          disk: [3, 4],
+        })),
+      }
+    })
+    page('/servers', { ...mock(), listServerSeries })
+    const cards = await screen.findByRole('list', { name: 'Servers' })
+    await waitFor(() =>
+      expect(within(cards).getAllByRole('img', { name: /^CPU of / }).length).toBeGreaterThan(0),
+    )
+    expect(within(cards).getAllByRole('img', { name: /^Disk of / }).length).toBeGreaterThan(0)
   })
 
   it('keeps the list as it is when the series cannot be read', async () => {

@@ -403,11 +403,13 @@ for it.
 
 ## Settings screen
 
-`/settings` holds nine sections under one layout (`features/settings/SettingsLayout`): **Notifications**
+`/settings` holds ten sections under one layout (`features/settings/SettingsLayout`): **Notifications**
 (`/settings/notifications`), **Account** (`/settings/account`, the own password), **Alert rules**
 (`/settings/alert-rules`, `/new` and `/:id`), **Customers & sites** (`/settings/customers`, `/new`,
 `/:id`; a site at `/settings/sites/new?of=<customer>` and `/settings/sites/:id`), **Network targets**
-(`/settings/targets`, `/new`, `/:id`), **Devices** (`/settings/devices`, `/new`, `/:id`), **Users &
+(`/settings/targets`, `/new`, `/:id`), **Devices** (`/settings/devices`, `/new`, `/:id`), **Domains**
+(`/settings/domains`, `/:id`; offered to an account that sees every customer and holds the domain
+permissions: the session's `viewDomains`, `addDomains` and `verifyDomains`), **Users &
 access** (`/settings/users`, `/new`, `/:id`), **Audit log** (`/settings/audit-log`) and **System**
 (`/settings/system`). The section links shown are the ones this account is offered; `/settings` itself
 goes to the first of them. There is no General section: nothing in the console is a global preference.

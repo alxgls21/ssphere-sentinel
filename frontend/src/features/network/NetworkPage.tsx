@@ -233,7 +233,14 @@ export default function NetworkPage() {
             trendsStale={trends.stale}
           />
         ) : (
-          <NetworkCards rows={rows} nowMs={nowMs} limits={limits} />
+          <NetworkCards
+            rows={rows}
+            nowMs={nowMs}
+            limits={limits}
+            tz={tz}
+            trends={trends.data}
+            trendsStale={trends.stale}
+          />
         )}
       </Panel>
     </div>

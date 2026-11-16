@@ -1,7 +1,9 @@
 import { Link, useLocation } from 'react-router'
-import type { TargetListItem } from '@/api/types'
+import type { TargetListItem, TargetListSeries } from '@/api/types'
 import { useViewTo } from '@/app/viewSearch'
 import { cn } from '@/lib/cn'
+import type { Timezone } from '@/lib/format'
+import { RANGE_WORDS } from '@/lib/range'
 import {
   endpointText,
   measuredAgo,
@@ -11,6 +13,7 @@ import {
   type TargetLimits,
 } from '@/lib/targets'
 import { PlaceName } from '@/ui/PlaceName'
+import { Sparkline } from '@/ui/meters'
 import { STATUS_EDGE, StatusTag } from '@/ui/status'
 import { agentText, latencyCell, lossCell, targetPath } from './networkModel'
 
@@ -22,10 +25,16 @@ export function NetworkCards({
   rows,
   nowMs,
   limits,
+  tz,
+  trends,
+  trendsStale = false,
 }: {
   rows: readonly TargetListItem[]
   nowMs: number
   limits: TargetLimits
+  tz: Timezone
+  trends?: TargetListSeries
+  trendsStale?: boolean
 }) {
   const viewTo = useViewTo()
   const location = useLocation()
@@ -35,6 +44,8 @@ export function NetworkCards({
         const { target } = item
         const latency = latencyCell(item, nowMs, limits)
         const loss = lossCell(item, nowMs, limits)
+        const trend = trends?.items.find((entry) => entry.targetId === target.id)
+        const peak = Math.max(1, ...(trend?.latencyMs ?? []).map((value) => value ?? 0))
         return (
           <li key={target.id} className="relative border-b border-border last:border-b-0">
             <span
@@ -75,9 +86,20 @@ export function NetworkCards({
                   {reasonSentence(item, nowMs, limits)}
                 </span>
               ) : (
-                <span className="type-data tnum flex gap-3">
+                <span className="type-data tnum flex items-center gap-3">
                   <span>{latency.text}</span>
-                  <span>{loss.text}</span>
+                  <span className="flex-1">{loss.text}</span>
+                  {trends && trend ? (
+                    <Sparkline
+                      values={trend.latencyMs}
+                      times={trends.t}
+                      tz={tz}
+                      domain={[0, peak]}
+                      unit="milliseconds"
+                      stale={trendsStale}
+                      label={`Latency of ${target.name}, ${RANGE_WORDS[trends.range]}`}
+                    />
+                  ) : null}
                 </span>
               )}
             </Link>

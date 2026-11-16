@@ -29,7 +29,7 @@ GOOD_PASSWORD = "a-long-and-unusual-passphrase-41"
 OTHER_PASSWORD = "another-unusual-passphrase-77"
 USER_KEYS = {
     "id", "username", "firstName", "lastName", "displayName", "email", "role", "allCustomers", "active", "lastLoginAt",
-    "createdAt", "locked", "lockedUntil", "self", "customers", "sites",
+    "createdAt", "locked", "lockedUntil", "failedSignIns", "maxFailedSignIns", "self", "notifications", "customers", "sites",
 }
 THROTTLE = override_settings(SENTINEL_CONSOLE_LOGIN_MAX_ATTEMPTS=3, SENTINEL_CONSOLE_LOGIN_LOCKOUT_SECONDS=900)
 
@@ -155,7 +155,7 @@ class ReadTests(UserTestCase):
             throttle.begin_attempt(throttle.throttle_key("viewer", viewer.pk), now, user_id=viewer.pk)
         body = self.client_.get(USERS).json()
         self.assertEqual(set(body), {"generatedAt", "items", "page", "counts", "scopeTotal"})
-        self.assertEqual(body["counts"], {"active": 5, "inactive": 1})
+        self.assertEqual(body["counts"], {"active": 5, "inactive": 1, "locked": 1, "notified": 0})
         by_name = {item["username"]: item for item in body["items"]}
         self.assertEqual(list(by_name), ["admin", "editor", "grouped", "nobody", "operator", "viewer"])
         self.assertEqual(set(by_name["viewer"]), USER_KEYS)
@@ -193,7 +193,7 @@ class ReadTests(UserTestCase):
         self.assertEqual(names(sort="joined")[0], "carol")
         self.assertEqual(names(sort="lastLogin")[-1] in ("admin", "alice", "bob", "carol"), True)
         body = self.client_.get(USERS, {"q": "example", "active": "inactive"}).json()
-        self.assertEqual((body["page"]["total"], body["counts"], body["scopeTotal"]), (0, {"active": 2, "inactive": 0}, 4))
+        self.assertEqual((body["page"]["total"], body["counts"], body["scopeTotal"]), (0, {"active": 2, "inactive": 0, "locked": 0, "notified": 0}, 4))
         body = self.client_.get(USERS, {"pageSize": "2", "page": "2"}).json()
         self.assertEqual(([item["username"] for item in body["items"]], body["page"]["pages"]), (["bob", "carol"], 2))
         for params in ({"active": "yes"}, {"sort": "role"}, {"dir": "up"}, {"page": "0"}, {"pageSize": "201"}, {"x": "1"}):

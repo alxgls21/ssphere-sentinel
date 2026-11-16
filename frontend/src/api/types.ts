@@ -1806,3 +1806,92 @@ export interface InventoryDeviceInput {
 
 /** A change: only the fields that change. `snmp` as an object changes the keys it holds; `snmp: null` removes it. */
 export type InventoryDevicePatch = Partial<InventoryDeviceInput>
+
+/* ----------------------------------------------------------- monitored domains */
+
+/** Mirrors the console API: a domain is monitored only once verified. */
+export type DomainStatus = 'pending' | 'verified' | 'degraded' | 'suspended'
+export type DomainSortKey = 'name' | 'customer' | 'status' | 'created'
+export type DomainStatusFilter = 'all' | DomainStatus
+
+/** A choice the server names: a stable `value` and the words for it. */
+export interface Choice {
+  value: string
+  label: string
+}
+
+export interface DomainRecord {
+  id: string
+  /** ASCII form, as DNS knows it. */
+  name: string
+  /** Unicode form, as people write it. */
+  displayName: string
+  customer: { id: string; name: string }
+  status: DomainStatus
+  verifiedAt: Iso | null
+  lastVerifiedAt: Iso | null
+  lastCheckedAt: Iso | null
+  lastOutcome: Choice | null
+  createdAt: Iso
+  createdBy: string
+  version: number
+}
+
+export type VerificationStatus = 'pending' | 'running' | 'done' | 'expired'
+
+/** What the domain verifier found when it asked the domain's own name servers. */
+export interface DomainVerification {
+  id: string
+  domainId: string
+  status: VerificationStatus
+  outcome: Choice | null
+  detail: Choice | null
+  requestedBy: string
+  createdAt: Iso
+  expiresAt: Iso
+  startedAt: Iso | null
+  finishedAt: Iso | null
+  evidence: {
+    zone: string
+    aliases: string[]
+    nameserverCount: number
+    nameservers: { name: string; address: string; result: string }[]
+  } | null
+}
+
+export type VerifierState = 'never_started' | 'running' | 'failed' | 'stale'
+
+/** A domain with the record its customer adds to the domain's DNS, and its latest verification. */
+export interface DomainDetail {
+  generatedAt: Iso
+  item: DomainRecord
+  record: { type: string; name: string; value: string }
+  latestVerification: DomainVerification | null
+}
+
+export interface DomainList extends RecordList<DomainRecord> {
+  counts: Record<DomainStatus, number>
+}
+
+export interface DomainListOptions extends Pick<RequestOptions, 'signal'> {
+  q?: string
+  status?: DomainStatusFilter
+  customer?: string
+  sort?: DomainSortKey
+  dir?: SortDirection
+  page?: number
+  pageSize?: number
+}
+
+export interface DomainInput {
+  customerId: string
+  /** As typed: Unicode or ASCII, any case. The server normalizes it. */
+  name: string
+}
+
+/** The answer to a request or a read of a verification: it, and whether a verifier is working. */
+export interface VerificationAnswer {
+  generatedAt: Iso
+  item: DomainVerification
+  verifier: { state: VerifierState }
+}

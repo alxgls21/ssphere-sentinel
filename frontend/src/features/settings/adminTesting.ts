@@ -9,6 +9,10 @@ import type {
   CustomerDetail,
   CustomerList,
   CustomerRecord,
+  DomainDetail,
+  DomainList,
+  DomainRecord,
+  DomainVerification,
   InventoryDevice,
   InventoryDeviceDetail,
   InventoryDeviceList,
@@ -16,6 +20,7 @@ import type {
   SiteDetail,
   SiteList,
   SiteRecord,
+  VerificationAnswer,
 } from '@/api/types'
 
 /** Test fixtures only: the records the administration pages show, at one fixed moment. */
@@ -213,3 +218,73 @@ export const auditLog = (items: AuditEntry[], scopeTotal = items.length): AuditL
     { value: 'user', label: 'User' },
   ],
 })
+
+/** A monitored domain, a pending one of Acme unless a test says otherwise. */
+export function domain(over: Partial<DomainRecord> = {}): DomainRecord {
+  return {
+    id: 'd1',
+    name: 'acme.example',
+    displayName: 'acme.example',
+    customer: { id: 'c1', name: 'Acme' },
+    status: 'pending',
+    verifiedAt: null,
+    lastVerifiedAt: null,
+    lastCheckedAt: null,
+    lastOutcome: null,
+    createdAt: iso(86400),
+    createdBy: 'maria',
+    version: 1,
+    ...over,
+  }
+}
+
+export const domainList = (items: DomainRecord[], scopeTotal = items.length): DomainList => ({
+  generatedAt: iso(0),
+  items,
+  page: { number: 1, size: 50, total: items.length, pages: 1 },
+  scopeTotal,
+  counts: {
+    pending: items.filter((entry) => entry.status === 'pending').length,
+    verified: items.filter((entry) => entry.status === 'verified').length,
+    degraded: items.filter((entry) => entry.status === 'degraded').length,
+    suspended: items.filter((entry) => entry.status === 'suspended').length,
+  },
+})
+
+export function verification(over: Partial<DomainVerification> = {}): DomainVerification {
+  return {
+    id: 'v1',
+    domainId: 'd1',
+    status: 'pending',
+    outcome: null,
+    detail: null,
+    requestedBy: 'maria',
+    createdAt: iso(5),
+    expiresAt: new Date(NOW + 600_000).toISOString(),
+    startedAt: null,
+    finishedAt: null,
+    evidence: null,
+    ...over,
+  }
+}
+
+export const verificationAnswer = (
+  item: DomainVerification,
+  state: VerificationAnswer['verifier']['state'] = 'running',
+): VerificationAnswer => ({ generatedAt: iso(0), item, verifier: { state } })
+
+export function domainDetail(
+  item: DomainRecord,
+  latest: DomainVerification | null = null,
+): DomainDetail {
+  return {
+    generatedAt: iso(0),
+    item,
+    record: {
+      type: 'TXT',
+      name: `_ssphere-sentinel.${item.name}`,
+      value: 'ssphere-verification=abc123',
+    },
+    latestVerification: latest,
+  }
+}

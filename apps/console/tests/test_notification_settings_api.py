@@ -42,7 +42,7 @@ class PreferencesTests(TestCase):
 
     def test_without_a_subscription_the_defaults_and_the_account(self):
         body = self.client_.get(ME).json()
-        self.assertEqual(body["preferences"], {"enabled": False, "minSeverity": "critical", "sendRecovery": False, "updatedAt": None})
+        self.assertEqual(body["preferences"], {"enabled": False, "minSeverity": "critical", "sendRecovery": False, "updatedAt": None, "changedBy": None})
         self.assertEqual(body["account"], {"email": "alice@example.com"})
         self.assertEqual(body["email"], {"available": True, "deliverable": True})
         self.assertEqual(body["testEmail"], {"allowed": False, "latest": None})
@@ -51,9 +51,11 @@ class PreferencesTests(TestCase):
         response = put(self.client_, ON)
         self.assertEqual(response.status_code, 200, response.content)
         self.assertEqual(
-            {key: value for key, value in response.json()["preferences"].items() if key != "updatedAt"},
+            {key: value for key, value in response.json()["preferences"].items() if key not in ("updatedAt", "changedBy")},
             ON,
         )
+        changed = response.json()["preferences"]["changedBy"]
+        self.assertEqual((changed["username"], changed["self"], changed["source"]), ("alice", True, "console"))
         subscription = NotificationSubscription.objects.get(user=self.user)
         self.assertEqual((subscription.enabled, subscription.min_severity, subscription.send_recovery), (True, "warning", True))
         [event] = ConfigurationEvent.objects.all()

@@ -1,11 +1,13 @@
 import { Link, useLocation } from 'react-router'
-import type { ServerListItem } from '@/api/types'
+import type { ServerListItem, ServerListSeries } from '@/api/types'
 import { useViewTo } from '@/app/viewSearch'
 import { cn } from '@/lib/cn'
+import type { Timezone } from '@/lib/format'
 import { PlaceName } from '@/ui/PlaceName'
 import { useResourceLimits } from '@/ui/meters'
 import { STATUS_EDGE, StatusTag } from '@/ui/status'
 import { LoadCell } from './LoadCell'
+import { LoadTrend } from './LoadTrend'
 import {
   heartbeatText,
   noLoadReason,
@@ -27,7 +29,19 @@ const METRICS = [
  * and status lead, then where it lives and how long it has been up, then the
  * three meters with their labels.
  */
-export function ServerCards({ rows, nowMs }: { rows: readonly ServerListItem[]; nowMs: number }) {
+export function ServerCards({
+  rows,
+  nowMs,
+  tz,
+  trends,
+  trendsStale = false,
+}: {
+  rows: readonly ServerListItem[]
+  nowMs: number
+  tz: Timezone
+  trends?: ServerListSeries
+  trendsStale?: boolean
+}) {
   const viewTo = useViewTo()
   const location = useLocation()
   const limits = useResourceLimits()
@@ -78,6 +92,14 @@ export function ServerCards({ rows, nowMs }: { rows: readonly ServerListItem[]; 
                         {label}
                       </span>
                       <LoadCell item={item} metric={metric} className="min-w-0 flex-1" />
+                      <LoadTrend
+                        trends={trends}
+                        serverId={server.id}
+                        serverName={server.name}
+                        metric={metric}
+                        tz={tz}
+                        stale={trendsStale}
+                      />
                     </span>
                   ))}
                 </span>

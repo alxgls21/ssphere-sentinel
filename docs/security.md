@@ -192,10 +192,15 @@ the CSRF token.
   system status (`console.view_system_status`, also with
   `view_all_customers`, since its counts concern every customer) shows settings
   the environment sets, never a password or the SMTP user name. No group is
-  given these permissions automatically. Changes of rules and subscriptions
-  (from the console or the admin) and test-email requests are recorded, with the
-  account and its name at the time, in the append-only *Configuration changes*
-  trail (read-only in the admin; the database login could still alter it). A
+  given these permissions automatically. Every console user sets their own
+  incident emails; an administrator also those of any account, but never its
+  address, and emails are turned on only for an active account with an address
+  and console access (switching them off is always accepted). Each user sees who
+  last changed their emails, themselves or an administrator. Changes of rules and
+  subscriptions (from the console or the admin) and test-email requests are
+  recorded, with the account and its name at the time, in the append-only
+  *Configuration changes* trail; an administrator's change of an account's emails
+  is also in the console's audit trail (read-only in the admin; the database login could still alter it). A
   subscription removed with its account is recorded without an actor: the
   account's deletion is in the admin's own history. A save in the admin has no
   version check: it is the last word over a change made since the form was
@@ -263,8 +268,12 @@ the CSRF token.
   deactivated (every administrator's row is held while it is checked, so two
   demotions at once cannot each see the other still there). A locked account
   is unlocked there (**Users & access → Sign-in**), which does what
-  `manage.py unlock_login` does. No answer ever carries a password, a hash,
-  or anything about one.
+  `manage.py unlock_login` does. An administrator also sees how many failed
+  sign-ins of an account still count, and can list the locked accounts; the
+  system status counts the locked accounts and the locked shared buckets of
+  user names that do not exist (a sign of names being guessed), and never
+  names one or keeps the address of anyone who tried. No answer ever carries a
+  password, a hash, or anything about one.
 - **Every administrative write is recorded** in the console's own append-only
   audit trail (`console.AuditEntry`; **Settings → Audit log**, read by
   administrators or an account granted `console.view_auditentry` with

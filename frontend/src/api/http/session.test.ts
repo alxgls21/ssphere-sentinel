@@ -63,6 +63,9 @@ describe('parseSession capabilities', () => {
     manageDevices: true,
     manageUsers: false,
     viewAuditLog: false,
+    viewDomains: true,
+    addDomains: false,
+    verifyDomains: true,
     manageOwnAccount: true,
   }
 

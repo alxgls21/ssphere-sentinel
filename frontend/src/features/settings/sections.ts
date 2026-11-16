@@ -12,6 +12,7 @@ export type SectionId =
   | 'customers'
   | 'targets'
   | 'devices'
+  | 'domains'
   | 'users'
   | 'audit-log'
   | 'system'
@@ -72,6 +73,14 @@ export const SECTIONS: readonly Section[] = [
     offered: (capabilities) => capabilities.manageDevices,
   },
   {
+    id: 'domains',
+    label: 'Domains',
+    path: '/settings/domains',
+    description:
+      'The domains customers ask Sentinel to monitor, and the DNS record that proves each is theirs.',
+    offered: (capabilities) => capabilities.viewDomains,
+  },
+  {
     id: 'users',
     label: 'Users & access',
     path: '/settings/users',
@@ -119,6 +128,7 @@ export const NEW_TARGET_PATH = '/settings/targets/new'
 export const deviceEditorPath = (id: string): string =>
   `/settings/devices/${encodeURIComponent(id)}`
 export const NEW_DEVICE_PATH = '/settings/devices/new'
+export const domainPath = (id: string): string => `/settings/domains/${encodeURIComponent(id)}`
 export const userPath = (id: number): string => `/settings/users/${id}`
 export const NEW_USER_PATH = '/settings/users/new'
 

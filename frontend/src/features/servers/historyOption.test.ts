@@ -47,6 +47,27 @@ describe('the warning limit it draws', () => {
     expect(marks(limit)).toEqual([{ yAxis: 70 }, { yAxis: 70 }, { yAxis: 70 }])
     expect(labels(limit)[0]).toBe('warn 70% (set on the server)')
   })
+
+  it('also draws the critical limit and shades the band above it, when one is given', () => {
+    const option = buildHistoryOption({
+      series: series(),
+      tz: 'utc',
+      hidden: new Set(),
+      tokens,
+      limit: { warn: 80, crit: 95, origin: 'default' },
+    })
+    const first = lines(option)[0] as {
+      markLine: { data: { yAxis: number }[] }
+      markArea: { data: { yAxis: number }[][] }
+    }
+    expect(first.markLine.data.map((entry) => entry.yAxis)).toEqual([80, 95])
+    expect(first.markArea.data).toEqual([[{ yAxis: 95 }, { yAxis: 100 }]])
+  })
+
+  it('draws no band when no critical limit is given', () => {
+    const first = lines(build())[0] as { markArea?: unknown }
+    expect(first.markArea).toBeUndefined()
+  })
 })
 
 describe('buildHistoryOption', () => {

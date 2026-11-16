@@ -44,8 +44,11 @@ export interface HistoryOptionInput {
   tokens: ChartTokens
   /** The plot container's height in CSS px. Omitted: the minimum geometry. */
   height?: number
-  /** The warning limit to draw, and whose it is. Omitted: the console's default. */
-  limit?: { warn: number; origin: 'server' | 'default' }
+  /**
+   * The warning limit to draw, and whose it is. Omitted: the console's default. With `crit` the
+   * critical limit is drawn too, and the band above it shaded.
+   */
+  limit?: { warn: number; crit?: number; origin: 'server' | 'default' }
   /** Incidents of this server inside the range, drawn as shaded spans on every grid. */
   incidents?: readonly IncidentSpan[]
 }
@@ -118,8 +121,42 @@ export function buildHistoryOption({
             fontFamily,
             fontSize: px(11),
           },
-          data: [{ yAxis: limit.warn }],
+          data: [
+            { yAxis: limit.warn },
+            ...(limit.crit === undefined
+              ? []
+              : [
+                  {
+                    yAxis: limit.crit,
+                    lineStyle: {
+                      color: colors.critical,
+                      opacity: 0.6,
+                      width: 1,
+                      type: 'solid' as const,
+                    },
+                    label: {
+                      show: gridIndex === 0,
+                      position: 'insideEndTop' as const,
+                      formatter: `crit ${limit.crit}%`,
+                    },
+                  },
+                ]),
+          ],
         },
+        ...(limit.crit === undefined
+          ? {}
+          : {
+              markArea: {
+                silent: true,
+                animation: false,
+                label: { show: false },
+                itemStyle: { color: colors.critical, opacity: 0.06 },
+                data: [[{ yAxis: limit.crit }, { yAxis: 100 }]] as [
+                  { yAxis: number },
+                  { yAxis: number },
+                ][],
+              },
+            }),
       },
     ]
   })

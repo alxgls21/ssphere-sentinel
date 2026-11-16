@@ -72,12 +72,24 @@ import {
   unlockUser,
   updateUser,
 } from './users'
+import {
+  createDomain,
+  getDomain,
+  getDomainVerification,
+  listDomains,
+  verifyDomain,
+} from './domains'
 import { createTransport, type TransportOptions } from './transport'
 
 /** The console API, request by request. Every method validates its answer. */
 export interface ConsoleHttp extends Pick<
   SentinelApi,
   | 'listServers'
+  | 'listDomains'
+  | 'getDomain'
+  | 'createDomain'
+  | 'verifyDomain'
+  | 'getDomainVerification'
   | 'listServerSeries'
   | 'listTargetSeries'
   | 'getServer'
@@ -157,6 +169,11 @@ export function createConsoleHttp(options: TransportOptions = {}): ConsoleHttp {
     auth: createAuthClient(transport),
     getScopeOptions: getScopeOptions(transport),
     listServers: listServers(transport),
+    listDomains: listDomains(transport),
+    getDomain: getDomain(transport),
+    createDomain: createDomain(transport),
+    verifyDomain: verifyDomain(transport),
+    getDomainVerification: getDomainVerification(transport),
     listServerSeries: listServerSeries(transport),
     listTargetSeries: listTargetSeries(transport),
     getServer: getServer(transport),

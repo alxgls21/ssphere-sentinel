@@ -277,7 +277,13 @@ export default function ServersListPage() {
             trendsStale={trends.stale}
           />
         ) : (
-          <ServerCards rows={rows} nowMs={nowMs} />
+          <ServerCards
+            rows={rows}
+            nowMs={nowMs}
+            tz={tz}
+            trends={trends.data}
+            trendsStale={trends.stale}
+          />
         )}
       </Panel>
     </div>

@@ -12,6 +12,8 @@ superuser), else 403: its counts concern every customer.
                 "last24Hours": {"created": int, "sent": int, "failed": int, "cancelled": int,
                                 "failures": {category: int}},
                 "testEmails": {"open": int, "last24Hours": {status: int}}},
+     "signIn": {"lockedAccounts": int, "lockedUnknownNameBuckets": int, "unknownNameBuckets": int,
+                "maxFailedAttempts": int, "lockoutSeconds": int},
      "environment": {
          "email": {"enabled": bool, "host": str | null, "port": int, "security": starttls | tls | none,
                    "fromAddress": str | null, "timeoutSeconds": int, "maxAgeHours": int,
@@ -44,6 +46,13 @@ NotifierStatus::
 between the emails of a long cycle. ``lastSmtpSuccessAt`` and ``lastSmtpError`` are when
 it last reached the SMTP server, and when it last could not (and why), as they happened.
 
+``signIn``: the sign-in throttle now (``apps.console.throttle``). ``lockedAccounts``: accounts
+refused until their lockout ends (``/users/?locked=locked`` lists them, an administrator unlocks
+them). Failed sign-ins with user names that do not exist are counted in ``unknownNameBuckets``
+shared buckets, so that a locked one tells nothing about which names exist:
+``lockedUnknownNameBuckets`` is how many are locked, a sign that names are being guessed. They
+are never listed or unlocked: they end with their lockout. No address of anyone who tried is kept.
+
 ``smtpConfigured`` and ``authenticationConfigured`` are what the notifier itself
 reported (the web process does not hold the SMTP password): whether an SMTP server is
 set, and whether it logs in to it; null before its first cycle. ``environment`` is what
@@ -62,6 +71,7 @@ from django.utils import timezone
 
 from apps.alerts.models import Notification, NotifierErrorCategory, NotifierHeartbeat, TestEmailRequest
 from apps.alerts.notifications import LEASE, NOTIFIER_INTERVAL, TEST_EMAIL_LEASE, email_enabled
+from apps.console import throttle
 from apps.console.http import console_api
 from apps.console.incidents import engine_status_payload
 from apps.console.params import QueryParams
@@ -217,6 +227,17 @@ def environment_payload() -> dict:
     }
 
 
+def sign_in_payload(now: datetime) -> dict:
+    locked = throttle.lockouts(now)
+    return {
+        "lockedAccounts": locked["accounts"],
+        "lockedUnknownNameBuckets": locked["unknownNameBuckets"],
+        "unknownNameBuckets": throttle.UNKNOWN_BUCKETS,
+        "maxFailedAttempts": settings.SENTINEL_CONSOLE_LOGIN_MAX_ATTEMPTS,
+        "lockoutSeconds": settings.SENTINEL_CONSOLE_LOGIN_LOCKOUT_SECONDS,
+    }
+
+
 @console_api()
 def system_status(request):
     now = timezone.now()
@@ -230,6 +251,7 @@ def system_status(request):
             "alertEngine": engine,
             "notifier": notifier_status_payload(now),
             "outbox": outbox_payload(now),
+            "signIn": sign_in_payload(now),
             "environment": environment_payload(),
         }
     )

@@ -35,6 +35,8 @@ const TargetsPage = lazy(() => import('@/features/settings/TargetsPage'))
 const TargetEditorPage = lazy(() => import('@/features/settings/TargetEditorPage'))
 const DevicesPage = lazy(() => import('@/features/settings/DevicesPage'))
 const DeviceEditorPage = lazy(() => import('@/features/settings/DeviceEditorPage'))
+const DomainsPage = lazy(() => import('@/features/settings/DomainsPage'))
+const DomainPage = lazy(() => import('@/features/settings/DomainPage'))
 const UsersPage = lazy(() => import('@/features/settings/UsersPage'))
 const UserPage = lazy(() => import('@/features/settings/UserPage'))
 const AuditLogPage = lazy(() => import('@/features/settings/AuditLogPage'))
@@ -83,6 +85,8 @@ export function AppRoutes() {
             <Route path="devices" element={<DevicesPage />} />
             <Route path="devices/new" element={<DeviceEditorPage />} />
             <Route path="devices/:id" element={<DeviceEditorPage />} />
+            <Route path="domains" element={<DomainsPage />} />
+            <Route path="domains/:id" element={<DomainPage />} />
             <Route path="users" element={<UsersPage />} />
             <Route path="users/new" element={<UserPage />} />
             <Route path="users/:id" element={<UserPage />} />
