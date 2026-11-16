@@ -1,7 +1,8 @@
 import { useCallback, useMemo } from 'react'
-import type { RangeKey, ServerSeries } from '@/api/types'
+import type { IncidentItem, RangeKey, ServerSeries } from '@/api/types'
 import { usePrefs } from '@/app/prefs'
 import { ChartFrame, type ChartNavigation } from '@/charts/ChartFrame'
+import { incidentSentence, incidentSpans } from '@/charts/incidentSpans'
 import type { LegendEntry } from '@/charts/ChartLegend'
 import { cssColor } from '@/charts/theme'
 import type { ChartEnv } from '@/charts/useECharts'
@@ -27,6 +28,10 @@ interface ServerHistoryChartProps {
   name: string
   series: ServerSeries
   range: RangeKey
+  /** The server's id, and its incidents: shown on the chart where they overlap the range. */
+  serverId: string
+  incidents: readonly IncidentItem[]
+  incidentsAtMs: number
 }
 
 /**
@@ -34,16 +39,43 @@ interface ServerHistoryChartProps {
  * path that pulls the chart runtime, so the shell and the rest of the page paint first.
  * All behavior (legend, crosshair, keyboard cursor, table twin) comes from ChartFrame.
  */
-export default function ServerHistoryChart({ name, series, range }: ServerHistoryChartProps) {
+export default function ServerHistoryChart({
+  name,
+  series,
+  range,
+  serverId,
+  incidents,
+  incidentsAtMs,
+}: ServerHistoryChartProps) {
   const { tz } = usePrefs()
   const visibility = useSeriesVisibility(HISTORY_IDS)
   const { hidden } = visibility
   const { warn, origin } = useResourceLimits()
+  const spans = useMemo(() => {
+    const first = series.t[0]
+    const last = series.t[series.t.length - 1]
+    if (first === undefined || last === undefined) return []
+    return incidentSpans(
+      incidents,
+      serverId,
+      first - series.bucketMs / 2,
+      last + series.bucketMs / 2,
+      incidentsAtMs || last,
+    )
+  }, [incidents, serverId, series, incidentsAtMs])
 
   const build = useCallback(
     ({ tokens, height }: ChartEnv) =>
-      buildHistoryOption({ series, tz, hidden, tokens, height, limit: { warn, origin } }),
-    [series, tz, hidden, warn, origin],
+      buildHistoryOption({
+        series,
+        tz,
+        hidden,
+        tokens,
+        height,
+        limit: { warn, origin },
+        incidents: spans,
+      }),
+    [series, tz, hidden, warn, origin, spans],
   )
   const navigation = useMemo<ChartNavigation>(
     () => ({
@@ -57,7 +89,7 @@ export default function ServerHistoryChart({ name, series, range }: ServerHistor
 
   return (
     <ChartFrame
-      summary={summarizeHistory(name, series, range, tz)}
+      summary={summarizeHistory(name, series, range, tz, incidentSentence(spans, tz))}
       cursorLabel="Resource history cursor"
       build={build}
       legend={LEGEND}

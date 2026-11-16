@@ -221,6 +221,15 @@ line goes with the series. The plot has a minimum height and grows with its pane
 a taller window shows more chart, and the extra room goes to the main grid, never
 to a secondary one.
 
+### Incidents on a history chart
+
+A server's or a target's history marks its incidents: a span shaded in the incident's severity color from when
+its condition began to when it recovered or was closed (an open one runs to now), with a short label on the top
+grid only. They are the object's own incidents (the console searches by its id and keeps those whose reference
+matches), clipped to the plotted range, and they stay when a line is hidden from the legend. The chart's summary
+says them in words (severity, rule, start, still open); a reading that fails leaves a chart without marks and
+raises no banner of its own.
+
 ### Chart interactions
 
 Every chart answers the same hands the same way, on every screen. That is

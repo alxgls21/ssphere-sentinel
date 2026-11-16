@@ -7,6 +7,8 @@ import { createMockApi } from '@/api/mock/client'
 import type { ServerTelemetry } from '@/api/types'
 import { fakeCharts, resetFakeCharts } from '@/charts/testing/fakeEcharts'
 import { registryOverrides } from '@/config/testing'
+import { incident } from '@/features/alerts/testing'
+import { list as incidentList } from '@/features/alerts/testing'
 import { createTestApi, renderApp } from '@/test/render'
 import ServerDetailPage from './ServerDetailPage'
 
@@ -483,5 +485,60 @@ describe('ServerDetailPage over the console API', () => {
     })
     page('00000000-0000-0000-0000-000000000000', api)
     expect(await screen.findByText('Server not found')).toBeInTheDocument()
+  })
+})
+
+describe('ServerDetailPage incident marks', () => {
+  const open = {
+    ...incident({ kind: 'server', ref: 'srv-ath-db-01', rule: 'Server resources' }),
+    startedAt: '2026-10-12T13:30:00Z',
+    recoveredAt: null,
+    closedAt: null,
+  }
+
+  it('asks for the incidents of this server by its id, every status', async () => {
+    const real = mock()
+    const listIncidents = vi.fn(async () => incidentList([]))
+    page('srv-ath-db-01', createTestApi({ ...real, listIncidents }))
+    await screen.findByRole('heading', { level: 1, name: 'ath-db-01' })
+    await waitFor(() => expect(listIncidents).toHaveBeenCalled())
+    expect(listIncidents).toHaveBeenCalledWith(
+      expect.objectContaining({ kind: 'server', q: 'srv-ath-db-01', status: 'all', pageSize: 200 }),
+    )
+  })
+
+  it('says the incident in the chart’s summary, where it overlaps the range', async () => {
+    const real = mock()
+    const listIncidents = vi.fn(async () => incidentList([open]))
+    page('srv-ath-db-01', createTestApi({ ...real, listIncidents }))
+    const chart = await screen.findByRole('figure', { name: /Resource history of ath-db-01/ })
+    await waitFor(() =>
+      expect(
+        screen.getByRole('figure', { name: /Resource history of ath-db-01/ }),
+      ).toHaveAccessibleName(/1 incident marked: critical “Server resources”.*still open/),
+    )
+    expect(chart).toBeInTheDocument()
+  })
+
+  it('leaves out the incidents of another server', async () => {
+    const real = mock()
+    const other = { ...open, entity: { ...open.entity, ref: 'srv-other' } }
+    const listIncidents = vi.fn(async () => incidentList([other]))
+    page('srv-ath-db-01', createTestApi({ ...real, listIncidents }))
+    await screen.findByRole('figure', { name: /Resource history of ath-db-01/ })
+    await waitFor(() => expect(listIncidents).toHaveBeenCalled())
+    expect(screen.getByRole('figure', { name: /Resource history/ })).not.toHaveAccessibleName(
+      /incident/,
+    )
+  })
+
+  it('draws the chart without marks, and no banner, when the incidents cannot be read', async () => {
+    const real = mock()
+    const listIncidents = vi.fn(async () => Promise.reject(new ApiError('Busy.', 503)))
+    page('srv-ath-db-01', createTestApi({ ...real, listIncidents }))
+    const chart = await screen.findByRole('figure', { name: /Resource history of ath-db-01/ })
+    await waitFor(() => expect(listIncidents).toHaveBeenCalled())
+    expect(chart).not.toHaveAccessibleName(/incident/)
+    expect(screen.queryByText('Refresh failed')).toBeNull()
   })
 })

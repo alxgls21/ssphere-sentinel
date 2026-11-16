@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import type { ServerSeries } from '@/api/types'
 import type { ChartOption, LineSeriesOption } from '@/charts/echarts'
 import { CHART_COLOR_TOKENS, type ChartColors, type ChartTokens } from '@/charts/theme'
+import type { IncidentSpan } from '@/charts/incidentSpans'
 import { describeSample, historyTable, summarizeHistory, tooltipContent } from './historyModel'
 import { HISTORY_CHART_HEIGHT_PX, buildHistoryOption, historyGridHeight } from './historyOption'
 
@@ -148,5 +149,61 @@ describe('what the chart says in words', () => {
       'RAM',
       'Disk',
     ])
+  })
+})
+
+describe('the incidents it marks', () => {
+  const span: IncidentSpan = {
+    id: 'i1',
+    severity: 'critical',
+    start: T0 + 60_000,
+    end: T0 + 120_000,
+    open: false,
+    rule: 'Server resources',
+  }
+  const withIncidents = (hidden: string[] = [], incidents: IncidentSpan[] = [span]) =>
+    lines(
+      buildHistoryOption({
+        series: series(),
+        tz: 'utc',
+        hidden: new Set(hidden),
+        tokens,
+        incidents,
+      }),
+    )
+
+  it('adds nothing when there is none', () => {
+    expect(withIncidents([], []).map((s) => s.id)).toEqual(['cpu', 'memory', 'disk'])
+  })
+
+  it('adds a silent series of shaded spans to each grid, after the lines', () => {
+    const all = withIncidents()
+    expect(all.map((s) => [s.id, s.xAxisIndex])).toEqual([
+      ['cpu', 0],
+      ['memory', 1],
+      ['disk', 2],
+      ['incidents-0', 0],
+      ['incidents-1', 1],
+      ['incidents-2', 2],
+    ])
+    expect(all.slice(3).every((s) => s.silent === true)).toBe(true)
+  })
+
+  it('names them on the first grid only', () => {
+    const show = withIncidents()
+      .slice(3)
+      .map((s) => (s.markArea as { data: [{ label: { show: boolean } }][] }).data[0]![0].label.show)
+    expect(show).toEqual([true, false, false])
+  })
+
+  it('keeps them when a line is hidden from the legend: they belong to the server, not to a metric', () => {
+    const all = withIncidents(['cpu', 'memory', 'disk'])
+    expect(all.map((s) => s.id)).toEqual(['incidents-0', 'incidents-1', 'incidents-2'])
+  })
+
+  it('says them in the summary, after the readings', () => {
+    const text = summarizeHistory('ath-db-01', series(), '1h', 'utc', '1 incident marked: x')
+    expect(text).toMatch(/\. 1 incident marked: x$/)
+    expect(summarizeHistory('ath-db-01', series(), '1h', 'utc')).not.toMatch(/incident/)
   })
 })

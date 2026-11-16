@@ -6,6 +6,7 @@ import type { ServerDetail, ServerListItem } from '@/api/types'
 import { usePrefs } from '@/app/prefs'
 import { useViewSearch } from '@/app/viewSearch'
 import { useRange } from '@/app/viewState'
+import { useEntityIncidents } from '@/hooks/useEntityIncidents'
 import { useLiveResource } from '@/hooks/useLiveResource'
 import type { Resource } from '@/hooks/useResource'
 import { useStale } from '@/hooks/useStale'
@@ -125,6 +126,7 @@ function ServerPanels({ id, resource }: { id: string; resource: Resource<ServerD
     { keepPreviousData: true },
   )
   // The sparklines in the Summary and the history panel share one series; only the panel has a banner for it.
+  const incidents = useEntityIncidents('server', id)
   const historyStale = useStale(history.updatedAt) || history.error !== null
   const item = resource.data?.item
   const nowMs = resource.data ? Date.parse(resource.data.generatedAt) : 0
@@ -163,6 +165,9 @@ function ServerPanels({ id, resource }: { id: string; resource: Resource<ServerD
           index={3}
           resource={history}
           name={item?.server.name ?? id}
+          serverId={id}
+          incidents={incidents.items}
+          incidentsAtMs={incidents.nowMs}
           className="lg:col-span-7"
         />
       </PanelBoundary>

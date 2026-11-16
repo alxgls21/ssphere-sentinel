@@ -5,6 +5,7 @@ import type {
   ChartOption,
   LineSeriesOption,
 } from '@/charts/echarts'
+import { incidentSeries, type IncidentSpan } from '@/charts/incidentSpans'
 import { BASE_ROOT_PX, readRootFontSize, type ChartTokens } from '@/charts/theme'
 import {
   maxNonNull,
@@ -51,6 +52,8 @@ export interface TargetOptionInput {
   /** The plot container's height in CSS px. Omitted: the minimum geometry. */
   height?: number
   limits?: TargetLimits
+  /** Incidents of this target inside the range, drawn as shaded spans on every grid. */
+  incidents?: readonly IncidentSpan[]
 }
 
 export function buildTargetOption({
@@ -61,8 +64,9 @@ export function buildTargetOption({
   tokens,
   height,
   limits = DEFAULT_TARGET_LIMITS,
+  incidents = [],
 }: TargetOptionInput): ChartOption {
-  const { colors, scale } = tokens
+  const { colors, fontFamily, scale } = tokens
   const px = (value: number) => value * scale
   const gridHeight = targetGridHeight(height, scale)
   const extent = timeExtent(series.t, series.bucketMs)
@@ -170,6 +174,18 @@ export function buildTargetOption({
         position: 'insideStartTop',
         tokens,
       }),
+      // The marks belong to the target, not to a metric: a line hidden from the legend does not take them.
+      ...(incidents.length === 0
+        ? []
+        : axes.map((_, gridIndex) =>
+            incidentSeries(`incidents-${gridIndex}`, gridIndex, {
+              spans: incidents,
+              colors,
+              fontFamily,
+              px,
+              labelled: gridIndex === 0,
+            }),
+          )),
     ],
   }
 }

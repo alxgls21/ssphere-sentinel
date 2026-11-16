@@ -6,6 +6,7 @@ import type { TargetDetail, TargetListItem } from '@/api/types'
 import { useAuth } from '@/app/auth/auth'
 import { useViewSearch, useViewTo } from '@/app/viewSearch'
 import { useRange } from '@/app/viewState'
+import { useEntityIncidents } from '@/hooks/useEntityIncidents'
 import { useLiveResource } from '@/hooks/useLiveResource'
 import type { Resource } from '@/hooks/useResource'
 import {
@@ -100,6 +101,7 @@ function TargetPanels({
     // Changing the range keeps the chart on screen, dimmed, instead of flashing a skeleton.
     { keepPreviousData: true },
   )
+  const incidents = useEntityIncidents('target', id)
   const detail = resource.data
   const item = detail?.item
   const nowMs = detail ? Date.parse(detail.generatedAt) : 0
@@ -128,6 +130,9 @@ function TargetPanels({
           name={item?.target.name ?? id}
           protocol={item?.target.protocol ?? 'icmp'}
           limits={limits}
+          targetId={id}
+          incidents={incidents.items}
+          incidentsAtMs={incidents.nowMs}
           className="lg:col-span-7"
         />
       </PanelBoundary>

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { BarSeriesOption, ChartOption, LineSeriesOption } from '@/charts/echarts'
 import { CHART_COLOR_TOKENS, type ChartColors, type ChartTokens } from '@/charts/theme'
+import type { IncidentSpan } from '@/charts/incidentSpans'
 import { REFERENCE_SERIES_PREFIX } from '@/charts/timeSeries'
 import type { TargetLimits } from '@/lib/targets'
 import { TARGET_CHART_HEIGHT_PX, buildTargetOption, targetGridHeight } from './targetHistoryOption'
@@ -120,5 +121,45 @@ describe('buildTargetOption', () => {
     expect(targetGridHeight(undefined, 1)).toBe(48)
     expect(targetGridHeight(TARGET_CHART_HEIGHT_PX - 40, 1)).toBe(48)
     expect(targetGridHeight(TARGET_CHART_HEIGHT_PX + 90, 1)).toBeCloseTo(78)
+  })
+})
+
+describe('the incidents it marks', () => {
+  const span: IncidentSpan = {
+    id: 'i1',
+    severity: 'warning',
+    start: 1000,
+    end: 2000,
+    open: true,
+    rule: 'Probe failing',
+  }
+  const marked = (incidents: IncidentSpan[], hidden: string[] = []) =>
+    all(
+      buildTargetOption({
+        protocol: 'icmp',
+        series: series(),
+        tz: 'utc',
+        hidden: new Set(hidden),
+        tokens,
+        incidents,
+      }),
+    ).filter((s) => String(s.id).startsWith('incidents-'))
+
+  it('adds nothing when there is none', () => {
+    expect(marked([])).toEqual([])
+  })
+
+  it('adds a silent series of shaded spans to each of the three grids', () => {
+    const found = marked([span])
+    expect(found.map((s) => [s.id, s.xAxisIndex])).toEqual([
+      ['incidents-0', 0],
+      ['incidents-1', 1],
+      ['incidents-2', 2],
+    ])
+    expect(found.every((s) => s.silent === true)).toBe(true)
+  })
+
+  it('keeps them when every line is hidden: they belong to the target, not to a metric', () => {
+    expect(marked([span], ['latency', 'latencyMax', 'loss', 'failed'])).toHaveLength(3)
   })
 })

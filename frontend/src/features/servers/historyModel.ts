@@ -63,15 +63,17 @@ export function summarizeHistory(
   series: ServerSeries,
   range: RangeKey,
   tz: Timezone,
+  incidents = '',
 ): string {
   const head = `Resource history of ${name}, ${RANGE_WORDS[range]}`
   const last = lastSampleIndex(series)
-  if (last < 0) return `${head}: no samples`
+  const marks = incidents === '' ? '' : `. ${incidents}`
+  if (last < 0) return `${head}: no samples${marks}`
   const stale = last < series.t.length - 1
   const parts = HISTORY_SERIES.map(
     ({ id, label }) => `${label} ${spoken(valuesOf(series, id)[last])}`,
   )
-  return `${head}: ${parts.join(', ')}${stale ? ` at ${formatHistoryTime(series.t[last] ?? 0, tz)} ${timezoneLabel(tz)}, the last sample before it stopped reporting` : ' now'}`
+  return `${head}: ${parts.join(', ')}${stale ? ` at ${formatHistoryTime(series.t[last] ?? 0, tz)} ${timezoneLabel(tz)}, the last sample before it stopped reporting` : ' now'}${marks}`
 }
 
 export function describeSample(series: ServerSeries, index: number, tz: Timezone): string {
