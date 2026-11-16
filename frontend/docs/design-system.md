@@ -189,11 +189,19 @@ Plain SVG and DOM marks in `ui/meters`, with no chart instance.
 
 A sparkline is drawn only where the console API serves the history: the server
 detail Summary (CPU, RAM and disk beside each meter, from the same per-server
-series as the history chart). The Servers list, Fleet load and the Servers and
-Containers tiles have none. The
-console API serves history per server, not for the fleet or for containers, and a
-sparkline per row would cost one series request each, so those show a bar or a
-number and nothing is drawn that the data does not contain.
+series as the history chart), the CPU column of the Servers table and the
+latency column of the Network table. The two tables ask once per page for the
+series of every row (`servers/series/`, `targets/series/`: the list's own query
+plus the range, the same rows in the same order), read on the list's rhythm and
+joined to the rows by id. Fleet load and the Servers and Containers tiles have
+none: the console API serves no history for them, so those show a bar or a number
+and nothing is drawn that the data does not contain.
+
+In a table the trend appears only where the container is wide (`@7xl` for
+Servers, `@6xl` for Network), never at the cost of a number. A row the answer
+does not hold, and every row when the series cannot be read, simply has no
+trend: that failure raises no banner and never touches the freshness of the
+list. A bucket with no sample is a gap in the line.
 
 ## Charts
 
