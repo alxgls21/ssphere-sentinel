@@ -4,11 +4,14 @@ import type {
   NotificationPreferences,
   NotificationSettings,
   NotifierState,
+  PreferenceChange,
+  ReceivingBlock,
   TestEmail,
   TestEmailAnswer,
   TestEmailStatus,
+  UserNotifications,
 } from '../types'
-import { flag, nullableText, nullableTime, oneOf, record, text, time } from './parse'
+import { bad, flag, nullableText, nullableTime, oneOf, record, text, time, whole } from './parse'
 import type { Transport } from './transport'
 
 /**
@@ -59,6 +62,46 @@ function parsePreferences(raw: unknown): NotificationPreferences {
     minSeverity: oneOf(SEVERITY, row.minSeverity),
     sendRecovery: flag(row.sendRecovery),
     updatedAt: nullableTime(row.updatedAt),
+    changedBy: row.changedBy === null ? null : parseChange(row.changedBy),
+  }
+}
+
+function parseChange(raw: unknown): PreferenceChange {
+  const row = record(raw)
+  const username = text(row.username)
+  if (username === '') throw bad()
+  return {
+    at: time(row.at),
+    username,
+    self: flag(row.self),
+    source: oneOf(['console', 'admin'] as const, row.source),
+  }
+}
+
+const BLOCKS: readonly ReceivingBlock[] = [
+  'no_email_address',
+  'account_inactive',
+  'no_console_access',
+]
+
+export function parseUserNotifications(raw: unknown): UserNotifications {
+  const row = record(raw)
+  const email = record(row.email)
+  const user = record(row.user)
+  return {
+    generatedAt: time(row.generatedAt),
+    user: {
+      id: whole(user.id, 1),
+      username: text(user.username),
+      displayName: text(user.displayName),
+      active: flag(user.active),
+    },
+    preferences: parsePreferences(row.preferences),
+    account: { email: nullableText(record(row.account).email) },
+    email: { available: flag(email.available), deliverable: flag(email.deliverable) },
+    receiving: flag(row.receiving),
+    receivingBlockedBy:
+      row.receivingBlockedBy === null ? null : oneOf(BLOCKS, row.receivingBlockedBy),
   }
 }
 
@@ -127,4 +170,33 @@ export const getTestEmail =
       await transport.get(`settings/notifications/test-email/${encodeURIComponent(id)}/`, {
         signal: options?.signal,
       }),
+    )
+
+/** An account id is a path segment: a whole number, or the request is not made. */
+function userNotificationsPath(id: number): string {
+  if (!Number.isInteger(id) || id < 1) throw bad()
+  return `users/${id}/notifications/`
+}
+
+export const getUserNotifications =
+  (transport: Transport): SentinelApi['getUserNotifications'] =>
+  async (id, options) =>
+    parseUserNotifications(
+      await transport.get(userNotificationsPath(id), { signal: options?.signal }),
+    )
+
+/** The same three preferences, named one by one: the address is never one of them. */
+export const saveUserNotifications =
+  (transport: Transport): SentinelApi['saveUserNotifications'] =>
+  async (id, input, options) =>
+    parseUserNotifications(
+      await transport.put(
+        userNotificationsPath(id),
+        {
+          enabled: input.enabled,
+          minSeverity: input.minSeverity,
+          sendRecovery: input.sendRecovery,
+        },
+        { signal: options?.signal },
+      ),
     )

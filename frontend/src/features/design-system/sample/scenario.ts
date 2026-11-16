@@ -50,6 +50,8 @@ export const GALLERY_API: SentinelApi = {
   getEngineStatus: refuse('getEngineStatus'),
   getIncidentOverview: refuse('getIncidentOverview'),
   getNotificationSettings: refuse('getNotificationSettings'),
+  getUserNotifications: refuse('getUserNotifications'),
+  saveUserNotifications: refuse('saveUserNotifications'),
   saveNotificationPreferences: refuse('saveNotificationPreferences'),
   requestTestEmail: refuse('requestTestEmail'),
   getTestEmail: refuse('getTestEmail'),

@@ -4,8 +4,10 @@ import {
   accountDraft,
   accountInput,
   accountPatch,
+  emailsText,
   parseUsersQuery,
   scopeText,
+  signInText,
   usersRequest,
   validateAccount,
   validatePassword,
@@ -26,6 +28,9 @@ const account: Account = {
   createdAt: '2026-09-01T08:00:00.000Z',
   locked: false,
   lockedUntil: null,
+  failedSignIns: 0,
+  maxFailedSignIns: 5,
+  notifications: { enabled: false, minSeverity: null, receiving: false },
   self: false,
   customers: [{ id: 'c1', name: 'Meridian' }],
   sites: [{ id: 's9', customerId: 'c2', customerName: 'Globex', name: 'Plant' }],
@@ -36,6 +41,8 @@ describe('the accounts list query', () => {
     expect(parseUsersQuery(new URLSearchParams('active=inactive&sort=lastLogin'))).toEqual({
       q: '',
       active: 'inactive',
+      locked: 'all',
+      notifications: 'all',
       sort: 'lastLogin',
       dir: 'desc',
       page: 1,
@@ -47,6 +54,8 @@ describe('the accounts list query', () => {
     const written = writeUsersQuery(new URLSearchParams(''), {
       q: 'm',
       active: 'active',
+      locked: 'locked',
+      notifications: 'on',
       sort: 'joined',
       dir: 'asc',
       page: 2,
@@ -54,15 +63,30 @@ describe('the accounts list query', () => {
     expect(Object.fromEntries(written)).toEqual({
       q: 'm',
       active: 'active',
+      locked: 'locked',
+      notifications: 'on',
       sort: 'joined',
       dir: 'asc',
       page: '2',
     })
     expect(
-      usersRequest({ q: 'x', active: 'all', sort: 'username', dir: 'asc', page: 1 }, 'settled'),
+      usersRequest(
+        {
+          q: 'x',
+          active: 'all',
+          locked: 'locked',
+          notifications: 'off',
+          sort: 'username',
+          dir: 'asc',
+          page: 1,
+        },
+        'settled',
+      ),
     ).toEqual({
       q: 'settled',
       active: 'all',
+      locked: 'locked',
+      notifications: 'off',
       sort: 'username',
       dir: 'asc',
       page: 1,
@@ -161,5 +185,44 @@ describe('the account form', () => {
         { ...account, sites: [...account.sites] },
       ),
     ).toBeNull()
+  })
+})
+
+describe('what the list says about sign-in and incident emails', () => {
+  const now = Date.parse('2026-10-18T10:00:00Z')
+  it('says locked until when, or how many failures still count, or nothing', () => {
+    expect(signInText(account, now, 'utc')).toBeNull()
+    expect(signInText({ ...account, failedSignIns: 2 }, now, 'utc')).toBe('2 of 5 failed sign-ins')
+    expect(
+      signInText(
+        { ...account, locked: true, lockedUntil: '2026-10-18T10:15:00.000Z', failedSignIns: 5 },
+        now,
+        'utc',
+      ),
+    ).toMatch(/^Locked until /)
+    expect(signInText({ ...account, locked: true }, now, 'utc')).toBe('Locked')
+  })
+
+  it('says off, on and received, or on and not received', () => {
+    const on = { enabled: true, minSeverity: 'critical' as const, receiving: true }
+    expect(emailsText(account)).toBe('Off')
+    expect(emailsText({ ...account, notifications: on })).toBe('Critical only')
+    expect(emailsText({ ...account, notifications: { ...on, minSeverity: 'warning' } })).toBe(
+      'Warning and critical',
+    )
+    expect(emailsText({ ...account, notifications: { ...on, receiving: false } })).toBe(
+      'On, not received',
+    )
+  })
+
+  it('reads the locked and emails filters, ignoring what it does not know', () => {
+    expect(parseUsersQuery(new URLSearchParams('locked=locked&notifications=on'))).toMatchObject({
+      locked: 'locked',
+      notifications: 'on',
+    })
+    expect(parseUsersQuery(new URLSearchParams('locked=x&notifications=maybe'))).toMatchObject({
+      locked: 'all',
+      notifications: 'all',
+    })
   })
 })

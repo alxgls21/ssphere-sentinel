@@ -16,20 +16,23 @@ Preferences::
      "email": {"available": bool, "deliverable": bool},
      "testEmail": {"allowed": bool, "latest": TestEmail | null}}       (/me/ only)
 
-    ChangedBy: {"at", "username": str, "self": bool, "source": console | admin}
+    ChangedBy: {"at", "username": str, "self": bool, "source": console | admin}   (a closed list)
 
 ``enabled`` false with ``updatedAt`` null: no subscription yet (the defaults are shown).
 ``changedBy``: the latest change of the preferences (from the configuration trail), by the
 account itself (``self``) or by an administrator, in the console or the admin; ``username`` is
-the name the one who changed them had then. Null before any recorded change.
+the name the one who changed them had then: never empty, and kept when that account is gone (then
+``self`` is false). Null before any recorded change.
 ``email.available``: this server sends email (an SMTP server is set); ``deliverable``:
 and the account has an address. Incident emails go to subscribers who may see the
 incident's site, checked again just before each is sent.
 
 ``/users/<id>/notifications/`` answers the same without ``testEmail`` (a test email goes only
-to the account that asks for it), with ``"user": {"id", "username", "displayName", "active"}``
-and ``"receiving": bool``: emails on, and the account is active, has an address and console
-access. An unknown id is a 404.
+to the account that asks for it), with ``"user": {"id", "username", "displayName", "active"}``,
+``"receiving": bool``: emails on, and the account can receive them, and
+``"receivingBlockedBy": no_email_address | account_inactive | no_console_access | null``: why the
+account cannot receive emails, whether they are on or not (the first of these, in this order, as
+the 409 of turning them on says), null when it can. An unknown id is a 404.
 
 ``PUT`` with the CSRF token and a JSON object of exactly ``enabled``, ``minSeverity`` and
 ``sendRecovery``: the preferences become those (a change is recorded in the
@@ -131,6 +134,7 @@ def changed_by(subscription: NotificationSubscription | None) -> dict | None:
             target_type=ConfigurationTarget.SUBSCRIPTION,
             target_id=str(subscription.pk),
             action=ConfigurationAction.SUBSCRIPTION_CHANGED,
+            source__in=(ConfigurationSource.CONSOLE, ConfigurationSource.ADMIN),
         )
         .order_by("-at", "-id")
         .values("at", "actor_id", "actor_name", "source")
@@ -231,14 +235,26 @@ def user_preferences(request, user_id: int):
                 "displayName": user.get_full_name() or user.get_username(),
                 "active": user.is_active,
             },
-            "receiving": payload["preferences"]["enabled"] and may_receive(user),
+            "receiving": payload["preferences"]["enabled"] and blocked_by(user) is None,
+            "receivingBlockedBy": blocked_by(user),
         }
     )
 
 
+def blocked_by(user) -> str | None:
+    """Why incident emails cannot go to ``user`` (the code of the 409 to turn them on), or None."""
+    if not user.email:
+        return "no_email_address"
+    if not user.is_active:
+        return "account_inactive"
+    if not user.has_perm(USE_CONSOLE):
+        return "no_console_access"
+    return None
+
+
 def may_receive(user) -> bool:
     """Whether incident emails can go to ``user`` at all: active, an address, console access."""
-    return bool(user.is_active and user.email and user.has_perm(USE_CONSOLE))
+    return blocked_by(user) is None
 
 
 def save_preferences(actor, user_id: int, values: dict, *, administrator: bool = False) -> None:
@@ -250,14 +266,14 @@ def save_preferences(actor, user_id: int, values: dict, *, administrator: bool =
             if user is None:
                 raise ApiError(404, "not_found", "Not found.")
             subscription = NotificationSubscription.objects.select_for_update().filter(user=user).first()
-            if values["enabled"]:
-                if not user.email:
-                    advice = "Add one to the account first." if administrator else "Ask an administrator to add one."
-                    raise ApiError(409, "no_email_address", f"This account has no email address. {advice}")
-                if not user.is_active:
-                    raise ApiError(409, "account_inactive", "This account is deactivated: it receives no emails.")
-                if not user.has_perm(USE_CONSOLE):
-                    raise ApiError(409, "no_console_access", "This account may not use the console: it receives no emails.")
+            blocked = blocked_by(user)
+            if values["enabled"] and blocked is not None:
+                advice = "Add one to the account first." if administrator else "Ask an administrator to add one."
+                raise ApiError(409, blocked, {
+                    "no_email_address": f"This account has no email address. {advice}",
+                    "account_inactive": "This account is deactivated, so it receives no emails.",
+                    "no_console_access": "This account may not use the console, so it receives no emails.",
+                }[blocked])
             elif subscription is None and not may_receive(user):
                 return  # nothing to switch off; preferences are kept for an account that can receive emails
             before = audit.subscription_values(subscription)

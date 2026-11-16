@@ -7,6 +7,7 @@ import type {
   NotificationSettings,
   NotifierStatus,
   OutboxSummary,
+  PreferenceChange,
   SystemStatus,
   TestEmail,
   TestEmailStatus,
@@ -125,6 +126,7 @@ export function notificationSettings(
     minSeverity?: 'critical' | 'warning'
     sendRecovery?: boolean
     updatedAt?: string | null
+    changedBy?: PreferenceChange | null
     email?: string | null
     available?: boolean
     allowed?: boolean
@@ -140,6 +142,7 @@ export function notificationSettings(
       minSeverity: over.minSeverity ?? 'critical',
       sendRecovery: over.sendRecovery ?? false,
       updatedAt: over.updatedAt === undefined ? null : over.updatedAt,
+      changedBy: over.changedBy === undefined ? null : over.changedBy,
     },
     account: { email },
     email: { available, deliverable: available && email !== null },
@@ -228,6 +231,13 @@ export function systemStatus(over: Partial<SystemStatus> = {}): SystemStatus {
           targetCritFailures: 3,
         },
       },
+    },
+    signIn: {
+      lockedAccounts: 0,
+      lockedUnknownNameBuckets: 0,
+      unknownNameBuckets: 1024,
+      maxFailedAttempts: 5,
+      lockoutSeconds: 900,
     },
     ...over,
   }

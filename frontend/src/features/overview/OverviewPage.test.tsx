@@ -149,6 +149,8 @@ describe('OverviewPage', () => {
         'getAlertRule',
         'getAlertRuleOptions',
         'getNotificationSettings',
+        'getUserNotifications',
+        'saveUserNotifications',
         'getSystemStatus',
         'getTestEmail',
         'listAlertRules',

@@ -1226,6 +1226,18 @@ export interface NotificationPreferences {
   minSeverity: AlertSeverity
   sendRecovery: boolean
   updatedAt: Iso | null
+  /** The latest recorded change, and who made it; null before any. */
+  changedBy: PreferenceChange | null
+}
+
+/** Who last changed an account's email preferences: it, or an administrator (in the console or the admin). */
+export interface PreferenceChange {
+  at: Iso
+  /** The name they had then; kept when that account is gone. */
+  username: string
+  /** The account changed its own. */
+  self: boolean
+  source: 'console' | 'admin'
 }
 
 /**
@@ -1258,6 +1270,22 @@ export interface NotificationSettings {
   email: { available: boolean; deliverable: boolean }
   /** `allowed`: this account may ask for a test email. `latest`: its latest request, if any. */
   testEmail: { allowed: boolean; latest: TestEmail | null }
+}
+
+/** Why an account cannot receive incident emails (the first that fails, in this order); the same codes a 409 gives. */
+export type ReceivingBlock = 'no_email_address' | 'account_inactive' | 'no_console_access'
+
+/** Another account's email preferences, as an administrator sees and sets them. It has no test email. */
+export interface UserNotifications {
+  generatedAt: Iso
+  user: { id: number; username: string; displayName: string; active: boolean }
+  preferences: NotificationPreferences
+  account: { email: string | null }
+  email: { available: boolean; deliverable: boolean }
+  /** Emails are on and the account can receive them. */
+  receiving: boolean
+  /** Why the account cannot receive them, whether they are on or not; null when it can. */
+  receivingBlockedBy: ReceivingBlock | null
 }
 
 /** What the preferences are saved as: exactly these three. */
@@ -1490,6 +1518,17 @@ export interface SystemStatus {
   notifier: NotifierStatus
   outbox: OutboxSummary
   environment: SystemEnvironment
+  signIn: SignInStatus
+}
+
+/** The sign-in throttle now. Unknown names are only counted: no name, no address, and they cannot be unlocked. */
+export interface SignInStatus {
+  lockedAccounts: number
+  /** Buckets for names that do not exist that are locked: a sign that names are being guessed. */
+  lockedUnknownNameBuckets: number
+  unknownNameBuckets: number
+  maxFailedAttempts: number
+  lockoutSeconds: number
 }
 
 /* ---------------------------------------------------------- administration */
@@ -1620,6 +1659,11 @@ export interface Account {
   /** The sign-in throttle refuses it until `lockedUntil`. */
   locked: boolean
   lockedUntil: Iso | null
+  /** The failed sign-ins that still count, of `maxFailedSignIns`; 0 once the window or the lockout is over. */
+  failedSignIns: number
+  maxFailedSignIns: number
+  /** Its incident emails; `minSeverity` is null for an account that never had a subscription. */
+  notifications: { enabled: boolean; minSeverity: AlertSeverity | null; receiving: boolean }
   /** This is the signed-in account. */
   self: boolean
   /** The customers and the sites it is granted (what it sees, unless it sees every customer). */
@@ -1628,12 +1672,18 @@ export interface Account {
 }
 
 export type AccountActiveFilter = 'all' | 'active' | 'inactive'
+export type AccountLockedFilter = 'all' | 'locked'
+export type AccountNotificationsFilter = 'all' | 'on' | 'off'
 export type AccountSortKey = 'username' | 'joined' | 'lastLogin'
 
 export interface AccountListOptions extends Pick<RequestOptions, 'signal'> {
   /** Words, every one of which must appear in the user name, the names or the email. */
   q?: string
   active?: AccountActiveFilter
+  /** Only the accounts the sign-in throttle refuses now. */
+  locked?: AccountLockedFilter
+  /** Only the accounts with incident emails on, or off. */
+  notifications?: AccountNotificationsFilter
   sort?: AccountSortKey
   dir?: SortDirection
   /** 1-based. */
@@ -1643,7 +1693,7 @@ export interface AccountListOptions extends Pick<RequestOptions, 'signal'> {
 
 export interface AccountList extends RecordList<Account> {
   /** Over the search, not the active filter: what each chip would show. */
-  counts: { active: number; inactive: number }
+  counts: { active: number; inactive: number; locked: number; notified: number }
 }
 
 export interface AccountDetail {

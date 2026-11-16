@@ -367,3 +367,46 @@ describe('what the deployment sets', () => {
     expect(screen.queryByRole('textbox')).not.toBeInTheDocument()
   })
 })
+
+describe('the sign-in throttle', () => {
+  const panel = () => screen.findByRole('region', { name: 'Sign-in' })
+  const signIn = (over: Partial<SystemStatus['signIn']>) => ({
+    ...systemStatus().signIn,
+    ...over,
+  })
+
+  it('says nothing is locked, with the rule it applies', async () => {
+    setup()
+    const region = within(await panel())
+    expect(region.getByText('Locked accounts')).toBeInTheDocument()
+    expect(region.queryByText('LOCKED')).not.toBeInTheDocument()
+    expect(region.queryByText('CHECK')).not.toBeInTheDocument()
+    expect(region.getByText('Failures that lock')).toBeInTheDocument()
+  })
+
+  it('links the locked accounts to the list of them, for an administrator', async () => {
+    setup(
+      systemStatus({ signIn: signIn({ lockedAccounts: 3 }) }),
+      can('viewSystemStatus', 'manageUsers'),
+    )
+    const region = within(await panel())
+    expect(region.getByRole('link', { name: '3' })).toHaveAttribute(
+      'href',
+      '/settings/users?locked=locked',
+    )
+    expect(region.getByText('LOCKED')).toBeInTheDocument()
+  })
+
+  it('does not link them for an account that may not manage users', async () => {
+    setup(systemStatus({ signIn: signIn({ lockedAccounts: 3 }) }))
+    const region = within(await panel())
+    expect(region.queryByRole('link')).not.toBeInTheDocument()
+  })
+
+  it('warns that names are being guessed when buckets of unknown names are locked, with no name in sight', async () => {
+    setup(systemStatus({ signIn: signIn({ lockedUnknownNameBuckets: 2 }) }))
+    const region = within(await panel())
+    expect(region.getByText('CHECK')).toBeInTheDocument()
+    expect(region.getByText(/someone may be guessing names/)).toBeInTheDocument()
+  })
+})

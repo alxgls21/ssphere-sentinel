@@ -3,6 +3,7 @@ import { Link, useLocation } from 'react-router'
 import { useApi } from '@/api/context'
 import { ApiError } from '@/api/errors'
 import type { Account, AccountActiveFilter, AccountSortKey } from '@/api/types'
+import type { Timezone } from '@/lib/format'
 import { useAuth } from '@/app/auth/auth'
 import { usePrefs } from '@/app/prefs'
 import { useViewTo } from '@/app/viewSearch'
@@ -26,9 +27,11 @@ import {
   ACTIVE_LABEL,
   ROLE_LABEL,
   USER_SORT_LABEL,
+  emailsText,
   nextUsersSort,
   parseUsersQuery,
   scopeText,
+  signInText,
   usersRequest,
   writeUsersQuery,
   type UsersQuery,
@@ -37,9 +40,10 @@ import { NEW_USER_PATH, userPath } from './sections'
 
 const SortHead = createSortHead<AccountSortKey, UsersQuery>(USER_SORT_LABEL, nextUsersSort)
 
-function StateTags({ account }: { account: Account }) {
+function StateTags({ account, nowMs, tz }: { account: Account; nowMs: number; tz: Timezone }) {
+  const signIn = signInText(account, nowMs, tz)
   return (
-    <span className="flex flex-wrap items-center gap-1">
+    <span className="flex flex-wrap items-center gap-x-2 gap-y-1">
       <StatusTag
         status={account.active ? 'healthy' : 'idle'}
         word={account.active ? 'ACTIVE' : 'INACTIVE'}
@@ -47,6 +51,7 @@ function StateTags({ account }: { account: Account }) {
       />
       {account.locked ? <StatusTag status="warning" word="LOCKED" variant="tag" /> : null}
       {account.self ? <StatusTag status="unknown" word="YOU" variant="tag" /> : null}
+      {signIn ? <span className="type-data text-fg-muted">{signIn}</span> : null}
     </span>
   )
 }
@@ -86,6 +91,9 @@ function UsersTable({
             </th>
             <th scope="col" className={cn(HEAD, 'px-3')}>
               STATE
+            </th>
+            <th scope="col" className={cn(HEAD, 'hidden px-3 @4xl:table-cell')}>
+              INCIDENT EMAILS
             </th>
             <SortHead
               sortKey="lastLogin"
@@ -129,7 +137,18 @@ function UsersTable({
                   {scopeText(account)}
                 </td>
                 <td className={cn(CELL, 'px-3')}>
-                  <StateTags account={account} />
+                  <StateTags account={account} nowMs={nowMs} tz={tz} />
+                </td>
+                <td className={cn(CELL, 'type-data hidden px-3 text-fg-muted @4xl:table-cell')}>
+                  {account.notifications.enabled && !account.notifications.receiving ? (
+                    <StatusTag
+                      status="warning"
+                      word={emailsText(account).toUpperCase()}
+                      variant="tag"
+                    />
+                  ) : (
+                    emailsText(account)
+                  )}
                 </td>
                 <td className={cn(CELL, 'type-data tnum hidden pr-3 text-right @5xl:table-cell')}>
                   {account.lastLoginAt ? (
@@ -147,7 +166,15 @@ function UsersTable({
   )
 }
 
-function UsersCards({ rows }: { rows: readonly Account[] }) {
+function UsersCards({
+  rows,
+  nowMs,
+  tz,
+}: {
+  rows: readonly Account[]
+  nowMs: number
+  tz: Timezone
+}) {
   const viewTo = useViewTo()
   const location = useLocation()
   return (
@@ -161,10 +188,11 @@ function UsersCards({ rows }: { rows: readonly Account[] }) {
           >
             <span className="flex flex-wrap items-center gap-2">
               <span className="type-data-strong min-w-0 truncate">{account.username}</span>
-              <StateTags account={account} />
+              <StateTags account={account} nowMs={nowMs} tz={tz} />
             </span>
             <span className="type-data text-fg-faint">
-              {account.role ? ROLE_LABEL[account.role] : 'No console access'} · {scopeText(account)}
+              {account.role ? ROLE_LABEL[account.role] : 'No console access'} · {scopeText(account)}{' '}
+              · emails: {emailsText(account).toLowerCase()}
             </span>
           </Link>
         </li>
@@ -184,6 +212,7 @@ export default function UsersPage() {
   const [query, update] = useListQuery(parseUsersQuery, writeUsersQuery)
   const wide = useMediaQuery('(min-width: 48rem)')
   const may = capabilities.manageUsers
+  const { tz } = usePrefs()
 
   const search = useDebouncedValue(query.q, SEARCH_SETTLE_MS)
   const asked = usersRequest(query, search)
@@ -213,7 +242,7 @@ export default function UsersPage() {
 
   const matching = list?.page.total ?? 0
   const noMatch = list !== undefined && matching === 0
-  const clear = () => update({ q: '', active: 'all' })
+  const clear = () => update({ q: '', active: 'all', locked: 'all', notifications: 'all' })
 
   return (
     <div className="flex min-h-full flex-col gap-3">
@@ -253,6 +282,23 @@ export default function UsersPage() {
               {ACTIVE_LABEL[filter]}
             </Chip>
           ))}
+        </fieldset>
+        <fieldset className="flex min-w-0 flex-wrap gap-1">
+          <legend className="sr-only">Filter by sign-in and incident emails</legend>
+          <Chip
+            pressed={query.locked === 'locked'}
+            onPressedChange={(pressed) => update({ locked: pressed ? 'locked' : 'all' })}
+            count={list?.counts.locked}
+          >
+            LOCKED
+          </Chip>
+          <Chip
+            pressed={query.notifications === 'on'}
+            onPressedChange={(pressed) => update({ notifications: pressed ? 'on' : 'all' })}
+            count={list?.counts.notified}
+          >
+            EMAILS ON
+          </Chip>
         </fieldset>
       </search>
 
@@ -301,7 +347,7 @@ export default function UsersPage() {
         {wide ? (
           <UsersTable rows={rows} query={query} onSort={update} nowMs={nowMs} />
         ) : (
-          <UsersCards rows={rows} />
+          <UsersCards rows={rows} nowMs={nowMs} tz={tz} />
         )}
       </Panel>
     </div>

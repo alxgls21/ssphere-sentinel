@@ -137,6 +137,17 @@ function parseEnvironment(raw: unknown): SystemEnvironment {
   }
 }
 
+function parseSignIn(raw: unknown): SystemStatus['signIn'] {
+  const row = record(raw)
+  return {
+    lockedAccounts: whole(row.lockedAccounts),
+    lockedUnknownNameBuckets: whole(row.lockedUnknownNameBuckets),
+    unknownNameBuckets: whole(row.unknownNameBuckets),
+    maxFailedAttempts: whole(row.maxFailedAttempts),
+    lockoutSeconds: whole(row.lockoutSeconds),
+  }
+}
+
 export function parseSystemStatus(raw: unknown): SystemStatus {
   const row = record(raw)
   return {
@@ -145,6 +156,7 @@ export function parseSystemStatus(raw: unknown): SystemStatus {
     notifier: parseNotifier(row.notifier),
     outbox: parseOutbox(row.outbox),
     environment: parseEnvironment(row.environment),
+    signIn: parseSignIn(row.signIn),
   }
 }
 

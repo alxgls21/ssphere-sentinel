@@ -27,6 +27,12 @@ const wireSettings = (over: Record<string, unknown> = {}) => ({
     minSeverity: 'warning',
     sendRecovery: true,
     updatedAt: '2026-10-17T08:00:00Z',
+    changedBy: {
+      at: '2026-10-17T08:00:00Z',
+      username: 'maria',
+      self: true,
+      source: 'console',
+    },
   },
   account: { email: 'maria@example.com' },
   email: { available: true, deliverable: true },
@@ -60,6 +66,12 @@ describe('notification settings', () => {
         minSeverity: 'warning',
         sendRecovery: true,
         updatedAt: '2026-10-17T08:00:00Z',
+        changedBy: {
+          at: '2026-10-17T08:00:00Z',
+          username: 'maria',
+          self: true,
+          source: 'console',
+        },
       },
       account: { email: 'maria@example.com' },
       email: { available: true, deliverable: true },
@@ -85,6 +97,7 @@ describe('notification settings', () => {
           minSeverity: 'critical',
           sendRecovery: false,
           updatedAt: null,
+          changedBy: null,
         },
         account: { email: null },
         email: { available: false, deliverable: false },
@@ -110,7 +123,15 @@ describe('notification settings', () => {
   it.each([
     [
       'an unknown severity',
-      { preferences: { enabled: true, minSeverity: 'info', sendRecovery: true, updatedAt: null } },
+      {
+        preferences: {
+          enabled: true,
+          minSeverity: 'info',
+          sendRecovery: true,
+          updatedAt: null,
+          changedBy: null,
+        },
+      },
     ],
     ['a flag that is not a boolean', { email: { available: 'yes', deliverable: true } }],
     ['an address that is not text', { account: { email: 7 } }],
@@ -162,6 +183,7 @@ describe('saving preferences', () => {
           minSeverity: 'critical',
           sendRecovery: false,
           updatedAt: '2026-10-18T10:00:00Z',
+          changedBy: null,
         },
       }),
     )
@@ -175,6 +197,7 @@ describe('saving preferences', () => {
       minSeverity: 'critical',
       sendRecovery: false,
       updatedAt: '2026-10-18T10:00:00Z',
+      changedBy: null,
     })
   })
 })

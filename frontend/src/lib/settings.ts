@@ -1,11 +1,13 @@
 import type {
   HealthStatus,
+  PreferenceChange,
+  ReceivingBlock,
   NotifierState,
   NotifierStatus,
   TestEmail,
   TestEmailStatus,
 } from '@/api/types'
-import { EMPTY, formatAge, formatDuration } from './format'
+import { EMPTY, formatAge, formatDuration, formatStamp, type Timezone } from './format'
 
 /**
  * What the settings screens say in words. Every state is the API's: this only names it, and never
@@ -189,3 +191,34 @@ export const SEVERITY_CHOICES = [
     hint: 'An email for every incident, warning or critical.',
   },
 ] as const
+
+/* ------------------------------------------------- incident email preferences */
+
+/**
+ * Who last changed an account's email preferences, in a sentence. Seen from the account itself
+ * (`own`) or from an administrator looking at it; `source` admin is the Django admin.
+ */
+export function changedByText(
+  change: PreferenceChange,
+  tz: Timezone,
+  nowMs: number,
+  viewer: 'own' | 'admin',
+): string {
+  const when = formatStamp(Date.parse(change.at), tz, nowMs)
+  if (change.self) {
+    return viewer === 'own'
+      ? `Last changed by you on ${when}.`
+      : `Last changed by the account itself on ${when}.`
+  }
+  const where = change.source === 'admin' ? ' in the admin' : ''
+  return viewer === 'own'
+    ? `Last changed by an administrator (${change.username}) on ${when}${where}.`
+    : `Last changed by ${change.username} on ${when}${where}.`
+}
+
+/** Why an account cannot receive incident emails, in the server's own words. */
+export const RECEIVING_BLOCK_TEXT: Record<ReceivingBlock, string> = {
+  no_email_address: 'This account has no email address. Add one to the account first.',
+  account_inactive: 'This account is deactivated, so it receives no emails.',
+  no_console_access: 'This account may not use the console, so it receives no emails.',
+}
