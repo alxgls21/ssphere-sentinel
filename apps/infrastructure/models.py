@@ -210,6 +210,11 @@ class DockerContainer(models.Model):
     health = models.CharField(max_length=32, choices=Health.choices)
     container_created_at = models.DateTimeField(null=True, blank=True)
     started_at = models.DateTimeField(null=True, blank=True)
+    # How its process last ended, as Docker reports it (null from an agent that does not send it): a stopped
+    # container that ended with an error or was killed for memory has crashed (apps.console.health).
+    exit_code = models.IntegerField(null=True, blank=True)
+    oom_killed = models.BooleanField(null=True, blank=True)
+    finished_at = models.DateTimeField(null=True, blank=True)
     present = models.BooleanField(default=True)
     last_seen_at = models.DateTimeField()
     received_at = models.DateTimeField()

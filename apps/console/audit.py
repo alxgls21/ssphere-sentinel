@@ -82,6 +82,7 @@ ACTIONS = {
     "alert_rule_changed": "Alert rule changed",
     "domain_created": "Domain added",
     "domain_verification_requested": "Domain verification requested",
+    "domain_deleted": "Domain deleted",
 }
 
 

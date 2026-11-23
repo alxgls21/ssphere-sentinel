@@ -327,7 +327,8 @@ class VerifyTests(TestCase):
         self.assertEqual(post(self.client_, self.verify).status_code, 202)
 
     def test_only_get_and_post(self):
-        self.assertEqual(self.client_.delete(f"{DOMAINS}{self.domain_id}/").status_code, 405)
+        # A deletion is an administrator's (test_domain_delete): refused to this account, not unknown.
+        self.assertEqual(self.client_.delete(f"{DOMAINS}{self.domain_id}/").status_code, 403)
         self.assertEqual(self.client_.patch(f"{DOMAINS}{self.domain_id}/", "{}", content_type="application/json").status_code, 405)
         self.assertEqual(self.client_.get(self.verify).status_code, 405)
 

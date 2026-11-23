@@ -198,8 +198,37 @@ class DockerDiscoveryTests(unittest.TestCase):
                 "health",
                 "created_at",
                 "started_at",
+                "exit_code",
+                "oom_killed",
+                "finished_at",
             },
         )
+
+    def test_how_the_last_run_ended_is_reported(self):
+        cases = (
+            ({"ExitCode": 1, "OOMKilled": False, "FinishedAt": "2026-01-02T03:04:05.123456789Z"},
+             (1, False, "2026-01-02T03:04:05.123456+00:00")),
+            ({"ExitCode": 137, "OOMKilled": True, "FinishedAt": "2026-01-02T03:04:05Z"},
+             (137, True, "2026-01-02T03:04:05+00:00")),
+            # A container that never ended: Docker's zero time.
+            ({"ExitCode": 0, "OOMKilled": False, "FinishedAt": "0001-01-01T00:00:00Z"}, (0, False, None)),
+            # Whatever Docker does not give as it should is not reported.
+            ({"ExitCode": "1", "OOMKilled": "yes"}, (None, None, None)),
+            ({"ExitCode": True, "OOMKilled": None}, (None, None, None)),
+            ({"ExitCode": 2**40}, (None, None, None)),
+            ({}, (None, None, None)),
+        )
+        for extra, expected in cases:
+            with self.subTest(extra=extra):
+                container = self._container(
+                    container_id="d" * 64, name="job", image="app", status="exited",
+                    health=None, has_healthcheck=False,
+                )
+                container.attrs["State"].update(extra)
+                client = MagicMock()
+                client.containers.list.return_value = [container]
+                item = self._collect(client=client)["containers"][0]
+                self.assertEqual((item["exit_code"], item["oom_killed"], item["finished_at"]), expected)
 
     def test_listing_skips_containers_removed_during_discovery(self):
         client = MagicMock()

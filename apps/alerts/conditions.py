@@ -63,6 +63,7 @@ REASONS: dict[str, dict[str, frozenset[str]]] = {
     EntityKind.CONTAINER: {
         "not_observable": frozenset({"unknown"}),  # its host or its Docker report is not current
         "dead": frozenset({"critical"}),
+        "crashed": frozenset({"critical"}),  # exited with an error, or killed for memory
         "unhealthy": frozenset({"critical"}),  # running, failing its health check
         "restarting": frozenset({"warning"}),
         "starting": frozenset({"idle"}),  # running, health check still starting

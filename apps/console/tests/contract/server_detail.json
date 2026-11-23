@@ -50,7 +50,10 @@
         "image": "postgres:16",
         "state": "running",
         "health": "unhealthy",
-        "startedAt": "<iso-utc>"
+        "startedAt": "<iso-utc>",
+        "exitCode": null,
+        "oomKilled": null,
+        "finishedAt": null
       },
       "status": "critical"
     },
@@ -62,7 +65,10 @@
         "image": "busybox:1",
         "state": "exited",
         "health": "none",
-        "startedAt": null
+        "startedAt": null,
+        "exitCode": null,
+        "oomKilled": null,
+        "finishedAt": null
       },
       "status": "idle"
     },
@@ -74,7 +80,10 @@
         "image": "nginx:1.27",
         "state": "running",
         "health": "healthy",
-        "startedAt": "<iso-utc>"
+        "startedAt": "<iso-utc>",
+        "exitCode": null,
+        "oomKilled": null,
+        "finishedAt": null
       },
       "status": "healthy"
     }

@@ -40,10 +40,12 @@ Container (``annotate_containers``)
     received within the same offline threshold (the heartbeat can go on while
     the Docker section is rejected or no longer sent), the stored state is
     last-known, not current, so it reads ``unknown`` (the UI's "state not
-    reported by an offline host"; ``not_observable``). Otherwise: ``dead`` and an unhealthy running container are
-    ``critical`` (``dead``, ``unhealthy``); ``restarting`` is ``warning``; a running container whose
-    health check is still ``starting`` is ``idle`` (``starting``), and so are ``exited``, ``created``
-    and ``paused`` (``stopped``: deliberately not running); a running container is ``healthy``
+    reported by an offline host"; ``not_observable``). Otherwise: ``dead``, an ``exited`` container that
+    crashed (it ended with an exit code other than those of a stop, ``STOP_EXIT_CODES``, or the kernel killed
+    it for memory) and an unhealthy running container are ``critical`` (``dead``, ``crashed``,
+    ``unhealthy``); ``restarting`` is ``warning``; a running container whose
+    health check is still ``starting`` is ``idle`` (``starting``), and so are ``created``, ``paused`` and an
+    ``exited`` container that did not crash (``stopped``: deliberately not running, or a finished job); a running container is ``healthy``
     (``running``); any other state is ``unknown`` (``other``).
 
     ``health_reason`` says which rule decided, for servers and containers as for
@@ -127,7 +129,12 @@ from apps.network.models import NetworkMeasurement
 
 # Why a server or a container has its status (``health_reason``).
 SERVER_REASONS = ("never_seen", "offline", "resources", "status_warning", "ok", "no_telemetry")
-CONTAINER_REASONS = ("not_observable", "dead", "restarting", "unhealthy", "starting", "running", "stopped", "other")
+CONTAINER_REASONS = ("not_observable", "dead", "crashed", "restarting", "unhealthy", "starting", "running", "stopped", "other")
+# The exit codes of a container that was stopped, not one that failed: it finished (0), or a signal ended it,
+# as ``docker stop`` does (SIGTERM, 143; SIGKILL after the stop timeout, 137) or Ctrl-C (SIGINT, 130). Any
+# other code, or a kill for memory, is a crash. An exit code alone cannot tell ``docker kill`` (137) from
+# a stop, so 137 is a stop unless Docker says the kernel killed it for memory.
+STOP_EXIT_CODES = (0, 130, 137, 143)
 # The UI's words for why a target has its status (``health_reason``).
 TARGET_REASONS = ("disabled", "no_agent", "agent_offline", "no_measurement", "stale", "failing", "failed", "latency", "loss", "ok")
 # How many target intervals a measurement stays current (never less than the offline threshold).
@@ -254,6 +261,12 @@ def annotate_containers(queryset: QuerySet, now: datetime) -> QuerySet:
     # For an observable container, the first that holds.
     rules = (
         (Q(state=DockerContainer.State.DEAD), CRITICAL, "dead"),
+        (
+            Q(state=DockerContainer.State.EXITED)
+            & (Q(oom_killed=True) | (Q(exit_code__isnull=False) & ~Q(exit_code__in=STOP_EXIT_CODES))),
+            CRITICAL,
+            "crashed",
+        ),
         (Q(state=DockerContainer.State.RESTARTING), WARNING, "restarting"),
         (Q(state=DockerContainer.State.RUNNING, health=DockerContainer.Health.UNHEALTHY), CRITICAL, "unhealthy"),
         (Q(state=DockerContainer.State.RUNNING, health=DockerContainer.Health.STARTING), IDLE, "starting"),

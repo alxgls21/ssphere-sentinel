@@ -18,6 +18,7 @@
     "viewDomains": false,
     "addDomains": false,
     "verifyDomains": false,
+    "deleteDomains": false,
     "manageServers": false,
     "editServers": false,
     "deleteServers": false,
@@ -25,7 +26,8 @@
     "manageTargets": false,
     "manageDevices": false,
     "manageUsers": false,
-    "viewAuditLog": false
+    "viewAuditLog": false,
+    "viewDeliveryLog": false
   },
   "thresholds": {
     "resourceWarnPercent": 80,

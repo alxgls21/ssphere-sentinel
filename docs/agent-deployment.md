@@ -206,7 +206,8 @@ sudo systemd-run --pty --quiet --uid=sentinel-agent --gid=sentinel-agent \
 Docker discovery is off unless you enable it. It needs the Docker SDK and
 access to the Docker API, and access to the Docker API is **equivalent to root
 on the host**: whoever can use it can start a privileged container. The agent
-sends only container metadata (names, images, state, health; never
+sends only container metadata (names, images, state, health, how the last run
+ended; never
 environment variables, mounts, commands or logs). To get it, the Docker SDK
 inspects every container, so each container's full configuration, environment
 variables and mounts included, passes through the agent's memory; none of it

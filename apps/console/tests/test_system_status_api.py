@@ -189,10 +189,12 @@ class CapabilityTests(TestCase):
             "infrastructure.add_server", "agents.add_agent", "agents.change_agent",
         )
         # The administration of customers, targets, devices, users and the audit log needs permissions of its own
-        # (test_customers_api, test_target_config_api, test_device_config_api, test_users_api, test_audit_log_api).
+        # (test_customers_api, test_target_config_api, test_device_config_api, test_users_api, test_audit_log_api);
+        # deleting domains and the email log, an administrator (test_domain_delete, test_notification_log).
         administration = {
             "editServers": False, "deleteServers": False, "manageCustomers": False, "manageTargets": False,
-            "manageDevices": False, "manageUsers": False, "viewAuditLog": False,
+            "manageDevices": False, "manageUsers": False, "viewAuditLog": False, "deleteDomains": False,
+            "viewDeliveryLog": False,
         }
         global_user = grant(make_user("global", all_customers=True), *everything)
         self.assertEqual(self.capabilities(global_user), {

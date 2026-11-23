@@ -6,9 +6,11 @@ and lightweight host agents.
 > **Status:** early development. Interfaces and data contracts may still change.
 > The browser console is under active development and clearly labels sample or
 > unconnected data; see the [frontend guide](frontend/README.md). Alerting
-> covers health incidents, with optional email notifications; metric threshold
-> alerts, other notification channels, SLA reporting, and remote target
-> configuration are not implemented.
+> covers health incidents (an object that is down, crashed or unhealthy, and
+> servers and network targets over the fixed `SENTINEL_THRESHOLD_*` limits),
+> with optional email notifications; limits per server or customer, other
+> notification channels, SLA reporting, and remote target configuration are not
+> implemented.
 
 ## What it monitors
 
@@ -216,7 +218,8 @@ not.
 ### Docker discovery (v0.1, optional)
 
 Install the agent with its `docker` extra and grant access to a Docker API. The
-agent reads container identity, image, state, health, and timestamps; it never
+agent reads container identity, image, state, health, timestamps, and how the
+last run ended (exit code, and whether the kernel killed it for memory); it never
 reads environment variables, secrets, mounts, command lines, or logs, and never
 performs Docker control actions.
 
@@ -233,7 +236,7 @@ liveness.
 | Section | Version | Main fields | Persistence |
 | --- | --- | --- | --- |
 | `telemetry` | 1 | `collected_at`, CPU and memory percentages, memory/disk byte counts, disk percentage, uptime | Latest snapshot plus rate-limited history |
-| `docker` | 1 | availability, collection time, container ID/name/image/state/health/timestamps | Latest authoritative inventory only |
+| `docker` | 1 | availability, collection time, container ID/name/image/state/health/timestamps/exit code | Latest authoritative inventory only |
 | `network` | 1 | measurements with stable `measurement_id`, target, time, success, latency/loss, probe counts, failure reason | Idempotent history |
 | `snmp` | 1 | polls and interface samples | Idempotent history; full contract in [SNMP monitoring](docs/snmp.md#the-snmp-heartbeat-section-version-1) |
 
@@ -291,6 +294,7 @@ Access is deny-by-default and filtered by customer/site grants; see
 | `GET`, `POST /api/v1/console/users/`; `GET`, `PATCH .../users/<id>/`; `POST .../users/<id>/password/`; `POST .../users/<id>/unlock/` | Accounts (administrators only): list, create, change (role, access, active), set a password, unlock a sign-in |
 | `PUT /api/v1/console/account/password/` | The signed-in user's own password |
 | `GET /api/v1/console/audit-log/` | The audit trail of the console's writes, filtered and paged |
+| `GET /api/v1/console/notifications/` | The incident emails: who, about what, sent or why not (administrators) |
 | `GET /api/v1/console/topology/` | Topology of what the session may see |
 | `GET /api/v1/console/incidents/`; `GET .../incidents/<id>/` | Incidents: the list and one visible incident |
 | `POST /api/v1/console/incidents/<id>/acknowledge/` | Acknowledge an incident |
@@ -299,7 +303,7 @@ Access is deny-by-default and filtered by customer/site grants; see
 | `GET`, `PUT /api/v1/console/settings/notifications/me/` | The signed-in user's own email preferences |
 | `POST /api/v1/console/settings/notifications/test-email/`; `GET .../test-email/<id>/` | A test email to the user's own address, sent by the notifier |
 | `GET /api/v1/console/system/status/` | Alert engine, notifier, email outbox, and the settings the environment sets |
-| `GET`, `POST /api/v1/console/domains/`; `GET /api/v1/console/domains/<id>/` | Monitored domains: list, add, and the TXT record that verifies one |
+| `GET`, `POST /api/v1/console/domains/`; `GET`, `DELETE /api/v1/console/domains/<id>/` | Monitored domains: list, add, the TXT record that verifies one, and delete (administrators) |
 | `POST /api/v1/console/domains/<id>/verify/`; `GET .../verifications/<id>/` | A domain verification, answered by the domain verifier from the domain's name servers |
 
 Server lists accept `customer`, `site`, `q`, `status`, `sort`, `dir`, `page`,
@@ -314,8 +318,11 @@ does not exist. List endpoints return no more than 200 rows per page.
 Liveness is derived from the server's last heartbeat and
 `SENTINEL_OFFLINE_THRESHOLD` (90 seconds by default). A stale telemetry snapshot
 is retained as the last known reading and returned with `stale: true`, but it is
-excluded from current health, counts, and resource sorting. Container state also
-becomes unknown when its host or Docker report is no longer current. A container
+excluded from current health, counts, and resource sorting. A stopped container
+that crashed (an exit code other than 0, 130, 137 or 143, or killed for memory)
+is critical; one that finished or was stopped (`docker stop`, Ctrl-C) is not.
+Container state also becomes unknown when its host or Docker report is no longer
+current. A container
 its host no longer lists (removed, or its stack taken down) leaves the console
 with the next Docker report; its row stays in the database for
 `SENTINEL_DOCKER_ABSENT_CONTAINER_RETENTION_DAYS` until

@@ -331,7 +331,9 @@ class ContainerHealthTests(ConsoleDataTestCase):
             with self.subTest(container=row["name"]):
                 self.assertEqual(row["health_reason"], reference_container_reason(*args))
                 self.assertEqual(HEALTH_NAMES[row["severity"]], reference_container(*args))
-        self.assertEqual({row["health_reason"] for row in rows}, set(CONTAINER_REASONS))
+        # Every reason but a crash, which takes an exit code this grid of (state, health) does not set
+        # (test_container_exit).
+        self.assertEqual({row["health_reason"] for row in rows}, set(CONTAINER_REASONS) - {"crashed"})
 
     def test_absent_containers_are_not_served(self):
         server = make_server("host", now=self.now, cpu=None)

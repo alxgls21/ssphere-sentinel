@@ -38,6 +38,16 @@ def domain_created(actor, domain):
     )
 
 
+def domain_deleted(actor, domain):
+    return record(
+        actor,
+        source=ConfigurationSource.CONSOLE,
+        action=ConfigurationAction.DOMAIN_DELETED,
+        changed=changes(domain_values(domain), {}),
+        **_common(domain),
+    )
+
+
 def verification_requested(actor, domain, verification):
     return record(
         actor,

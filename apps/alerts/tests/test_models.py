@@ -53,7 +53,7 @@ class VocabularyTests(TestCase):
         # The console's own rules (apps.console.health): what is critical, and why.
         expected = {
             "server": ("offline", "resources"),
-            "container": ("dead", "unhealthy"),
+            "container": ("dead", "crashed", "unhealthy"),
             "target": ("failing",),
             "device": ("unreachable",),
             "interface": (),

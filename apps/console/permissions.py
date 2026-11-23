@@ -173,6 +173,17 @@ def may_view_domains(user, visibility: Visibility) -> bool:
     return visibility.all_access and any(user.has_perm(name) for name in (VIEW_DOMAINS, ADD_DOMAINS, VERIFY_DOMAINS))
 
 
+def may_delete_domains(user, visibility: Visibility) -> bool:
+    """Deleting a monitored domain: administrators (superusers) only. There is no lesser permission for it: a new one
+    in the Editor role would rank every existing editor lower until it was granted to them, for a rare action."""
+    return bool(user.is_active and user.is_superuser)
+
+
+def may_view_delivery_log(user, visibility: Visibility) -> bool:
+    """The email delivery log names every customer's incidents and every recipient: administrators only."""
+    return bool(user.is_active and user.is_superuser)
+
+
 def _configures_with(user, visibility: Visibility, *permissions: str) -> bool:
     """Configures monitoring, and holds every one of ``permissions`` (the admin's, for the same actions)."""
     return configures_monitoring(user, visibility) and all(user.has_perm(name) for name in permissions)
@@ -298,6 +309,7 @@ def capabilities(user, visibility: Visibility) -> dict[str, bool]:
         "viewDomains": may_view_domains(user, visibility),
         "addDomains": may_add_domains(user, visibility),
         "verifyDomains": may_verify_domains(user, visibility),
+        "deleteDomains": may_delete_domains(user, visibility),
         "manageServers": may_manage_servers(user, visibility),
         "editServers": may_change_servers(user, visibility),
         "deleteServers": may_delete_servers(user, visibility),
@@ -306,4 +318,5 @@ def capabilities(user, visibility: Visibility) -> dict[str, bool]:
         "manageDevices": may_manage_devices(user, visibility),
         "manageUsers": may_manage_users(user, visibility),
         "viewAuditLog": may_view_audit_log(user, visibility),
+        "viewDeliveryLog": may_view_delivery_log(user, visibility),
     }

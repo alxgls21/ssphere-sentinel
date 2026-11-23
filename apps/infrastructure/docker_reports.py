@@ -53,6 +53,8 @@ MAX_CONTAINERS_PER_REPORT = 1000
 MAX_CONTAINER_ID_LENGTH = 64
 MAX_NAME_LENGTH = 255
 MAX_IMAGE_LENGTH = 512
+# What a PostgreSQL integer holds; Docker's exit codes are 0-255 on Linux, but are not checked against that.
+MIN_EXIT_CODE, MAX_EXIT_CODE = -(2**31), 2**31 - 1
 
 # See the module docstring: both bound the recovery of an agent whose clock stepped back.
 RECOVERY_AFTER = MAX_FUTURE_SKEW
@@ -76,6 +78,9 @@ class ValidatedDockerContainer:
     health: str
     created_at: datetime | None
     started_at: datetime | None
+    exit_code: int | None = None
+    oom_killed: bool | None = None
+    finished_at: datetime | None = None
 
 
 @dataclass(frozen=True)
@@ -226,6 +231,9 @@ _SYNCED_CONTAINER_FIELDS = (
     "health",
     "container_created_at",
     "started_at",
+    "exit_code",
+    "oom_killed",
+    "finished_at",
     "present",
 )
 BULK_UPDATE_BATCH_SIZE = 200
@@ -257,6 +265,9 @@ def _sync_containers(
             "health": item.health,
             "container_created_at": item.created_at,
             "started_at": item.started_at,
+            "exit_code": item.exit_code,
+            "oom_killed": item.oom_killed,
+            "finished_at": item.finished_at,
             "present": True,
         }
         row = existing.pop(item.container_id, None)
@@ -323,6 +334,16 @@ def _validate_container(raw: Any) -> ValidatedDockerContainer:
 
     created_at = _parse_optional_timestamp(raw.get("created_at"), field="created_at")
     started_at = _parse_optional_timestamp(raw.get("started_at"), field="started_at")
+    # How its last run ended: optional (agents before 0.9.5 do not send them), null when unknown.
+    exit_code = raw.get("exit_code")
+    if exit_code is not None and (
+        isinstance(exit_code, bool) or not isinstance(exit_code, int) or not MIN_EXIT_CODE <= exit_code <= MAX_EXIT_CODE
+    ):
+        raise DockerValidationError("exit_code must be a whole number or null")
+    oom_killed = raw.get("oom_killed")
+    if oom_killed is not None and not isinstance(oom_killed, bool):
+        raise DockerValidationError("oom_killed must be a boolean or null")
+    finished_at = _parse_optional_timestamp(raw.get("finished_at"), field="finished_at")
 
     return ValidatedDockerContainer(
         container_id=container_id,
@@ -332,6 +353,9 @@ def _validate_container(raw: Any) -> ValidatedDockerContainer:
         health=health,
         created_at=created_at,
         started_at=started_at,
+        exit_code=exit_code,
+        oom_killed=oom_killed,
+        finished_at=finished_at,
     )
 
 

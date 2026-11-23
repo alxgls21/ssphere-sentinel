@@ -3,8 +3,14 @@
 An item is the UI's ``ServerContainer`` (``{container, status}``) plus where the
 container runs, so a fleet-wide list can show it:
 
-    {"container": {id, serverId, name, image, state, health, startedAt},
+    {"container": {id, serverId, name, image, state, health, startedAt,
+                   exitCode: int | null, oomKilled: bool | null, finishedAt: str | null},
      "status": HealthStatus, "serverName", "customerName"?, "siteName"?}
+
+``exitCode``, ``oomKilled`` and ``finishedAt`` are how its process last ended (null when the agent did not
+say: agents before 0.9.5, or a container that never ended). An ``exited`` container whose status is
+``critical`` crashed: it ended with an error code, or the kernel killed it for memory
+(``apps.console.health``); one that ended as a stop does is ``idle``.
 
 and the response carries the same ``page``, ``counts`` and ``scopeTotal`` as the
 server list (see ``apps.console.servers``). ``container.id`` is
@@ -50,7 +56,7 @@ from apps.console.health import (
 from apps.console.http import console_api
 from apps.console.listing import filter_list, name_order, page_envelope
 from apps.console.params import PAGE_PARAMS, SCOPE_PARAMS, PageRequest, QueryParams
-from apps.console.serializers import iso
+from apps.console.serializers import iso, iso_or_none
 from apps.infrastructure.models import DockerContainer
 
 STATUS_FILTERS = ("all", "critical", "warning", "unknown", "idle", "healthy")
@@ -74,6 +80,9 @@ FIELDS = (
     "state",
     "health",
     "started_at",
+    "exit_code",
+    "oom_killed",
+    "finished_at",
     "observable",
     "severity",
     "server__name",
@@ -129,6 +138,9 @@ def serialize(row: dict) -> dict:
             "state": row["state"] if observable else DockerContainer.State.UNKNOWN,
             "health": row["health"] if observable else DockerContainer.Health.UNKNOWN,
             "startedAt": iso(row["started_at"]) if row["started_at"] is not None else None,
+            "exitCode": row["exit_code"] if observable else None,
+            "oomKilled": row["oom_killed"] if observable else None,
+            "finishedAt": iso_or_none(row["finished_at"]) if observable else None,
         },
         "status": HEALTH_NAMES[row["severity"]],
     }

@@ -1,11 +1,12 @@
-"""Monitored domains and their DNS verification: ``GET/POST /domains/``, ``GET /domains/<id>/``,
+"""Monitored domains and their DNS verification: ``GET/POST /domains/``, ``GET/DELETE /domains/<id>/``,
 ``POST /domains/<id>/verify/``, ``GET /domains/<id>/verifications/<vid>/``.
 
 Who: every endpoint needs global visibility (``console.view_all_customers``, or a
 superuser): the list names every customer's domains. Then ``web.view_monitoreddomain``
 (or the permission to add or verify) to read, ``web.add_monitoreddomain`` to add,
-``web.verify_monitoreddomain`` to ask for a verification. Otherwise 403. Domains are
-not changed or deleted here.
+``web.verify_monitoreddomain`` to ask for a verification; to delete, an administrator
+(a superuser: ``deleteDomains`` in the session's capabilities). Otherwise 403. Domains
+are not changed here.
 
 A domain is monitored only once verified: its customer adds the record the detail
 gives to the domain's DNS, and asks for a verification, which the domain verifier
@@ -68,6 +69,15 @@ trustworthy either way (``detail`` says why: no answer in time, failures, too fe
 answers). A request no verifier took within ten minutes expires (``verifier.state``
 tells whether one is running). ``GET`` reads one of the domain's verifications (one of
 another domain is a 404). The frontend polls it.
+
+Delete: ``DELETE`` with the CSRF token and no body (or ``{}``). 409 ``verification_active``
+while a verification is waiting or running (wait for its answer). Its verifications go with
+it; nothing else refers to a domain (no alert rule or incident), and its customer may then be
+deleted if nothing else is left. The record in the customer's DNS is no longer needed; adding
+the domain again later gives it a new record value. Recorded in the audit trail and the
+configuration trail (``domain_deleted``). 200 with::
+
+    {"generatedAt", "deleted": {"id", "name", "displayName", "customer": {"id", "name"}}}
 """
 
 from __future__ import annotations
@@ -85,7 +95,7 @@ from apps.console import audit as trail
 from apps.console.http import ApiError, console_api, json_object, validation_error
 from apps.console.listing import apply_search, name_order, page_envelope
 from apps.console.params import PAGE_PARAMS, PageRequest, QueryParams, canonical_uuid
-from apps.console.permissions import may_add_domains, may_verify_domains, may_view_domains, require
+from apps.console.permissions import may_add_domains, may_delete_domains, may_verify_domains, may_view_domains, require
 from apps.console.serializers import iso, iso_or_none
 from apps.inventory.models import Customer
 from apps.web import audit
@@ -126,6 +136,7 @@ FIELDS = (
 )
 CREATE_FIELDS = ("customerId", "name")
 DOMAIN_UNIQUE = "uniq_web_domain_per_customer"
+ACTIVE_VERIFICATIONS = (DomainVerification.Status.PENDING, DomainVerification.Status.RUNNING)
 
 
 def _choice(value: str, choices) -> dict | None:
@@ -238,12 +249,50 @@ def detail_payload(domain_id, now) -> dict:
     return {"generatedAt": iso(now), "item": item}
 
 
-@console_api()
+@console_api(methods=("GET", "DELETE"))
 def domain_item(request, domain_id: UUID):
+    if request.method == "DELETE":
+        return delete_domain(request, domain_id)
     now = timezone.now()
     visible_domains(request)
     QueryParams(request, ())
     return JsonResponse(detail_payload(domain_id, now))
+
+
+def delete_domain(request, domain_id: UUID):
+    now = timezone.now()
+    user = request.user
+    require(may_delete_domains(user, request.visibility), "This account may not delete monitored domains.")
+    QueryParams(request, ())
+    data = json_object(request, max_bytes=1024, empty=True)
+    if data:
+        raise validation_error({name: ["Unknown field: a deletion has no options."] for name in sorted(data)})
+    with transaction.atomic():
+        # Held as a verification request holds it: none can start while it is deleted.
+        domain = domain_or_404(MonitoredDomain.objects.select_for_update().select_related("customer"), domain_id)
+        expire_verifications(now, domain_id=domain.pk)
+        if DomainVerification.objects.filter(domain=domain, status__in=ACTIVE_VERIFICATIONS).exists():
+            raise ApiError(
+                409, "verification_active", "A verification of this domain is waiting or running: wait for its answer, then delete it."
+            )
+        done = {
+            "id": str(domain.pk),
+            "name": domain.name,
+            "displayName": domain.display_name,
+            "customer": {"id": str(domain.customer_id), "name": domain.customer.name},
+        }
+        audit.domain_deleted(user, domain)
+        trail.record(
+            user,
+            action="domain_deleted",
+            target_type=trail.DOMAIN,
+            target_id=domain.pk,
+            target_name=domain.name,
+            changed=trail.changes(audit.domain_values(domain), {}),
+        )
+        domain.delete()
+    logger.info("Domain deleted (domain=%s, customer=%s, user_id=%s)", done["id"], done["customer"]["id"], user.pk)
+    return JsonResponse({"generatedAt": iso(now), "deleted": done})
 
 
 def parse_create(data: dict) -> tuple[UUID, str, str]:

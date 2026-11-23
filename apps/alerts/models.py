@@ -986,6 +986,7 @@ class ConfigurationAction(models.TextChoices):
     DOMAIN_VERIFICATION_REQUESTED = "domain_verification_requested", "Domain verification requested"
     DOMAIN_VERIFIED = "domain_verified", "Domain verified"
     DOMAIN_VERIFICATION_FAILED = "domain_verification_failed", "Domain verification failed"
+    DOMAIN_DELETED = "domain_deleted", "Domain deleted"
 
 
 class ConfigurationTarget(models.TextChoices):

@@ -202,6 +202,7 @@ def _serialize_container(container: Any) -> dict[str, Any]:
     created_at = _docker_timestamp(attrs.get("Created"))
     started_raw = state.get("StartedAt")
     started_at = _docker_timestamp(started_raw)
+    finished_at = _docker_timestamp(state.get("FinishedAt"))
 
     return {
         "container_id": container_id,
@@ -211,7 +212,18 @@ def _serialize_container(container: Any) -> dict[str, Any]:
         "health": normalize_health(health_status, has_healthcheck=has_healthcheck),
         "created_at": created_at,
         "started_at": started_at,
+        # How its process last ended: the server tells a crash from a stop by these.
+        "exit_code": _exit_code(state.get("ExitCode")),
+        "oom_killed": state.get("OOMKilled") if isinstance(state.get("OOMKilled"), bool) else None,
+        "finished_at": finished_at,
     }
+
+
+def _exit_code(value: Any) -> int | None:
+    """Docker's exit code of the container's last run, or None if it reports none usable."""
+    if isinstance(value, bool) or not isinstance(value, int):
+        return None
+    return value if -(2**31) <= value < 2**31 else None
 
 
 def _image_tag(container: Any) -> str | None:
