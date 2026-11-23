@@ -36,7 +36,7 @@ logger = logging.getLogger("apps.console")
 
 API_PREFIX = "/api/v1/console/"
 # Set in the session by the console's own sign-in (value: epoch seconds). A
-# session created anywhere else (the admin login, say) is not a console session.
+# session created anywhere else (force_login in a test, say) is not a console session.
 CONSOLE_SESSION_KEY = "console_signed_in_at"
 CLOCK_SKEW_SECONDS = 60
 

@@ -124,6 +124,7 @@ const REASON: Record<IncidentEntityKind, Record<string, string>> = {
   container: {
     not_observable: 'not observable: its host or Docker report is not current',
     dead: 'dead',
+    crashed: 'crashed: exited with an error or killed for memory',
     unhealthy: 'unhealthy: failing its health check',
     restarting: 'restarting',
     other: 'in a state the console does not know',

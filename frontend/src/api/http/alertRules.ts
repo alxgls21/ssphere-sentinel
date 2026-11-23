@@ -19,6 +19,7 @@ import type {
 } from '../types'
 import { parsePage } from './lists'
 import { array, flag, nullableText, oneOf, record, text, time, whole } from './parse'
+import { parseDeleted } from './records'
 import type { Transport } from './transport'
 
 /**
@@ -66,6 +67,7 @@ export function parseAlertRule(raw: unknown): AlertRule {
     updatedAt: time(row.updatedAt),
     version: whole(row.version),
     canEdit: flag(row.canEdit),
+    canDelete: flag(row.canDelete),
   }
 }
 
@@ -240,3 +242,8 @@ export const updateAlertRule =
       ),
     )
   }
+
+export const deleteAlertRule =
+  (transport: Transport): SentinelApi['deleteAlertRule'] =>
+  async (id, options) =>
+    parseDeleted(await transport.delete(rulePath(id), { signal: options?.signal }))

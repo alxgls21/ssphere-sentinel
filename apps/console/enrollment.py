@@ -2,7 +2,7 @@
 ``POST /agents/<id>/rotate-token/`` and ``PATCH /agents/<id>/``.
 
 Who: every write needs what changing alert rules needs (``alerts.change_alertrule`` and
-global visibility) and the model permission the admin asks for the same action
+global visibility) and Django's model permission for the same action
 (``infrastructure.add_server``, ``agents.add_agent``, ``agents.change_agent``; see
 ``apps.console.permissions``); otherwise 403. The admin and ``manage.py create_agent`` remain
 possible: all three make and rotate tokens with the same code (``apps.agents.services``: a

@@ -186,7 +186,7 @@ export default function SitePage() {
     return (
       <NotPermitted
         what="change customers and sites"
-        hint="The console offers this only to an account that may change alert rules and holds the admin's permissions on customers and sites, with access to every customer. The server checks it on every request."
+        hint="The console offers this only to an account that may change alert rules and may change customers and sites, with access to every customer. The server checks it on every request."
       />
     )
   }

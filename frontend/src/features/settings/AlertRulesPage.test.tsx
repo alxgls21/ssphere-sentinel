@@ -633,3 +633,14 @@ describe('switching a rule on or off', () => {
     await screen.findByText(/is enabled\./)
   })
 })
+
+describe('after a deletion', () => {
+  it('says which rule went, when its page sends the operator here', async () => {
+    setup(undefined, {}, {
+      pathname: '/settings/alert-rules',
+      state: { deleted: 'Core down' },
+    } as unknown as string)
+    expect(await screen.findByText('The rule “Core down” is deleted.')).toBeInTheDocument()
+    expect(screen.getByText('DELETED')).toBeInTheDocument()
+  })
+})

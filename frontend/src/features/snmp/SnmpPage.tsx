@@ -155,7 +155,7 @@ export default function SnmpPage() {
           nothingThere ? (
             <EmptyState
               title="No SNMP devices"
-              hint="No device with SNMP settings in this scope is configured. Add one in the admin and assign it an agent, and it appears here."
+              hint="No device with SNMP settings in this scope is configured. Add one in Settings and assign it an agent, and it appears here."
             />
           ) : (
             <EmptyState

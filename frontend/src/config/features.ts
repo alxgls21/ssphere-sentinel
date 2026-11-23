@@ -144,7 +144,7 @@ export const FEATURES: Record<FeatureId, FeatureInfo> = {
     backend: 'console-api',
     connected: true,
     requires:
-      'placing each server and probe target on a site (a server when it is added in the console, otherwise in the admin)',
+      'placing each server and probe target on a site (a server when it is added or edited in the console, a target or a device in its Settings page)',
     note: 'The backend supports placing servers and probe targets on a site, and the console API filters by it. A server with no site is shown on none.',
   },
   customers: {

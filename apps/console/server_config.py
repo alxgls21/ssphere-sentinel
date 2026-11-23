@@ -1,6 +1,6 @@
 """Changing and deleting monitored hosts from the console: ``PATCH`` and ``DELETE /servers/<id>/``.
 
-Who: what adding a server needs (``apps.console.enrollment``), with the admin's permission for
+Who: what adding a server needs (``apps.console.enrollment``), with Django's model permission for
 the action: ``infrastructure.change_server`` to change, ``infrastructure.delete_server`` to
 delete; otherwise 403. A hidden or unknown server is a 404 (``GET /servers/<id>/`` is
 ``apps.console.servers``).

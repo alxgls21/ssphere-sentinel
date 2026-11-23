@@ -49,7 +49,7 @@ class HealthEndpointTests(TestCase):
         # Everything else still validates the Host header, logged as a single
         # warning line rather than an ERROR with a traceback.
         with self.assertLogs("django.security.DisallowedHost", level="WARNING") as logs:
-            response = self.client.get("/admin/login/", HTTP_HOST="172.18.0.5:8000")
+            response = self.client.get("/api/v1/console/session/", HTTP_HOST="172.18.0.5:8000")
         self.assertEqual(response.status_code, 400)
         record = logs.records[0]
         self.assertEqual(record.levelname, "WARNING")
@@ -60,7 +60,7 @@ class HealthEndpointTests(TestCase):
     def test_probes_are_not_redirected_to_https(self):
         self.assertEqual(self.client.get(LIVENESS).status_code, 200)
         self.assertEqual(self.client.get(READINESS).status_code, 200)
-        self.assertEqual(self.client.get("/admin/login/").status_code, 301)
+        self.assertEqual(self.client.get("/api/v1/console/session/").status_code, 301)
 
     def test_health_middleware_runs_first(self):
         self.assertEqual(settings.MIDDLEWARE[0], "apps.core.middleware.HealthCheckMiddleware")

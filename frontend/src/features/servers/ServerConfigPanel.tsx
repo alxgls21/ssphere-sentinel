@@ -276,7 +276,7 @@ export function ServerConfigPanel({ index, resource, className }: ServerConfigPa
             ) : (
               <p className="type-body text-fg-muted">
                 This account may not change or delete hosts: the console offers that to an account
-                that may change alert rules and holds the admin's permissions on servers.
+                that may change alert rules and may change servers.
               </p>
             )}
           </div>

@@ -48,13 +48,12 @@ a copy of steps 2 to 5 below filled in (the token is read hidden into the
 environment file, never typed on a command line). Paste those commands one
 step at a time, or at least run their step 3 on its own: it asks for the
 token, and a paste of the whole block relies on the shell's bracketed paste
-(bash 5.1 or newer) to hold the following lines back. A server added in the admin
-without an agent gets one from its page in the console (**Create agent**).
-The admin remains possible: add an **Agent** for the host's **Server** there,
-or run `python manage.py create_agent --server <server-uuid> --name <name>`;
+(bash 5.1 or newer) to hold the following lines back. A server without an
+agent gets one from its page in the console (**Create agent**). The command
+line remains possible: `python manage.py create_agent --server <server-uuid> --name <name>`;
 every way shows the token once. Keep it for step 3. For network monitoring,
-also create the **Network targets** assigned to this agent (in the admin) and
-note their UUIDs.
+also create the **Network targets** assigned to this agent (in the console,
+**Settings → Network targets**) and note their UUIDs.
 
 ## 2. Install
 
@@ -188,8 +187,8 @@ INFO: Network monitoring: 3 enabled target(s), queue /var/lib/ssphere-sentinel-a
 
 Successful heartbeats are not logged at the default `INFO` level; failures
 are (`WARNING: Heartbeat failed: ...`), and so is the first success after
-failures. In the console, the server's **Last heartbeat** (and, in the admin,
-its **Last seen**) updates every heartbeat.
+failures. In the console, the server's **Last heartbeat** updates every
+heartbeat.
 
 To send a single heartbeat by hand as the service account, with the same
 environment (the token stays in the file):
@@ -296,10 +295,10 @@ unless you configure it, and the full reference (every setting, the credential
 rules, counters, limits) is in [snmp.md](snmp.md). On the agent host:
 
 1. Create the device in the console (**Settings → Devices**, assigned to this
-   agent, polled by SNMP with the name of a credential profile; the admin's
-   **Inventory → Devices** remains possible) and note its UUID (in the page's
-   address). The credential profile is only a name: the credentials themselves
-   go in the agent's file below and never reach the server.
+   agent, polled by SNMP with the name of a credential profile) and note its
+   UUID (in the page's address). The credential profile is only a name: the
+   credentials themselves go in the agent's file below and never reach the
+   server.
 2. Install the extra (it adds `pysnmp` and `cryptography`):
 
    ```bash
@@ -371,8 +370,7 @@ sudo /opt/ssphere-sentinel-agent/venv/bin/pip uninstall -y ssphere-sentinel
 ## Token rotation
 
 1. In the console, open the server's page and, under **Agent**, **Rotate
-   token**; confirm, and copy the new token (it is shown once). Or, in the
-   admin, select the agent and run **Regenerate authentication token**.
+   token**; confirm, and copy the new token (it is shown once).
 2. Replace `SENTINEL_AGENT_TOKEN` in `/etc/ssphere-sentinel-agent/agent.env`
    (`sudoedit`, or the commands the console shows next to the new token: they
    replace that one line, keep the rest of the file, and do step 3 as well).
@@ -398,7 +396,7 @@ or targets. `systemd-analyze security sentinel-agent` summarizes the sandbox.
 
 | Symptom (journal) | Cause and fix |
 | --- | --- |
-| `Heartbeat failed: server returned HTTP 401` | Wrong or rotated token, or the agent is disabled (on the server's page in the console, or in the admin). Update `agent.env` and restart, or enable the agent. |
+| `Heartbeat failed: server returned HTTP 401` | Wrong or rotated token, or the agent is disabled (on the server's page in the console). Update `agent.env` and restart, or enable the agent. |
 | `server returned HTTP 301 redirect; redirects are not followed` | `SENTINEL_URL` is not the final address (for example `http://` behind an HTTPS redirect). Use the `https://` URL. |
 | `connection failed: ...` / `request timed out` | DNS, firewall or the server is down. The agent keeps retrying; measurements stay queued. |
 | `Heartbeat failed: server returned HTTP 403` behind Cloudflare | A WAF, Bot Fight Mode or Access rule blocks the agent. Exempt `/api/v1/agent/` (docs/server-deployment.md). |
@@ -407,7 +405,7 @@ or targets. `systemd-analyze security sentinel-agent` summarizes the sandbox.
 | `Network target configuration error` | Invalid targets file or unreadable by `sentinel-agent` (needs `0640 root:sentinel-agent`). |
 | `SNMP monitoring disabled: ...` | The message says why: a configuration error (the file and field are named, never a secret), a credentials file with too-open permissions, or `pysnmp is not installed` (install the `[snmp]` extra). The rest of the agent keeps running. |
 | `SNMP device ... is unreachable: timeout` | No answer from the device: wrong address or port, a firewall, or (SNMPv2c) a wrong community, which devices answer with silence. `auth_failure` means a wrong SNMPv3 user, key or protocol. See [snmp.md](snmp.md#unreachable-devices). |
-| `Sentinel could not accept N SNMP poll(s) yet` | The device is not created, assigned to this agent, enabled or configured for SNMP in Sentinel. Polls are kept and retried; fix the device in the admin. |
+| `Sentinel could not accept N SNMP poll(s) yet` | The device is not created, assigned to this agent, enabled or configured for SNMP in Sentinel. Polls are kept and retried; fix the device in the console (**Settings → Devices**). |
 | `Heartbeat failed: server returned HTTP 413 (request body N bytes)` (or `HTTP 400 (request body N bytes)`) | A reverse proxy or WAF in front of Sentinel refuses bodies of that size. The agent sends at most 2,500,000 bytes and keeps its queues; raise the limit of the proxy to at least 3 MB ([server-deployment.md](server-deployment.md#request-body-size)). |
 | `SNMP poll ... cannot be sent and is removed from the queue` | One queued poll is larger than any request can be (more than 2,500,000 bytes as sent). It is dropped and the polls behind it go on; the message gives its size. See [snmp.md](snmp.md#request-size). |
 | `The Docker report cannot be sent: with the telemetry it makes a heartbeat of N bytes, over the limit` | The Docker inventory alone exceeds the request limit (thousands of containers; Sentinel accepts 1,000). It is left out whole at every heartbeat and the rest is sent; see [Docker reports too large for a heartbeat](#docker-reports-too-large-for-a-heartbeat). |

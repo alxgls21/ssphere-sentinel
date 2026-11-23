@@ -113,7 +113,7 @@ class LoginThrottle(models.Model):
 
     id = models.BigAutoField(primary_key=True)
     key = models.CharField(max_length=32, unique=True)
-    # The account, for an existing user name (shown in the admin; the row goes
+    # The account, for an existing user name (the console's lockouts; the row goes
     # with the account). Null for the shared buckets of names that do not exist.
     user = models.ForeignKey(
         settings.AUTH_USER_MODEL,

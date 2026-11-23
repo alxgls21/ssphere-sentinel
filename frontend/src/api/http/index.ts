@@ -19,6 +19,7 @@ import {
 import { getDevice, getDeviceSeries, getInterfaceSeries, listDevices } from './devices'
 import {
   createAlertRule,
+  deleteAlertRule,
   getAlertRule,
   getAlertRuleOptions,
   listAlertRules,
@@ -74,8 +75,10 @@ import {
   unlockUser,
   updateUser,
 } from './users'
+import { listDeliveries } from './deliveries'
 import {
   createDomain,
+  deleteDomain,
   getDomain,
   getDomainVerification,
   listDomains,
@@ -88,6 +91,9 @@ export interface ConsoleHttp extends Pick<
   SentinelApi,
   | 'listServers'
   | 'listDomains'
+  | 'deleteAlertRule'
+  | 'deleteDomain'
+  | 'listDeliveries'
   | 'getDomain'
   | 'createDomain'
   | 'verifyDomain'
@@ -174,6 +180,9 @@ export function createConsoleHttp(options: TransportOptions = {}): ConsoleHttp {
     getScopeOptions: getScopeOptions(transport),
     listServers: listServers(transport),
     listDomains: listDomains(transport),
+    deleteAlertRule: deleteAlertRule(transport),
+    deleteDomain: deleteDomain(transport),
+    listDeliveries: listDeliveries(transport),
     getDomain: getDomain(transport),
     createDomain: createDomain(transport),
     verifyDomain: verifyDomain(transport),

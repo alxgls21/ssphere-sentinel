@@ -1,13 +1,10 @@
-"""Throttling of console and admin login attempts (password guessing).
-
-The admin login form (apps.console.admin_login) uses the same keys, so one
-lockout covers both.
+"""Throttling of console sign-in attempts (password guessing); the first-run setup code has a key of its own.
 
 Limits are per account, not per client address: Django never trusts
 ``X-Forwarded-For`` here (see docs/security.md), so behind a proxy every
 client has the same address. The price is that someone who knows a user name
 can lock that account for ``SENTINEL_CONSOLE_LOGIN_LOCKOUT_SECONDS``; an
-administrator can unlock it (Login throttles, in the admin, or
+administrator can unlock it (Settings > Users & access in the console, or
 ``manage.py unlock_login`` on the server when no administrator can sign in).
 
 An attempt is counted *before* the password is checked and the counter is
@@ -49,7 +46,7 @@ def throttle_key(username: str, user_pk: int | None) -> str:
 
 
 def begin_attempt(key: str, now: datetime, *, user_id: int | None = None) -> int | None:
-    """Count one attempt (``user_id``: the account, if it exists; shown in the admin). ``None`` if it may proceed, else seconds until the next one is allowed."""
+    """Count one attempt (``user_id``: the account, if it exists). ``None`` if it may proceed, else seconds until the next one is allowed."""
     # Creating the row can lose a race against another request that creates
     # and then (after a successful sign-in) deletes it, or against the deletion
     # of the account itself; both are retried, never surfaced as an error.

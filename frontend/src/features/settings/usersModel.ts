@@ -143,7 +143,7 @@ export const ROLE_HINT: Record<UserRole, string> = {
   editor:
     'Configures monitoring for every customer: hosts, targets, devices, customers and sites, alert rules, domains. Sees the system status.',
   administrator:
-    'Everything, accounts and the audit log included; may also use the admin. Give it to as few accounts as possible.',
+    'Everything, accounts and the audit log included; Give it to as few accounts as possible.',
 }
 
 /** The roles whose scope is a choice; the others see every customer. */

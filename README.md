@@ -34,7 +34,7 @@ Sentinel has two independently packaged parts:
 - **Server (`ssphere-sentinel`)** — Django, Gunicorn, and PostgreSQL. It accepts
   agent heartbeats at `POST /api/v1/agent/heartbeat/`, exposes the console API
   below `/api/v1/console/` (reads, and the administration a permission allows),
-  and provides Django admin. In the Compose deployment an nginx `proxy` service
+  and health checks. In the Compose deployment an nginx `proxy` service
   serves the built web console and passes these paths on to Django, on one
   address ([server deployment](docs/server-deployment.md)).
 - **Agent (`ssphere-sentinel-agent`)** — a Python 3.11+ process for Linux or
@@ -130,7 +130,6 @@ Useful endpoints:
 
 - `http://127.0.0.1:8000/health/` — process liveness.
 - `http://127.0.0.1:8000/health/ready/` — database readiness.
-- `http://127.0.0.1:8000/admin/` — Django admin.
 
 For development, run the frontend's dev server against this backend as
 described in [`frontend/README.md`](frontend/README.md); the Compose deployment
@@ -182,14 +181,13 @@ they must not appear in URLs, logs, or committed files. See the
 
 Add the server in the console (**Servers → Add server**: it creates the agent
 with it and shows the token once, with the commands that install the agent on a
-Linux host). The admin remains possible (a Server, then an Agent), and so does
-the command line:
+Linux host). The command line remains possible:
 
 ```bash
 python manage.py create_agent --server SERVER_UUID --name server-agent
 ```
 
-Every way shows the raw token once. Configure the local process and send either
+Both ways show the raw token once. Configure the local process and send either
 one heartbeat or continuous heartbeats:
 
 ```bash
@@ -206,8 +204,8 @@ Use the [systemd deployment guide](docs/agent-deployment.md) on monitored Linux
 hosts.
 
 For network monitoring, create the Network targets in the console (**Settings →
-Network targets**, each assigned to the agent that probes it; the admin remains
-possible), then write a targets file in the format of
+Network targets**, each assigned to the agent that probes it), then write a
+targets file in the format of
 [`agent/network_targets.example.json`](agent/network_targets.example.json) and
 set `SENTINEL_NETWORK_TARGETS_FILE` to its absolute path. Each target's page in
 the console shows the entry the file needs for it, to copy; target IDs in the
@@ -268,8 +266,7 @@ its own email preferences and password, test emails, monitored domains,
 servers with their agents, customers and sites, network targets, devices with
 their SNMP configuration, and, for administrators, the accounts and their
 access), every change checked on the server and recorded in the console's
-audit trail. The Django admin is still present in this version, but nothing
-needs it: everything an administrator does is under **Settings** in the console
+audit trail. Everything an administrator does is under **Settings** in the console
 ([server deployment guide](docs/server-deployment.md#4-add-monitored-hosts)).
 Access is deny-by-default and filtered by customer/site grants; see
 [console access control](docs/security.md#console-authentication-and-access-control).
@@ -299,7 +296,7 @@ Access is deny-by-default and filtered by customer/site grants; see
 | `GET /api/v1/console/incidents/`; `GET .../incidents/<id>/` | Incidents: the list and one visible incident |
 | `POST /api/v1/console/incidents/<id>/acknowledge/` | Acknowledge an incident |
 | `GET /api/v1/console/alerts/engine-status/` | The alert engine's state |
-| `GET`, `POST /api/v1/console/alert-rules/`; `GET`, `PATCH /api/v1/console/alert-rules/<id>/`; `GET /api/v1/console/alert-rules/options/` | Alert rules: list, create, change (with the `version` read), and the valid conditions |
+| `GET`, `POST /api/v1/console/alert-rules/`; `GET`, `PATCH`, `DELETE /api/v1/console/alert-rules/<id>/`; `GET /api/v1/console/alert-rules/options/` | Alert rules: list, create, change (with the `version` read), delete one that never opened an incident, and the valid conditions |
 | `GET`, `PUT /api/v1/console/settings/notifications/me/` | The signed-in user's own email preferences |
 | `POST /api/v1/console/settings/notifications/test-email/`; `GET .../test-email/<id>/` | A test email to the user's own address, sent by the notifier |
 | `GET /api/v1/console/system/status/` | Alert engine, notifier, email outbox, and the settings the environment sets |

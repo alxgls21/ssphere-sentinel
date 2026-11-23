@@ -62,6 +62,8 @@ function parseCapabilities(raw: unknown): SessionCapabilities {
     viewDomains: flag(raw.viewDomains),
     addDomains: flag(raw.addDomains),
     verifyDomains: flag(raw.verifyDomains),
+    deleteDomains: flag(raw.deleteDomains),
+    viewDeliveryLog: flag(raw.viewDeliveryLog),
     manageOwnAccount: flag(raw.manageOwnAccount),
   }
 }

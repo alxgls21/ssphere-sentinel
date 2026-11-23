@@ -15,6 +15,7 @@ export type SectionId =
   | 'domains'
   | 'users'
   | 'audit-log'
+  | 'email-log'
   | 'system'
 
 export interface Section {
@@ -94,6 +95,14 @@ export const SECTIONS: readonly Section[] = [
     path: '/settings/audit-log',
     description: 'Who changed what, and when. Read-only.',
     offered: (capabilities) => capabilities.viewAuditLog,
+  },
+  {
+    id: 'email-log',
+    label: 'Email log',
+    path: '/settings/email-log',
+    description:
+      'Every incident email and what became of it: sent, waiting, or not delivered and why. Read-only.',
+    offered: (capabilities) => capabilities.viewDeliveryLog,
   },
   {
     id: 'system',

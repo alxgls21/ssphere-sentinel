@@ -75,9 +75,10 @@ belong to one origin.
    Safari is stricter than Chrome and Firefox about `localhost`; use a Chromium
    or Firefox browser, or HTTPS, if sign-in does not stick.
 
-3. Create a user that may use the console: add it to the "Console viewers"
-   group in the Django admin (or grant `console.use_console`). A user without
-   that permission gets "No console access".
+3. Create a user that may use the console: on a database with no user the
+   sign-in page leads to `/setup` (the setup code is in the server's log), or run
+   `python manage.py createsuperuser`; further users are added in Settings →
+   Users & access, by role. A user without a role gets "No console access".
 4. Open the dev server and sign in.
 
 Do not point `DJANGO_ALLOWED_HOSTS` or `DJANGO_CSRF_TRUSTED_ORIGINS` at the dev
@@ -185,8 +186,8 @@ No screen imports the mock or the HTTP layer, so none of them changes.
 `npm run build` produces a static `dist/` directory. CI runs every check of
 `npm run check` (the Frontend job). The Compose deployment builds it into the
 image of its `proxy` service ([deploy/frontend/Dockerfile](../deploy/frontend/Dockerfile),
-Node 24) and serves it with nginx, which passes `/api/`, `/admin/`, `/static/`
-and `/health/` on to Django: the console and its API share one origin, as with
+Node 24) and serves it with nginx, which passes `/api/` and `/health/`
+on to Django: the console and its API share one origin, as with
 the dev server. Every other path answers `index.html`, so the console's own
 routes can be opened and reloaded directly; `/assets/` is cached for good, and
 `index.html` is checked again on every load

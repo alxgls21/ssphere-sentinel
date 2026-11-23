@@ -105,7 +105,7 @@ class SessionEndpointTests(ConsoleTestCase):
         self.assertEqual(client.get(SCOPE).status_code, 403)
 
     def test_a_session_that_did_not_come_from_the_console_sign_in_is_not_a_console_session(self):
-        # What the Django admin login (or force_login) creates: authenticated, no console marker.
+        # What force_login (or any sign-in other than the console's) creates: authenticated, no console marker.
         user = make_user("viewer", all_customers=True)
         client = Client(raise_request_exception=False)
         client.force_login(user)
@@ -358,7 +358,7 @@ class SignInTests(ConsoleTestCase):
             self.post(client, token, LOGIN, "{broken")
         self.assertEqual(LoginThrottle.objects.count(), 0)
 
-    def test_user_names_are_normalised_like_the_admin_login_form(self):
+    def test_user_names_are_normalised_like_djangos_sign_in_forms(self):
         client, token = self.csrf_client()
         # Full-width letters and surrounding spaces, as a form would deliver them.
         response = self.sign_in(client, token, "  ｖｉｅｗｅｒ ", PASSWORD)
@@ -634,14 +634,3 @@ class BehindTheProxyTests(ConsoleTestCase):
         with self.settings(CSRF_TRUSTED_ORIGINS=[]):
             client, token = self.browser(HTTP_X_FORWARDED_PROTO="https", HTTP_X_FORWARDED_HOST="elsewhere.example.test")
             self.assertEqual(self.sign_in(client, token).status_code, 403)
-
-    def test_the_admin_sign_in_works_through_the_proxy(self):
-        make_user("admin", superuser=True, is_staff=True)
-        client = Client(enforce_csrf_checks=True, HTTP_HOST=PUBLIC, HTTP_ORIGIN=f"https://{PUBLIC}")
-        page = client.get("/admin/login/")
-        self.assertEqual(page.status_code, 200)
-        token = page.context["csrf_token"]
-        response = client.post("/admin/login/?next=/admin/",
-                               {"username": "admin", "password": PASSWORD, "csrfmiddlewaretoken": str(token)})
-        self.assertRedirects(response, "/admin/", fetch_redirect_response=False)
-        self.assertEqual(client.get("/admin/").status_code, 200)

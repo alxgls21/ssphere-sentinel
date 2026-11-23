@@ -83,6 +83,7 @@ export function rule(over: Partial<AlertRule> = {}): AlertRule {
     updatedAt: iso(3600),
     version: 3,
     canEdit: true,
+    canDelete: true,
     ...over,
   }
 }

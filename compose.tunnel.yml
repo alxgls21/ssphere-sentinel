@@ -3,7 +3,7 @@
 #   docker compose -f compose.yml -f compose.tunnel.yml up -d --build
 #
 # Requires a remotely-managed tunnel whose public hostname points to
-# http://proxy:8080 (the console, the APIs and the admin, on one origin), and
+# http://proxy:8080 (the console and the APIs, on one origin), and
 # its token in .env.tunnel (TUNNEL_TOKEN=...). The token is kept out of .env so
 # the web container never sees it. Also set SENTINEL_HTTP_BIND=127.0.0.1 in
 # .env so the plain-HTTP origin is not reachable from other machines. See

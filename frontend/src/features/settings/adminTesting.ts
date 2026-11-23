@@ -9,6 +9,8 @@ import type {
   CustomerDetail,
   CustomerList,
   CustomerRecord,
+  DeliveryItem,
+  DeliveryList,
   DomainDetail,
   DomainList,
   DomainRecord,
@@ -336,3 +338,41 @@ export function userNotifications(
     receivingBlockedBy: blockedBy,
   }
 }
+
+export function delivery(over: Partial<DeliveryItem> = {}): DeliveryItem {
+  return {
+    id: 1,
+    kind: 'opened',
+    status: 'sent',
+    failure: null,
+    recipient: { id: 7, username: 'maria' },
+    incident: {
+      id: 'i1',
+      ruleName: 'Server resources',
+      entityKind: 'server',
+      entityLabel: 'ath-db-01',
+      severity: 'critical',
+    },
+    attempts: 1,
+    createdAt: iso(600),
+    lastAttemptAt: iso(590),
+    nextAttemptAt: null,
+    sentAt: iso(590),
+    ...over,
+  }
+}
+
+export const deliveryList = (items: DeliveryItem[], scopeTotal = items.length): DeliveryList => ({
+  generatedAt: iso(0),
+  items,
+  page: { number: 1, size: 50, total: items.length, pages: 1 },
+  scopeTotal,
+  counts: {
+    pending: items.filter((entry) => entry.status === 'pending').length,
+    sending: items.filter((entry) => entry.status === 'sending').length,
+    sent: items.filter((entry) => entry.status === 'sent').length,
+    failed: items.filter((entry) => entry.status === 'failed').length,
+    cancelled: items.filter((entry) => entry.status === 'cancelled').length,
+  },
+  retentionDays: 90,
+})

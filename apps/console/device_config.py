@@ -6,7 +6,7 @@ the SNMP monitoring view (``GET /devices/``, ``apps.console.devices``) shows the
 with their polls. Who: reading needs what reading anything needs (the grants; a device without a
 site is seen by accounts with every customer only; a hidden or unknown id is a 404). Writing
 needs what configuring monitoring needs (``alerts.change_alertrule`` with global visibility)
-and the admin's model permissions for the action: ``inventory.add_device`` (with
+and Django's model permissions for the action: ``inventory.add_device`` (with
 ``snmp.add_snmpconfig``) to add, ``inventory.change_device`` (with the three on ``snmp.SnmpConfig``)
 to change, ``inventory.delete_device`` (with ``snmp.delete_snmpconfig``) to delete; otherwise 403.
 
@@ -49,7 +49,7 @@ to keep the one the device has); ``snmp: null`` removes it (the device is no lon
 history stays). 200 with the detail; nothing to change answers it as it is.
 
 Delete: ``DELETE`` with no body. Refused, 409 ``device_has_history``, while the device has polls
-or interface samples (as the admin refuses it): disable it, and delete it after
+or interface samples: disable it, and delete it after
 ``purge_snmp_data`` has removed the history. Otherwise the device goes with its SNMP
 configuration, state and interfaces. 200 ``{"generatedAt", "deleted": {"id", "name"}}``.
 

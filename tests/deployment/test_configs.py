@@ -620,7 +620,7 @@ class ComposeTests(unittest.TestCase):
 
 FRONTEND = ROOT / "frontend"
 PROXY_DIR = ROOT / "deploy" / "frontend"
-# Browser features neither the console nor the admin uses.
+# Browser features the console does not use.
 PERMISSIONS_POLICY = "camera=(), microphone=(), geolocation=(), payment=(), usb=()"
 
 
@@ -722,18 +722,18 @@ class ProxyTests(unittest.TestCase):
         self.assertEqual(re.findall(r"proxy_pass (\S+);", self.nginx), ["$web"])
 
     def test_every_path_django_serves_is_passed_on(self):
-        django = self.block("location ~ ^/(api|admin|static|health)/")
+        django = self.block("location ~ ^/(api|health)/")
         self.assertIn("proxy_pass $web;", django)
-        # The first segment of each route (sentinel/urls.py, and the root routes of apps/core/urls.py);
-        # the static files come from WhiteNoise under STATIC_URL.
+        # The first segment of each route (sentinel/urls.py, and the root routes of apps/core/urls.py):
+        # no admin, and no static files (Django serves none).
         routes = re.findall(r'path\("([^"]*)"', (ROOT / "sentinel" / "urls.py").read_text())
         routes += re.findall(r'path\("([^"]*)"', (ROOT / "apps" / "core" / "urls.py").read_text())
         prefixes = {route.split("/")[0] for route in routes} - {""}
-        self.assertEqual(prefixes, {"api", "admin", "health"})
-        self.assertIn('STATIC_URL = "static/"', (ROOT / "sentinel" / "settings.py").read_text())
+        self.assertEqual(prefixes, {"api", "health"})
+        self.assertNotIn("STATIC_URL", (ROOT / "sentinel" / "settings.py").read_text())
 
     def test_the_host_reaches_django_and_the_scheme_stays_gunicorns_decision(self):
-        django = self.block("location ~ ^/(api|admin|static|health)/")
+        django = self.block("location ~ ^/(api|health)/")
         self.assertIn("proxy_set_header Host $http_host;", django)
         for header in ("X-Forwarded-For", "X-Forwarded-Host", "X-Forwarded-Ssl", "X-Forwarded-Protocol", "Forwarded"):
             with self.subTest(header):
@@ -750,12 +750,12 @@ class ProxyTests(unittest.TestCase):
         size = re.search(r"client_max_body_size (\d+)m;", self.nginx)[1]
         self.assertGreaterEqual(int(size) * 1024 * 1024, MAX_REQUEST_BYTES)
         gunicorn = int(re.search(r"(?m)^timeout = (\d+)$", (ROOT / "gunicorn.conf.py").read_text())[1])
-        django = self.block("location ~ ^/(api|admin|static|health)/")
+        django = self.block("location ~ ^/(api|health)/")
         for name in ("proxy_read_timeout", "proxy_send_timeout"):
             self.assertGreater(int(re.search(rf"{name} (\d+)s;", django)[1]), gunicorn)
 
     def test_the_apis_answer_in_their_own_shape_while_web_is_down(self):
-        django = self.block("location ~ ^/(api|admin|static|health)/")
+        django = self.block("location ~ ^/(api|health)/")
         self.assertIn("error_page 502 503 504 = @unavailable;", django)
         unavailable = self.block("location @unavailable")
         self.assertIn("default_type application/json;", unavailable)
@@ -795,13 +795,13 @@ class ProxyTests(unittest.TestCase):
         self.assertNotIn("add_header", self.nginx.split("location", 1)[0])
 
     def test_what_django_serves_carries_the_headers_django_does_not_send(self):
-        django = self.block("location ~ ^/(api|admin|static|health)/")
+        django = self.block("location ~ ^/(api|health)/")
         found = dict(re.findall(r'add_header (\S+) "?([^";]*)"? always;', django))
         # Django sends nosniff, Referrer-Policy, COOP and X-Frame-Options itself: nginx adds only what it lacks.
         self.assertEqual(set(found), {"Permissions-Policy", "Cross-Origin-Resource-Policy", "Content-Security-Policy"})
         self.assertEqual(found["Permissions-Policy"], PERMISSIONS_POLICY)
         self.assertEqual(found["Cross-Origin-Resource-Policy"], "same-origin")
-        # The JSON APIs get a policy that allows nothing; the admin (its own scripts and styles) none from here.
+        # The JSON APIs get a policy that allows nothing; the health checks none from here.
         variable = found["Content-Security-Policy"]
         mapping = re.search(r"(?m)^map \$uri " + re.escape(variable) + r" \{(.*?)\n\}", self.nginx, re.S)
         self.assertIsNotNone(mapping, self.nginx)

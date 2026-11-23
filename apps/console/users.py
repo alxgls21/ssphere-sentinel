@@ -47,7 +47,7 @@ Create, ``POST /users/`` (``username``, ``password`` and ``role`` required)::
 
 The administrator types the first password and tells the user; the user changes it from their
 account (``PUT /account/password/``). The password is checked by the installation's validators
-(``AUTH_PASSWORD_VALIDATORS``, as the admin and the first-run setup check it), stored hashed, and
+(``AUTH_PASSWORD_VALIDATORS``, as the first-run setup and ``changepassword`` check it), stored hashed, and
 never logged, recorded or answered. The user name is stored in Unicode NFKC, as the sign-in reads
 it. A name another account has is a 409 ``user_exists``; invalid values a 400 ``validation_error``
 with ``fields`` (unknown fields are refused there too); the body is at most 32 KiB. 201 with

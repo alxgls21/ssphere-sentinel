@@ -86,7 +86,7 @@ export interface Server {
   /** Free text about the host. Served by the console API; absent in demo data. */
   description?: string
   status: ServerStatus
-  /** The site the server is placed on in the admin; null when it is on none (see `site-links`). */
+  /** The site the server is placed on; null when it is on none (see `site-links`). */
   siteId: string | null
   lastSeenAt: Iso | null
   agentVersion: string
@@ -129,6 +129,11 @@ export interface DockerContainer {
   state: ContainerState
   health: ContainerHealth
   startedAt: Iso | null
+  /** How the process last ended; null while it runs, when its host is not observable, or for an older agent. */
+  exitCode: number | null
+  /** The kernel killed it for memory; null when not known. */
+  oomKilled: boolean | null
+  finishedAt: Iso | null
 }
 
 /* ------------------------------------------------------------------ events */
@@ -431,7 +436,7 @@ export interface MonitoringAgent {
 export interface ServerDetail {
   generatedAt: Iso
   item: ServerListItem
-  /** Null for a server that has no agent yet (added in the admin, or its agent not created yet). */
+  /** Null for a server that has no agent yet (its agent is not created yet). */
   agent: MonitoringAgent | null
   containers: ServerContainer[]
 }
@@ -1336,6 +1341,8 @@ export interface AlertRule {
   version: number
   /** This user may change this rule (the capability, and the rule). */
   canEdit: boolean
+  /** This user may delete it: it may change it, and it never opened an incident. */
+  canDelete: boolean
 }
 
 export type RuleEnabledFilter = 'all' | 'enabled' | 'disabled'
@@ -1944,4 +1951,66 @@ export interface VerificationAnswer {
   generatedAt: Iso
   item: DomainVerification
   verifier: { state: VerifierState }
+}
+
+/** What deleting a domain answers: the domain is gone, named one last time with its customer. */
+export interface DomainDeleted {
+  generatedAt: Iso
+  deleted: { id: string; name: string; displayName: string; customer: { id: string; name: string } }
+}
+
+/* ------------------------------------------------------- incident email log */
+
+export type DeliveryKind = 'opened' | 'recovered'
+export type DeliveryStatus = 'pending' | 'sending' | 'sent' | 'failed' | 'cancelled'
+export type DeliveryStatusFilter = 'all' | DeliveryStatus
+export type DeliveryKindFilter = 'all' | DeliveryKind
+export type DeliverySortKey = 'created' | 'status' | 'recipient'
+
+/**
+ * One email about one step of one incident to one console user. It carries no address: the email does not
+ * record which one it went to. `failure` is a category and the server's words for it, never what a mail
+ * server said.
+ */
+export interface DeliveryItem {
+  id: number
+  kind: DeliveryKind
+  status: DeliveryStatus
+  failure: { category: string; label: string } | null
+  /** `id` is null once the account is gone; the name is the one it had. */
+  recipient: { id: number | null; username: string }
+  incident: {
+    id: string
+    ruleName: string
+    entityKind: string
+    entityLabel: string
+    severity: AlertSeverity
+  }
+  attempts: number
+  createdAt: Iso
+  lastAttemptAt: Iso | null
+  /** Only for a pending email: when it is tried again. */
+  nextAttemptAt: Iso | null
+  sentAt: Iso | null
+}
+
+export interface DeliveryListOptions extends Pick<RequestOptions, 'signal'> {
+  q?: string
+  status?: DeliveryStatusFilter
+  kind?: DeliveryKindFilter
+  /** An incident's id: only its emails. */
+  incident?: string
+  /** An account's id. */
+  recipient?: number
+  sort?: DeliverySortKey
+  dir?: SortDirection
+  page?: number
+  pageSize?: number
+}
+
+export interface DeliveryList extends RecordList<DeliveryItem> {
+  /** Over every filter but the status. */
+  counts: Record<DeliveryStatus, number>
+  /** How many days the emails are kept. */
+  retentionDays: number
 }

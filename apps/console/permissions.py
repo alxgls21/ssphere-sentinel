@@ -20,14 +20,14 @@ what to offer (``/session/``).
   token, enabling or disabling the agent; changing or deleting a server): the accounts
   that may change alert rules (``alerts.change_alertrule`` with global visibility,
   **the mark of an account that configures monitoring**) **and** hold the model
-  permission the admin asks for the same action: ``infrastructure.add_server``,
+  permission Django defines for the same action: ``infrastructure.add_server``,
   ``infrastructure.change_server``, ``infrastructure.delete_server``,
   ``agents.add_agent``, ``agents.change_agent``. A server may be placed on any
   customer's site, and an agent's token monitors a host whoever may see it. The
   ``manageServers`` capability is announced only to an account that holds the three
   the enrolment needs, so the UI never offers a write the API refuses.
 * Customers and sites, network targets, devices (with their SNMP configuration):
-  the same rule, with the admin's model permissions on ``inventory.Customer``,
+  the same rule, with Django's model permissions on ``inventory.Customer``,
   ``inventory.Site``, ``network.NetworkTarget``, ``inventory.Device`` and
   ``snmp.SnmpConfig`` (add, change, delete). Reading them in the console needs only
   what reading anything needs: the grants, through ``apps.console.access``.
@@ -42,12 +42,13 @@ assigns a role instead of permissions (``apps.console.users``): a *viewer* reads
 its grants let it see; an *operator* also acknowledges incidents and may ask for a
 test email; an *editor* configures monitoring for every customer (hosts, targets,
 devices, customers and sites, alert rules, domains) and sees the system status; an
-*administrator* is a superuser (and may use the admin). The role of an account is
+*administrator* is a superuser. The role of an account is
 derived from the permissions it holds, directly or through its groups: the highest
 role whose every permission it holds. Assigning a role from the console sets exactly
 that role's permissions on the account and takes it out of every group, so what the
-console says an account may do is what it may do. A finer grant (one permission more
-or less) is still made in the admin, and shows here as the role it amounts to.
+console says an account may do is what it may do. There is no finer grant than the
+roles (there is no Django admin); an account given other permissions before shows here
+as the role it amounts to.
 """
 
 from __future__ import annotations
@@ -64,7 +65,7 @@ VIEW_SYSTEM_STATUS = "console.view_system_status"
 VIEW_DOMAINS = "web.view_monitoreddomain"
 ADD_DOMAINS = "web.add_monitoreddomain"
 VERIFY_DOMAINS = "web.verify_monitoreddomain"
-# The model permissions the admin asks for the same actions on monitored hosts.
+# Django's model permissions for the same actions on monitored hosts.
 ADD_SERVERS = "infrastructure.add_server"
 CHANGE_SERVERS = "infrastructure.change_server"
 DELETE_SERVERS = "infrastructure.delete_server"
@@ -140,7 +141,7 @@ def role_of(is_superuser: bool, held: set[str] | frozenset[str]) -> str | None:
 
 
 def may_view_rules(user, visibility: Visibility) -> bool:
-    # As in the admin, who may change rules may view them.
+    # Who may change rules may view them.
     return visibility.all_access and (user.has_perm(VIEW_RULES) or user.has_perm(CHANGE_RULES))
 
 
@@ -185,12 +186,12 @@ def may_view_delivery_log(user, visibility: Visibility) -> bool:
 
 
 def _configures_with(user, visibility: Visibility, *permissions: str) -> bool:
-    """Configures monitoring, and holds every one of ``permissions`` (the admin's, for the same actions)."""
+    """Configures monitoring, and holds every one of ``permissions`` (Django's model permissions for the same actions)."""
     return configures_monitoring(user, visibility) and all(user.has_perm(name) for name in permissions)
 
 
 def may_add_servers(user, visibility: Visibility) -> bool:
-    """Add a server: who may change rules, with the admin's permission to add a server."""
+    """Add a server: who may change rules, with Django's permission to add a server."""
     return _configures_with(user, visibility, ADD_SERVERS)
 
 
@@ -205,12 +206,12 @@ def may_delete_servers(user, visibility: Visibility) -> bool:
 
 
 def may_add_agents(user, visibility: Visibility) -> bool:
-    """Create a server's agent (and its token): who may change rules, with the admin's permission to add an agent."""
+    """Create a server's agent (and its token): who may change rules, with Django's permission to add an agent."""
     return _configures_with(user, visibility, ADD_AGENTS)
 
 
 def may_change_agents(user, visibility: Visibility) -> bool:
-    """Rotate an agent's token, enable or disable it: who may change rules, with the admin's permission to change an agent."""
+    """Rotate an agent's token, enable or disable it: who may change rules, with Django's permission to change an agent."""
     return _configures_with(user, visibility, CHANGE_AGENTS)
 
 

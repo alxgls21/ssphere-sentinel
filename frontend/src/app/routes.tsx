@@ -40,6 +40,7 @@ const DomainPage = lazy(() => import('@/features/settings/DomainPage'))
 const UsersPage = lazy(() => import('@/features/settings/UsersPage'))
 const UserPage = lazy(() => import('@/features/settings/UserPage'))
 const AuditLogPage = lazy(() => import('@/features/settings/AuditLogPage'))
+const EmailLogPage = lazy(() => import('@/features/settings/EmailLogPage'))
 const SystemPage = lazy(() => import('@/features/settings/SystemPage'))
 
 // Development only: in a production build the condition is a constant, so the gallery
@@ -91,6 +92,7 @@ export function AppRoutes() {
             <Route path="users/new" element={<UserPage />} />
             <Route path="users/:id" element={<UserPage />} />
             <Route path="audit-log" element={<AuditLogPage />} />
+            <Route path="email-log" element={<EmailLogPage />} />
             <Route path="system" element={<SystemPage />} />
           </Route>
           <Route path="alerts">

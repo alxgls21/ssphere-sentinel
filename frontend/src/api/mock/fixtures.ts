@@ -191,6 +191,9 @@ function buildContainers(
         state,
         health: state === 'running' ? health : state === 'unknown' ? 'unknown' : 'none',
         startedAt: startedAt === null ? null : toIso(startedAt),
+        exitCode: null,
+        oomKilled: null,
+        finishedAt: null,
       }
     },
   )

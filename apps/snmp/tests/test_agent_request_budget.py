@@ -34,10 +34,12 @@ from apps.agents.models import Agent
 from apps.agents.tests.test_docker_api import valid_container
 from apps.infrastructure.models import DockerContainer, DockerHostState, ServerTelemetry
 from apps.snmp.models import DevicePoll
-from apps.snmp.tests.helpers import make_agent, make_device
+from apps.snmp.tests.helpers import ApplicationOnly, make_agent, make_device
 
 
 class AgentRequestBudgetEndToEndTests(LiveServerTestCase):
+    static_handler = ApplicationOnly
+
     def setUp(self):
         self.agent_row, token = make_agent("budget-agent")
         self.devices = [

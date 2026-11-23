@@ -403,14 +403,16 @@ for it.
 
 ## Settings screen
 
-`/settings` holds ten sections under one layout (`features/settings/SettingsLayout`): **Notifications**
+`/settings` holds eleven sections under one layout (`features/settings/SettingsLayout`): **Notifications**
 (`/settings/notifications`), **Account** (`/settings/account`, the own password), **Alert rules**
 (`/settings/alert-rules`, `/new` and `/:id`), **Customers & sites** (`/settings/customers`, `/new`,
 `/:id`; a site at `/settings/sites/new?of=<customer>` and `/settings/sites/:id`), **Network targets**
 (`/settings/targets`, `/new`, `/:id`), **Devices** (`/settings/devices`, `/new`, `/:id`), **Domains**
 (`/settings/domains`, `/:id`; offered to an account that sees every customer and holds the domain
-permissions: the session's `viewDomains`, `addDomains` and `verifyDomains`), **Users &
-access** (`/settings/users`, `/new`, `/:id`), **Audit log** (`/settings/audit-log`) and **System**
+permissions: the session's `viewDomains`, `addDomains` and `verifyDomains`; an administrator, `deleteDomains`,
+may delete one, with its verification history), **Users &
+access** (`/settings/users`, `/new`, `/:id`), **Audit log** (`/settings/audit-log`), **Email log** (`/settings/email-log`: every incident
+email and what became of it, administrators only, no address, `listDeliveries`) and **System**
 (`/settings/system`). The account page of **Users & access** also holds the account's sign-in (failed attempts, lockout, unlock)
 and a **Notifications** panel with its incident email preferences (`getUserNotifications`,
 `saveUserNotifications`: administrators only, with the reason an account cannot receive emails); the list
@@ -477,7 +479,8 @@ or overwritten: the form locks, says the rule changed elsewhere and offers to lo
 Before a change that ends open incidents, `lib/ruleChanges.previewChange` reads the `changeEffects`
 contract (which fields close incidents, why, and which of them) and the rule's open incidents, and the
 screen asks for confirmation with the safe button focused; a change that ends nothing, or finds none open,
-goes straight through. The list's enable and disable action uses the same preview. A rule is never deleted.
+goes straight through. The list's enable and disable action uses the same preview. A rule that never opened an incident is deleted from its page (`deleteAlertRule`, shown by the rule's
+`canDelete`); one that did is only disabled.
 
 **System.** `system/status/` is read-only and only requested for an account that may see it (its counts
 concern every customer). The engine and the notifier are drawn in the state they report: `running` is the
@@ -556,8 +559,8 @@ reported has empty series arrays, and the panel says "No history".
 **Adding a monitored host.** `createServer` (POST `servers/`), `createAgent` (POST
 `servers/<id>/agents/`), `rotateAgentToken` (POST `agents/<id>/rotate-token/`) and
 `setAgentEnabled` (PATCH `agents/<id>/`) are offered only where the session's `manageServers`
-capability says so (the accounts that may change alert rules and hold the admin's permissions to
-add servers and to add and change agents, all of them); the server decides again on every
+capability says so (the accounts that may change alert rules and may add servers and add and change
+agents, all of them); the server decides again on every
 request. `/servers/new` (`features/servers/AddServerPage`, reached from the Servers header, the
 Overview's "Nothing is monitored yet" and the palette) is the form (`serverDraft.ts`: the name,
 the hostname, the site from `/scope/`, the address, the OS, a description; the obvious checks are

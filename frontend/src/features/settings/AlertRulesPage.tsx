@@ -1,5 +1,5 @@
 import { useContext, useEffect, useState } from 'react'
-import { Link } from 'react-router'
+import { Link, useLocation } from 'react-router'
 import { useApi } from '@/api/context'
 import { ApiError } from '@/api/errors'
 import type {
@@ -71,7 +71,7 @@ const DISABLING_ENDS: ChangeEffects = {
   enabled: { to: false, closes: 'rule_disabled', which: 'all' },
 }
 
-type Flash = { tone: 'ok' | 'error' | 'conflict'; text: string }
+type Flash = { tone: 'ok' | 'error' | 'conflict'; text: string; word?: string }
 
 /**
  * Settings > Alert rules: every rule, searched, filtered, sorted and paged by the server, whose
@@ -104,7 +104,13 @@ export default function AlertRulesPage() {
   const effects = options.data?.changeEffects ?? DISABLING_ENDS
 
   const [busy, setBusy] = useState<string | null>(null)
-  const [flash, setFlash] = useState<Flash | null>(null)
+  const location = useLocation()
+  const [flash, setFlash] = useState<Flash | null>(() => {
+    const deleted = (location.state as { deleted?: string } | null)?.deleted
+    return deleted
+      ? { tone: 'ok', word: 'DELETED', text: `The rule “${deleted}” is deleted.` }
+      : null
+  })
   const [confirm, setConfirm] = useState<{ rule: AlertRule; preview: ChangePreview } | null>(null)
 
   const list = resource.data ?? undefined
@@ -210,11 +216,12 @@ export default function AlertRulesPage() {
             flash.tone === 'ok' ? 'healthy' : flash.tone === 'conflict' ? 'warning' : 'critical'
           }
           word={
-            flash.tone === 'ok'
+            flash.word ??
+            (flash.tone === 'ok'
               ? 'SAVED'
               : flash.tone === 'conflict'
                 ? 'CHANGED ELSEWHERE'
-                : 'NOT SAVED'
+                : 'NOT SAVED')
           }
           live={flash.tone === 'ok' ? 'status' : 'alert'}
           actions={
@@ -326,7 +333,7 @@ export default function AlertRulesPage() {
         footer={
           <>
             <span className="truncate">
-              Rules are disabled, never deleted: an incident keeps its rule.
+              A rule that opened an incident is disabled, not deleted: the incident keeps it.
             </span>
             {isDefaultView(query) ? null : (
               <Button

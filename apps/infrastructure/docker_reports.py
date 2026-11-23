@@ -29,7 +29,7 @@ The limit is the timestamp itself: it cannot tell a clock that stepped back
 from a replayed report. A rollback that leaves the agent's clock more than
 ``PLAUSIBLE_SKEW`` behind the server is indistinguishable from a replay and is
 not recovered; the inventory then resumes when the clock catches up with the
-stored time (or when the server's Docker host state is deleted in the admin,
+stored time (or when the server's Docker host state is deleted from the database,
 which makes the next report the first). A replay that is both within the window
 and arrives after ``RECOVERY_AFTER`` of silence is accepted.
 """

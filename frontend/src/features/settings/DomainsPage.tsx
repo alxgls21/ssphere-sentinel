@@ -21,8 +21,18 @@ import { Panel } from '@/ui/Panel'
 import { createSortHead } from '@/ui/SortHead'
 import { EmptyState } from '@/ui/states'
 import { StatusTag } from '@/ui/status'
-import { AgeCell, CELL, HEAD, NAME_LINK, NotPermitted, ROW, SEARCH_SETTLE_MS } from './AdminParts'
-import { useRowOpen } from './adminHooks'
+import {
+  AgeCell,
+  CELL,
+  FlashNotice,
+  HEAD,
+  NAME_LINK,
+  NotPermitted,
+  ROW,
+  SEARCH_SETTLE_MS,
+  type Flash,
+} from './AdminParts'
+import { useArrivalState, useRowOpen } from './adminHooks'
 import { customerChoices } from './adminModel'
 import {
   DOMAIN_FIELDS,
@@ -241,6 +251,15 @@ export default function DomainsPage() {
   const [query, update] = useListQuery(parseDomainsQuery, writeDomainsQuery)
   const wide = useMediaQuery('(min-width: 48rem)')
   const may = capabilities.viewDomains
+  const arrival = useArrivalState<{ deleted?: string; customer?: string }>()
+  const [flash, setFlash] = useState<Flash | null>(() =>
+    arrival.deleted
+      ? {
+          tone: 'ok',
+          text: `The domain ${arrival.deleted}${arrival.customer ? ` of ${arrival.customer}` : ''} is deleted, with its verification history.`,
+        }
+      : null,
+  )
 
   const search = useDebouncedValue(query.q, SEARCH_SETTLE_MS)
   const asked = domainsRequest(query, search)
@@ -280,6 +299,8 @@ export default function DomainsPage() {
           {list ? `${formatInteger(matching)} of ${formatInteger(list.scopeTotal)} shown` : null}
         </p>
       </header>
+
+      <FlashNotice flash={flash} onDismiss={() => setFlash(null)} />
 
       {capabilities.addDomains ? <AddDomain /> : null}
 
@@ -344,7 +365,8 @@ export default function DomainsPage() {
         footer={
           <>
             <span className="truncate">
-              A domain is never changed or deleted here: only added and verified.
+              A domain is added and verified here, and never changed. An administrator may delete
+              one.
             </span>
             {list && list.page.pages > 1 ? (
               <Pager

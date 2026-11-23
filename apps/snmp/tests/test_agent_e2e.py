@@ -24,7 +24,7 @@ from agent.measurement_queue import MeasurementQueue
 from agent.tests import snmpsim_fixture
 from apps.inventory.models import Device
 from apps.snmp.models import DevicePoll, DeviceSnmpState, Interface, InterfaceSample, SnmpConfig
-from apps.snmp.tests.helpers import make_agent
+from apps.snmp.tests.helpers import ApplicationOnly, make_agent
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 
@@ -40,6 +40,8 @@ def skip_reason():
 
 @unittest.skipIf(skip_reason(), skip_reason() or "")
 class AgentEndToEndTests(LiveServerTestCase):
+    static_handler = ApplicationOnly
+
     @classmethod
     def setUpClass(cls):
         super().setUpClass()

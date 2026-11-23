@@ -64,6 +64,9 @@ const container = {
     state: 'running',
     health: 'healthy',
     startedAt: '2026-10-16T08:00:00.000Z',
+    exitCode: null,
+    oomKilled: null,
+    finishedAt: null,
   },
   status: 'healthy',
 }

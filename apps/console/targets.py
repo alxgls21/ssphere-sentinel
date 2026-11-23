@@ -12,7 +12,7 @@ A list item::
 ``agent`` is ``{id, name, status, lastSeenAt, serverId, serverName}`` when one is
 assigned and its server is visible to the user, and ``null`` otherwise
 (``agentAssigned`` tells the two apart). ``expectedSlaPercent`` and ``customerLabel``
-are the admin's informational fields (the SLA expectation, a free-text label for
+are informational fields (the SLA expectation, a free-text label for
 reports that says nothing about who sees the target: the site does). ``latest`` is the newest measurement by
 the time it was taken, kept whatever its age; ``stale`` is true when there is
 one and it is no longer current, and then it takes no part in ``health``.
@@ -226,7 +226,7 @@ def serialize(row: dict, latest: dict | None, servers: dict[UUID, str], now: dat
             "enabled": row["enabled"],
             "intervalSeconds": row["monitoring_interval_seconds"],
             "timeoutSeconds": row["timeout_seconds"],
-            # Informational, as the admin shows them: the SLA expectation and the free-text customer label
+            # Informational: the SLA expectation and the free-text customer label
             # (``customerName`` beside the item is the site's customer; this one says nothing about who sees the target).
             "expectedSlaPercent": float(row["expected_sla_percentage"]),
             "customerLabel": row["customer_name"] or None,

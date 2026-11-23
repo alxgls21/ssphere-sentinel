@@ -10,14 +10,11 @@ import time
 from datetime import timedelta
 from unittest.mock import patch
 
-from django.contrib import admin
 from django.contrib.auth.models import Permission
 from django.core import mail
 from django.core.management import call_command
-from django.db import DatabaseError, OperationalError, connection
-from django.http import Http404
-from django.test import RequestFactory, TestCase, TransactionTestCase, override_settings
-from django.urls import reverse
+from django.db import OperationalError, connection
+from django.test import TestCase, TransactionTestCase, override_settings
 from django.utils import timezone
 
 from apps.alerts.management.commands.run_notifier import Notifier
@@ -355,7 +352,6 @@ class RuleVersionTests(TestCase):
 class ConfigurationTrailTests(TestCase):
     def setUp(self):
         self.root = make_user("root", superuser=True)
-        self.client.force_login(self.root)
 
     def test_an_event_is_never_changed_or_deleted(self):
         event = ConfigurationEvent.objects.create(
@@ -369,118 +365,6 @@ class ConfigurationTrailTests(TestCase):
             event.delete()
         self.assertEqual(ConfigurationEvent.objects.get().target_name, "x")
 
-    def test_changes_made_in_the_admin_are_recorded(self):
-        add = self.client.post(reverse("admin:alerts_alertrule_add"), {
-            "name": "Admin rule", "description": "", "enabled": "on", "entity_kind": "server", "health": "critical",
-            "reason": "offline", "severity": "critical", "activation_seconds": 60, "recovery_seconds": 120,
-        })
-        self.assertEqual(add.status_code, 302, add.content[:2000])
-        rule = AlertRule.objects.get(name="Admin rule")
-        change = self.client.post(reverse("admin:alerts_alertrule_change", args=[rule.pk]), {
-            "name": "Admin rule", "description": "", "health": "critical", "reason": "offline", "severity": "warning",
-            "activation_seconds": 60, "recovery_seconds": 120,
-        })
-        self.assertEqual(change.status_code, 302)
-        delete = self.client.post(reverse("admin:alerts_alertrule_delete", args=[rule.pk]), {"post": "yes"})
-        self.assertEqual(delete.status_code, 302)
-        actions = list(ConfigurationEvent.objects.order_by("id").values_list("action", "source", "actor_name"))
-        self.assertEqual(actions, [
-            ("rule_created", "admin", "root"),
-            ("rule_disabled", "admin", "root"),  # the unchecked box
-            ("rule_changed", "admin", "root"),
-            ("rule_deleted", "admin", "root"),
-        ])
-        changed = ConfigurationEvent.objects.get(action="rule_changed")
-        self.assertEqual(changed.changes, {"severity": {"before": "critical", "after": "warning"}})
-
-    def test_subscription_changes_made_in_the_admin_are_recorded(self):
-        ops = make_user("ops", email="ops@example.com", all_customers=True)
-        add = self.client.post(reverse("admin:alerts_notificationsubscription_add"), {
-            "user": ops.pk, "enabled": "on", "min_severity": "critical",
-        })
-        self.assertEqual(add.status_code, 302, add.content[:2000])
-        subscription = NotificationSubscription.objects.get(user=ops)
-        self.client.post(reverse("admin:alerts_notificationsubscription_delete", args=[subscription.pk]), {"post": "yes"})
-        events = list(ConfigurationEvent.objects.order_by("id").values_list("action", "target_name"))
-        self.assertEqual(events, [("subscription_changed", "ops"), ("subscription_deleted", "ops")])
-
-    def test_a_subscription_stays_with_its_user(self):
-        ops = make_user("ops", email="ops@example.com", all_customers=True)
-        other = make_user("other", email="other@example.com", all_customers=True)
-        subscription = NotificationSubscription.objects.create(user=ops)
-        self.client.post(reverse("admin:alerts_notificationsubscription_change", args=[subscription.pk]), {
-            "user": other.pk, "enabled": "on", "min_severity": "warning",
-        })
-        subscription.refresh_from_db()
-        self.assertEqual((subscription.user, subscription.min_severity), (ops, "warning"))
-
-    def test_a_bulk_delete_that_fails_leaves_no_record(self):
-        rule = make_rule("Bulk", reason="offline")
-        changelist = reverse("admin:alerts_alertrule_changelist")
-        with patch("django.contrib.admin.options.ModelAdmin.delete_queryset", side_effect=DatabaseError("lost")):
-            with self.assertRaises(DatabaseError), self.assertLogs("django.request", "ERROR"):
-                self.client.post(changelist, {"action": "delete_selected", "_selected_action": [rule.pk], "post": "yes"})
-        self.assertFalse(ConfigurationEvent.objects.exists())
-        self.client.post(changelist, {"action": "delete_selected", "_selected_action": [rule.pk], "post": "yes"})
-        self.assertEqual(list(ConfigurationEvent.objects.values_list("action", flat=True)), ["rule_deleted"])
-
-    def test_a_save_of_a_row_deleted_meanwhile_is_refused(self):
-        rule = make_rule("Gone", reason="offline")
-        subscription = NotificationSubscription.objects.create(
-            user=make_user("ops", email="ops@example.com", all_customers=True)
-        )
-        rule_admin = admin.site._registry[AlertRule]
-        subscription_admin = admin.site._registry[NotificationSubscription]
-        request = RequestFactory().post("/")
-        request.user = self.root
-        AlertRule.objects.filter(pk=rule.pk).delete()
-        NotificationSubscription.objects.filter(pk=subscription.pk).delete()
-        for model_admin, obj in ((rule_admin, rule), (subscription_admin, subscription)):
-            with self.subTest(model=type(obj).__name__), self.assertRaises(Http404):
-                model_admin.save_model(request, obj, None, change=True)
-        self.assertFalse(NotificationSubscription.objects.exists())
-        self.assertFalse(ConfigurationEvent.objects.exists())
-
-    def test_a_bulk_delete_records_exactly_what_it_deletes(self):
-        kept = make_rule("Enabled meanwhile", reason="offline", enabled=False)
-        gone = make_rule("Still disabled", reason="offline", enabled=False)
-        queryset = AlertRule.objects.filter(enabled=False, pk__in=[kept.pk, gone.pk])
-        self.assertEqual(len(queryset), 2)  # read, as the changelist's confirmation reads it
-        AlertRule.objects.filter(pk=kept.pk).update(enabled=True)
-        request = RequestFactory().post("/")
-        request.user = self.root
-        admin.site._registry[AlertRule].delete_queryset(request, queryset)
-        self.assertEqual(list(AlertRule.objects.filter(pk__in=[kept.pk, gone.pk])), [kept])
-        self.assertEqual(list(ConfigurationEvent.objects.values_list("target_name", flat=True)), ["Still disabled"])
-
-    def test_a_subscription_save_the_model_refuses_is_a_form_error(self):
-        ops = make_user("ops", email="ops@example.com", all_customers=True)
-        subscription = NotificationSubscription.objects.create(user=ops)
-        type(ops).objects.filter(pk=ops.pk).update(email="")
-        response = self.client.post(reverse("admin:alerts_notificationsubscription_change", args=[subscription.pk]), {
-            "min_severity": "critical",
-        })
-        self.assertEqual(response.status_code, 200)
-        self.assertContains(response, "This user has no email address.")
-
-    def test_bulk_deletes_of_subscriptions_are_recorded_with_the_deletion(self):
-        subscriptions = [
-            NotificationSubscription.objects.create(user=make_user(name, email=f"{name}@example.com", all_customers=True))
-            for name in ("one", "two")
-        ]
-        changelist = reverse("admin:alerts_notificationsubscription_changelist")
-        selected = {"action": "delete_selected", "_selected_action": [str(s.pk) for s in subscriptions], "post": "yes"}
-        with patch("django.contrib.admin.options.ModelAdmin.delete_queryset", side_effect=DatabaseError("lost")):
-            with self.assertRaises(DatabaseError), self.assertLogs("django.request", "ERROR"):
-                self.client.post(changelist, selected)
-        self.assertFalse(ConfigurationEvent.objects.exists())
-        self.client.post(changelist, selected)
-        events = ConfigurationEvent.objects.order_by("target_name")
-        self.assertEqual(
-            [(event.action, event.actor, event.target_name) for event in events],
-            [("subscription_deleted", self.root, "one"), ("subscription_deleted", self.root, "two")],
-        )
-
     def test_a_subscription_deleted_with_its_account_is_recorded(self):
         for index, delete in enumerate((lambda user: user.delete(), lambda user: type(user).objects.filter(pk=user.pk).delete())):
             with self.subTest(index=index):
@@ -493,9 +377,3 @@ class ConfigurationTrailTests(TestCase):
                     ("subscription_deleted", "account_deleted", None, "", f"leaving-{index}"),
                 )
                 self.assertEqual(event.changes["minSeverity"], {"before": "warning", "after": None})
-
-    def test_the_new_records_are_read_only_in_the_admin(self):
-        for model in ("testemailrequest", "notifierheartbeat", "configurationevent"):
-            with self.subTest(model=model):
-                self.assertEqual(self.client.get(reverse(f"admin:alerts_{model}_changelist")).status_code, 200)
-                self.assertEqual(self.client.get(reverse(f"admin:alerts_{model}_add")).status_code, 403)

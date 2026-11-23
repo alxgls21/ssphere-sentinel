@@ -310,7 +310,7 @@ export default function DeviceEditorPage() {
     return (
       <NotPermitted
         what="change devices"
-        hint="The console offers this only to an account that may change alert rules and holds the admin's permissions on devices and their SNMP configuration, with access to every customer. The server checks it on every request."
+        hint="The console offers this only to an account that may change alert rules and may change devices and their SNMP configuration, with access to every customer. The server checks it on every request."
       />
     )
   }

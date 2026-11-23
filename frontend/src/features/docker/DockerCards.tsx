@@ -2,10 +2,11 @@ import { Link } from 'react-router'
 import type { ContainerListItem } from '@/api/types'
 import { useViewTo } from '@/app/viewSearch'
 import { cn } from '@/lib/cn'
-import { containerWord, startedText } from '@/lib/containers'
+import { startedText } from '@/lib/containers'
 import { EMPTY, withAgo } from '@/lib/format'
 import { PlaceName } from '@/ui/PlaceName'
-import { STATUS_EDGE, StatusTag } from '@/ui/status'
+import { ContainerStateTag } from '@/ui/ContainerStateTag'
+import { STATUS_EDGE } from '@/ui/status'
 import { NO_CURRENT_STATE, hasNoState, healthText, hostPath } from './dockerModel'
 
 /**
@@ -41,7 +42,7 @@ export function DockerCards({
               className={cn('absolute inset-y-0 left-0 w-0.5', STATUS_EDGE[item.status])}
             />
             <span className="flex items-center gap-2">
-              <StatusTag status={item.status} word={containerWord(item)} variant="tag" />
+              <ContainerStateTag row={item} />
               <span className="type-data-strong min-w-0 flex-1 truncate">{container.name}</span>
               <span className="type-data tnum shrink-0 text-fg-faint">
                 {age === EMPTY ? EMPTY : withAgo(age)}

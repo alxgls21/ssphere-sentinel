@@ -1,4 +1,4 @@
-import { act, screen, waitFor } from '@testing-library/react'
+import { act, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { Route, Routes } from 'react-router'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -20,20 +20,31 @@ function setup({
   getDomainVerification = vi.fn<SentinelApi['getDomainVerification']>(async () =>
     verificationAnswer(verification({ status: 'running' })),
   ),
+  deleteDomain = vi.fn<SentinelApi['deleteDomain']>(async () => ({
+    generatedAt: new Date().toISOString(),
+    deleted: {
+      id: 'd1',
+      name: 'acme.example',
+      displayName: 'acme.example',
+      customer: { id: 'c1', name: 'Acme' },
+    },
+  })),
 } = {}) {
   const api = createTestApi({
     source: 'http',
     getDomain,
     verifyDomain,
     getDomainVerification,
+    deleteDomain,
   })
   renderApp(
     <Routes>
+      <Route path="/settings/domains" element={<p>domains list</p>} />
       <Route path="/settings/domains/:id" element={<DomainPage />} />
     </Routes>,
     { api, route: '/settings/domains/d1', auth: createFakeAuth({ capabilities }) },
   )
-  return { getDomain, verifyDomain, getDomainVerification }
+  return { getDomain, verifyDomain, getDomainVerification, deleteDomain }
 }
 
 describe('the domain', () => {
@@ -156,5 +167,77 @@ describe('asking for a verification', () => {
     expect(
       await screen.findByText('A verification of this domain is already waiting or running.'),
     ).toBeInTheDocument()
+  })
+})
+
+describe('deleting the domain', () => {
+  const admin = can('viewDomains', 'verifyDomains', 'deleteDomains')
+
+  it('offers it only to an account that may delete', async () => {
+    setup()
+    await screen.findByRole('heading', { name: 'acme.example' })
+    expect(screen.queryByRole('button', { name: 'Delete domain' })).not.toBeInTheDocument()
+  })
+
+  it('says what goes with it, asks for the name typed back, then deletes and returns to the list', async () => {
+    const user = userEvent.setup()
+    const { deleteDomain } = setup({ capabilities: admin })
+    await user.click(await screen.findByRole('button', { name: 'Delete domain' }))
+    const dialog = screen.getByRole('alertdialog')
+    expect(within(dialog).getByText(/verification history are deleted/)).toBeInTheDocument()
+    expect(
+      within(dialog).getByText(/Adding the domain again later gives a new record/),
+    ).toBeInTheDocument()
+    const confirm = within(dialog).getByRole('button', { name: 'Delete domain' })
+    expect(confirm).toBeDisabled()
+    await user.type(within(dialog).getByRole('textbox'), 'acme.example')
+    await user.click(confirm)
+    await waitFor(() => expect(deleteDomain).toHaveBeenCalledWith('d1'))
+    expect(await screen.findByText('domains list')).toBeInTheDocument()
+  })
+
+  it('shows the server’s words when a verification is still going, and does not leave the page', async () => {
+    const user = userEvent.setup()
+    setup({
+      capabilities: admin,
+      deleteDomain: vi.fn(async () => {
+        throw new ApiError(
+          'A verification of this domain is waiting or running: wait for its answer, then delete it.',
+          409,
+          'verification_active',
+        )
+      }),
+    })
+    await user.click(await screen.findByRole('button', { name: 'Delete domain' }))
+    const dialog = screen.getByRole('alertdialog')
+    await user.type(within(dialog).getByRole('textbox'), 'acme.example')
+    await user.click(within(dialog).getByRole('button', { name: 'Delete domain' }))
+    expect(
+      await within(dialog).findByText(/wait for its answer, then delete it/),
+    ).toBeInTheDocument()
+    expect(screen.queryByText('domains list')).not.toBeInTheDocument()
+  })
+
+  it('goes back to the list when the domain is gone already', async () => {
+    const user = userEvent.setup()
+    setup({
+      capabilities: admin,
+      deleteDomain: vi.fn(async () => {
+        throw new ApiError('Not found.', 404, 'not_found')
+      }),
+    })
+    await user.click(await screen.findByRole('button', { name: 'Delete domain' }))
+    const dialog = screen.getByRole('alertdialog')
+    await user.type(within(dialog).getByRole('textbox'), 'acme.example')
+    await user.click(within(dialog).getByRole('button', { name: 'Delete domain' }))
+    expect(await screen.findByText('domains list')).toBeInTheDocument()
+  })
+
+  it('does not offer it while a verification is waiting or running', async () => {
+    setup({
+      capabilities: admin,
+      getDomain: vi.fn(async () => domainDetail(domain(), verification({ status: 'running' }))),
+    })
+    expect(await screen.findByRole('button', { name: 'Delete domain' })).toBeDisabled()
   })
 })

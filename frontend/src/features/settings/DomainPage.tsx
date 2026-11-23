@@ -1,15 +1,16 @@
 import { useContext, useEffect, useState } from 'react'
-import { useParams } from 'react-router'
+import { useNavigate, useParams } from 'react-router'
 import { useApi } from '@/api/context'
 import { ApiError } from '@/api/errors'
 import type { DomainVerification, VerificationAnswer } from '@/api/types'
 import { useAuth } from '@/app/auth/auth'
 import { ShellContext } from '@/app/shell'
 import { usePrefs } from '@/app/prefs'
-import { useViewSearch } from '@/app/viewSearch'
+import { useViewSearch, useViewTo } from '@/app/viewSearch'
 import { useResource } from '@/hooks/useResource'
 import { formatStamp } from '@/lib/format'
 import { CodeBlock } from '@/ui/CodeBlock'
+import { DeleteConfirm } from '@/ui/DeleteConfirm'
 import { Panel } from '@/ui/Panel'
 import { Button } from '@/ui/controls'
 import { EmptyState, Notice, Skeleton } from '@/ui/states'
@@ -74,6 +75,8 @@ export default function DomainPage() {
   const { capabilities } = useAuth()
   const { tz } = usePrefs()
   const view = useViewSearch()
+  const viewTo = useViewTo()
+  const navigate = useNavigate()
   const back = useListBack('/settings/domains', view)
   const arrival = useArrivalState<{ created?: boolean }>()
   const may = capabilities.viewDomains
@@ -120,6 +123,36 @@ export default function DomainPage() {
     })()
     return () => controller.abort()
   }, [active, api, id, verificationId, refetch])
+
+  const [confirm, setConfirm] = useState(false)
+  const [deleting, setDeleting] = useState(false)
+  const [deleteProblem, setDeleteProblem] = useState<string | null>(null)
+  const remove = async () => {
+    setDeleting(true)
+    setDeleteProblem(null)
+    try {
+      const gone = await api.deleteDomain(id)
+      shell?.announce(`Domain ${gone.deleted.displayName} deleted.`)
+      void navigate(viewTo('/settings/domains'), {
+        replace: true,
+        state: { deleted: gone.deleted.displayName, customer: gone.deleted.customer.name },
+      })
+    } catch (error) {
+      if (error instanceof ApiError && error.status === 404) {
+        // Gone already (another administrator got there first): the list is the truth.
+        void navigate(viewTo('/settings/domains'), { replace: true })
+        return
+      }
+      setDeleteProblem(
+        error instanceof ApiError
+          ? error.message
+          : 'The domain could not be deleted: the server could not be reached.',
+      )
+      shell?.announce('The domain was not deleted.')
+    } finally {
+      setDeleting(false)
+    }
+  }
 
   const ask = async () => {
     setAsking(true)
@@ -291,6 +324,45 @@ export default function DomainPage() {
                   )}
                 </div>
               </Panel>
+              {capabilities.deleteDomains ? (
+                <Panel title="Delete" features="settings" scope="NOW" className="max-w-4xl">
+                  {confirm && record ? (
+                    <DeleteConfirm
+                      kind="domain"
+                      name={record.displayName}
+                      busy={deleting}
+                      problem={deleteProblem}
+                      onConfirm={() => void remove()}
+                      onCancel={() => {
+                        setConfirm(false)
+                        setDeleteProblem(null)
+                      }}
+                    >
+                      <p>
+                        The domain and its verification history are deleted. Nothing else refers to
+                        a domain: no alert rule or incident breaks. The audit trail keeps the
+                        deletion.
+                      </p>
+                      <p>
+                        The TXT record in {record.customer.name}’s DNS is no longer needed and may
+                        be removed. Adding the domain again later gives a new record to publish: the
+                        old one will not verify it.
+                      </p>
+                    </DeleteConfirm>
+                  ) : (
+                    <div className="flex flex-wrap items-center gap-3">
+                      <Button onClick={() => setConfirm(true)} disabled={active}>
+                        Delete domain
+                      </Button>
+                      <span className="type-body text-fg-muted">
+                        {active
+                          ? 'A verification is waiting or running: wait for its answer, then delete the domain.'
+                          : 'Its verification history is deleted with it. Adding it again later gives a new DNS record to publish.'}
+                      </span>
+                    </div>
+                  )}
+                </Panel>
+              ) : null}
             </>
           ) : null}
         </>

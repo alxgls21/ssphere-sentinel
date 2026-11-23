@@ -38,7 +38,7 @@ def session(request):
     ``authenticated`` is true only for a console session of a user who may use
     the console. A session without console access answers ``authenticated:
     false`` with ``reason: "no_console_access"``; one that did not come from
-    the console sign-in (the admin's, say) is simply anonymous here.
+    the console sign-in (force_login in a test, say) is simply anonymous here.
     """
     user = request.user
     if user.is_authenticated and user.is_active and has_console_session(request):
@@ -117,7 +117,7 @@ def _credentials(request) -> tuple[str, str]:
     username, password = data.get("username"), data.get("password")
     if not storable_text(username) or not storable_text(password):
         raise ApiError(400, "invalid_request", "username and password are required.")
-    # The same normalization the admin login form applies to a user name.
+    # The same normalization Django's own sign-in forms apply to a user name (UsernameField).
     username = unicodedata.normalize("NFKC", username.strip())
     if not 1 <= len(username) <= MAX_USERNAME_LENGTH or not 1 <= len(password) <= MAX_PASSWORD_LENGTH:
         raise ApiError(400, "invalid_request", "username and password are required.")

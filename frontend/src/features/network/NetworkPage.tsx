@@ -174,7 +174,7 @@ export default function NetworkPage() {
           nothingThere ? (
             <EmptyState
               title="No network targets"
-              hint="No probe target in this scope is configured. Add one in the admin and assign it an agent, and it appears here."
+              hint="No probe target in this scope is configured. Add one in Settings and assign it an agent, and it appears here."
             />
           ) : (
             <EmptyState

@@ -18,6 +18,7 @@ DEFAULT_KEYS = {"server-offline", "target-failing", "device-unreachable", "conta
 ITEM_KEYS = {
     "id", "key", "name", "description", "enabled", "kind", "condition", "health", "reason", "severity",
     "activationSeconds", "recoverySeconds", "scope", "openIncidents", "createdAt", "updatedAt", "version", "canEdit",
+    "canDelete",
 }
 
 
@@ -78,11 +79,12 @@ class PermissionTests(TestCase):
         no_console = grant(make_user("no-console", console=False, all_customers=True), "alerts.view_alertrule")
         self.assertEqual(signed_in_client(no_console).get(RULES).status_code, 403)
 
-    def test_a_rule_is_never_deleted_here(self):
-        response = signed_in_client(self.admin).delete(f"{RULES}{self.rule.pk}/")
-        self.assertEqual(response.status_code, 405)
-        self.assertEqual(response["Allow"], "GET, HEAD, PATCH")
+    def test_who_may_change_rules_may_delete_one(self):
+        for user, status in ((self.viewer, 403), (self.adder, 403), (self.restricted, 403), (self.plain, 403)):
+            with self.subTest(user=user.username):
+                self.assertEqual(signed_in_client(user).delete(f"{RULES}{self.rule.pk}/").status_code, status)
         self.assertTrue(AlertRule.objects.filter(pk=self.rule.pk).exists())
+        self.assertEqual(signed_in_client(self.admin).delete(f"{RULES}{self.rule.pk}/").status_code, 200)
 
     def test_writes_need_the_csrf_token(self):
         client = signed_in_client(self.admin, enforce_csrf=True)
@@ -386,3 +388,61 @@ class ConcurrentChangeTests(TransactionTestCase):
         rule.refresh_from_db()
         self.assertEqual(rule.version, 2)
         self.assertEqual(ConfigurationEvent.objects.count(), 1)
+
+
+class DeleteTests(TestCase):
+    def setUp(self):
+        self.admin = rule_admin()
+        self.client_ = signed_in_client(self.admin)
+
+    def test_a_rule_without_history_is_deleted_and_recorded(self):
+        rule = make_rule("Typo rule", reason="offline")
+        item = self.client_.get(f"{RULES}{rule.pk}/").json()["item"]
+        self.assertTrue(item["canDelete"])
+        response = self.client_.delete(f"{RULES}{rule.pk}/")
+        self.assertEqual(response.status_code, 200, response.content)
+        self.assertEqual(response.json()["deleted"], {"id": str(rule.pk), "name": "Typo rule"})
+        self.assertFalse(AlertRule.objects.filter(pk=rule.pk).exists())
+        event = ConfigurationEvent.objects.get(action="rule_deleted")
+        self.assertEqual((event.actor, event.source, event.target_name), (self.admin, "console", "Typo rule"))
+        from apps.console.models import AuditEntry
+
+        entry = AuditEntry.objects.get(action="alert_rule_deleted")
+        self.assertEqual((entry.actor_id, entry.target_id, entry.changes["name"]), (self.admin.pk, str(rule.pk), {"before": "Typo rule", "after": None}))
+        self.assertEqual(self.client_.delete(f"{RULES}{rule.pk}/").status_code, 404)
+
+    def test_a_rule_with_incidents_stays_even_when_they_are_over(self):
+        rule = make_rule("Busy rule", reason="offline")
+        incident = open_incident(rule)
+        Incident.objects.filter(pk=incident.pk).update(status="closed", close_reason="rule_disabled", closed_at=incident.opened_at)
+        self.assertFalse(self.client_.get(f"{RULES}{rule.pk}/").json()["item"]["canDelete"])
+        response = self.client_.delete(f"{RULES}{rule.pk}/")
+        self.assertEqual((response.status_code, response.json()["error"]["code"]), (409, "rule_has_history"))
+        self.assertTrue(response.json()["error"]["message"].endswith("."))
+        self.assertTrue(AlertRule.objects.filter(pk=rule.pk).exists())
+        self.assertFalse(ConfigurationEvent.objects.filter(action="rule_deleted").exists())
+
+    def test_an_installed_rule_without_history_may_go_and_is_not_installed_again(self):
+        rule = AlertRule.objects.get(key="container-failed")
+        self.assertEqual(self.client_.delete(f"{RULES}{rule.pk}/").status_code, 200)
+        self.assertFalse(AlertRule.objects.filter(key="container-failed").exists())
+
+    def test_its_evaluation_state_goes_with_it(self):
+        from apps.alerts.models import AlertEvaluationState
+        from apps.alerts.tests.helpers import at, ref
+
+        rule = make_rule("Watching", reason="offline")
+        AlertEvaluationState.objects.create(
+            rule=rule, entity_kind="server", entity_ref=ref(), phase="pending", condition_health="critical",
+            condition_reason="offline", condition_since=at(0), last_health="critical",
+        )
+        self.assertEqual(self.client_.delete(f"{RULES}{rule.pk}/").status_code, 200)
+        self.assertFalse(AlertEvaluationState.objects.filter(rule_id=rule.pk).exists())
+
+    def test_nothing_else_is_accepted(self):
+        rule = make_rule("Plain", reason="offline")
+        response = self.client_.delete(f"{RULES}{rule.pk}/", json.dumps({"force": True}), content_type="application/json")
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(self.client_.delete(f"{RULES}{rule.pk}/?x=1").status_code, 400)
+        self.assertEqual(signed_in_client(self.admin, enforce_csrf=True).delete(f"{RULES}{rule.pk}/").status_code, 403)
+        self.assertTrue(AlertRule.objects.filter(pk=rule.pk).exists())

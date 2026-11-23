@@ -12,7 +12,6 @@ from django.test import TestCase, TransactionTestCase
 from django.utils import timezone
 
 from apps.alerts.models import ConfigurationEvent
-from apps.console.tests.helpers import make_user
 from apps.inventory.models import Customer
 from apps.web import dns_verification as dv
 from apps.web import verification as queue
@@ -293,23 +292,3 @@ class ConcurrentClaimTests(TransactionTestCase):
         ids = [pk for batch in taken for pk in batch]
         self.assertEqual(len(ids), len(set(ids)))
         self.assertEqual(len(ids), 6)
-
-
-class AdminTests(TestCase):
-    def test_the_admin_shows_domains_and_verifications_read_only_without_the_token(self):
-        acme = Customer.objects.create(name="Acme")
-        domain = make_domain(acme, "xn--bcher-kva.de")
-        with transaction.atomic():
-            verification = queue.request_verification(domain, get_user_model().objects.create_user("alice"), timezone.now())
-        self.client.force_login(make_user("root", superuser=True))
-        page = self.client.get(f"/admin/web/monitoreddomain/{domain.pk}/change/")
-        self.assertEqual(page.status_code, 200)
-        self.assertContains(page, "xn--bcher-kva.de")
-        self.assertNotContains(page, domain.token)
-        self.assertNotContains(page, 'name="_save"')
-        self.assertEqual(self.client.get("/admin/web/monitoreddomain/").status_code, 200)
-        self.assertEqual(self.client.get(f"/admin/web/domainverification/{verification.pk}/change/").status_code, 200)
-        self.assertEqual(self.client.get("/admin/web/domainverifierheartbeat/").status_code, 200)
-        self.assertEqual(self.client.post(f"/admin/web/monitoreddomain/{domain.pk}/delete/", {"post": "yes"}).status_code, 403)
-        self.assertEqual(self.client.get("/admin/web/monitoreddomain/add/").status_code, 403)
-        self.assertTrue(MonitoredDomain.objects.filter(pk=domain.pk).exists())

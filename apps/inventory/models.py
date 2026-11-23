@@ -22,7 +22,7 @@ class ValidatedNameMixin(models.Model):
     """Validates on every save and keeps ``name`` free of surrounding whitespace.
 
     Like ``NetworkTarget``, instances are validated on every ``save()``, so
-    programmatic writes cannot bypass the admin's checks. Values are normalized
+    programmatic writes cannot bypass the checks. Values are normalized
     before validation (Django validates fields before ``clean()``, so a name
     of only spaces would otherwise pass the "not blank" check).
     """

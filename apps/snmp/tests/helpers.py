@@ -31,6 +31,20 @@ DELTA = {
 }
 
 
+class ApplicationOnly:
+    """A live server's static file handler for a site that has none (no STATIC_URL): the application, unchanged.
+
+    ``LiveServerTestCase`` serves the static files at STATIC_URL by default; without it, every path would be
+    taken for one.
+    """
+
+    def __init__(self, application):
+        self.application = application
+
+    def __call__(self, environ, start_response):
+        return self.application(environ, start_response)
+
+
 def make_agent(name="snmp-poller"):
     server = Server.objects.create(name=f"{name}-host", hostname=f"{name}.local")
     agent, token = create_agent(server=server, name=name)

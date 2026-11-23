@@ -267,7 +267,7 @@ export default function TargetsPage() {
     return (
       <NotPermitted
         what="change network targets"
-        hint="The console offers this only to an account that may change alert rules and holds the admin's permissions on network targets, with access to every customer. The server checks it on every request."
+        hint="The console offers this only to an account that may change alert rules and may change network targets, with access to every customer. The server checks it on every request."
       />
     )
   }

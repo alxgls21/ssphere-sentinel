@@ -31,7 +31,7 @@ You only need to trust a proxy if **Django** should redirect to HTTPS
 (`DJANGO_SECURE_SSL_REDIRECT`) or send HSTS (`DJANGO_SECURE_HSTS_SECONDS`;
 Django only sends it on requests it considers secure). The recommended setups
 in [server-deployment.md](server-deployment.md) let the front end do both and
-need no trust at all; console and admin sign-ins work through
+need no trust at all; console sign-ins work through
 `DJANGO_CSRF_TRUSTED_ORIGINS` and Secure cookies.
 
 To trust a proxy anyway, set `FORWARDED_ALLOW_IPS` in `.env` to the address
@@ -59,23 +59,18 @@ They return no configuration, version, host or error details.
 - A raw token exists only in the one page or command output that displays
   it, the agent's environment file, the agent's process environment and
   memory, and the `Authorization` header of agent requests.
-- The admin shows a new token on a single page served with
-  `Cache-Control: no-store`. It is never put in Django's messages framework
-  (whose cookie is signed but not encrypted) or in the session. Adding an
-  agent in the admin generates its token the same way.
 - The console creates an agent (`POST /api/v1/console/servers/<id>/agents/`)
-  and rotates its token (`POST .../agents/<id>/rotate-token/`) with the same
-  code; the token is in that one JSON answer only (`Cache-Control: no-store`,
+  and rotates its token (`POST .../agents/<id>/rotate-token/`); the token is
+  in that one JSON answer only (`Cache-Control: no-store`,
   as every console answer), never in a later answer, a log line, the URL, the
   browser's history or storage: the console holds it in the page's state until
   *Done*. The installation commands it shows read the token hidden into the
   root-only environment file (a shell builtin and a pipe), never a command
   line. These writes need the permissions that change alert rules and the
-  admin's permissions on servers and agents (see below).
-- Regenerating in the admin requires the *change agent* permission and a confirmation
-  step; each rotation is recorded in the admin history without the token. The
-  console asks for the same confirmation and logs each creation and rotation
-  with the account's id and the agent's and server's ids, never the token.
+  model permissions on servers and agents (see below).
+- The console asks for a confirmation before it rotates a token, and logs each
+  creation and rotation with the account's id and the agent's and server's
+  ids, never the token.
 - Agents send the token only in the `Authorization` header, never in URLs,
   and reject `SENTINEL_URL` values containing credentials. The agent does not
   follow HTTP redirects, so the token can never be forwarded to another host
@@ -116,16 +111,13 @@ the CSRF token.
 - **Deny by default.** A user needs the permission *Can sign in to the
   monitoring console* (`console.use_console`, in the default groups *Console
   viewers …*). Without `view_all_customers` they see only the customers and
-  sites granted to them (**Console → Customer access** / **Site access**). An
+  sites granted to them (**Settings → Users & access**). An
   object that belongs to no site is visible only to `view_all_customers` users
   and superusers. Servers and network targets have a nullable `site`; the
   migration that added it left every existing row without one, so they are
   hidden from restricted users until an administrator assigns a site (the
   free-text `customer_name` of a network target is display text and never
-  grants access). In the admin, anyone who may view servers or network targets
-  also sees the names of their customers and sites (list column, filter
-  sidebar, form): delegate those permissions only to operators who may see
-  every customer.
+  grants access).
 - **Isolation is part of the database query.** Every console queryset is
   filtered through `apps/console/access.py`: the user's visible sites are read
   from the grants once per request (a small query on the site table) and the
@@ -139,9 +131,8 @@ the CSRF token.
   cookie (Secure when `SENTINEL_URL` is an `https://` address; without
   `SENTINEL_URL`, unless `DJANGO_DEBUG`). Only a session created by the
   console's own sign-in is a console session: it carries a marker with the
-  sign-in time, and a session from anywhere else (the admin login, with its
-  14-day default lifetime) is anonymous to the console. The
-  session starts empty and gets a new id at sign-in; it ends after
+  sign-in time, and a session from anywhere else is anonymous to the console.
+  The session starts empty and gets a new id at sign-in; it ends after
   `SENTINEL_CONSOLE_SESSION_SECONDS` (12 hours by default, no sliding renewal;
   the console also checks the marker's age, so a longer-lived cookie cannot
   extend it); changing the password ends every session of that user. Expired
@@ -169,22 +160,17 @@ the CSRF token.
   not the server's CPU: use front-end rate limiting. Logs identify accounts by
   id, never by the name or the password that was typed; text that cannot be a
   name or password (NUL characters, invalid UTF-8) is a `400` that is not
-  counted. The admin login form (`/admin/login/`) is under the same throttle
-  with the same per-account counter: failures at either door add up, one
-  lockout covers both, and a successful sign-in at either clears it. There,
-  only an active staff account that is not locked has its password compared;
-  a wrong password, an unknown user, an account without staff access and a
-  locked account all get the admin's usual "Please enter the correct username
-  and password" error after one password hash. An empty field is the form's
-  own error and is not counted.
+  counted. The throttle covers the console sign-in only; the first-run setup
+  code has its own key (above).
 - **Administration is by permission, checked on the server.** Acknowledging
   incidents needs `alerts.acknowledge_incident`. Alert rules need the model
   permissions (`alerts.view_alertrule`, `add_alertrule`, `change_alertrule`)
   *and* `view_all_customers`, because a rule may concern every customer and the
   list names customers and sites; a restricted user is refused whatever their
-  permissions. Rules are never deleted from the console, only disabled. A change
+  permissions. A rule that never opened an incident may be deleted (with
+  `change_alertrule`); one with incidents is only disabled, as they keep it. A change
   carries the `version` the client read and is refused (`409`) if the rule has
-  changed since, in the console or the admin. Every user manages their own email
+  changed since. Every user manages their own email
   preferences only (the address is the account's, set by an administrator). A
   test email (`alerts.send_test_email`) goes to the user's own address only, at
   most one a minute and one at a time; the web process queues it and the
@@ -197,16 +183,14 @@ the CSRF token.
   address, and emails are turned on only for an active account with an address
   and console access (switching them off is always accepted). Each user sees who
   last changed their emails, themselves or an administrator. Changes of rules and
-  subscriptions (from the console or the admin) and test-email requests are
-  recorded, with the account and its name at the time, in the append-only
-  *Configuration changes* trail; an administrator's change of an account's emails
-  is also in the console's audit trail (read-only in the admin; the database login could still alter it). A
-  subscription removed with its account is recorded without an actor: the
-  account's deletion is in the admin's own history. A save in the admin has no
-  version check: it is the last word over a change made since the form was
-  opened, and the trail records what it changed.
+  subscriptions and test-email requests are recorded, with the account and its
+  name at the time, in the append-only *Configuration changes* trail (changes
+  made before 0.9.5 may have the source `admin`, from the Django admin); an
+  administrator's change of an account's emails is also in the console's audit
+  trail (the database login could still alter it). A subscription removed with
+  its account is recorded without an actor.
 - **Monitored hosts are added by accounts that change alert rules and hold the
-  admin's permissions for the same actions** (`alerts.change_alertrule` *and*
+  model permissions for the same actions** (`alerts.change_alertrule` *and*
   `view_all_customers`, plus `infrastructure.add_server` to add a server,
   `agents.add_agent` to create its agent and `agents.change_agent` to rotate a
   token or to disable or enable an agent; a superuser holds them all): a server
@@ -232,7 +216,7 @@ the CSRF token.
   SNMP configuration (`inventory.add_device`, `change_device`, `delete_device`
   together with `snmp.add_snmpconfig`, `change_snmpconfig`,
   `delete_snmpconfig`): each needs `alerts.change_alertrule` with
-  `view_all_customers` *and* the admin's model permission for that action, as
+  `view_all_customers` *and* the model permission for that action, as
   monitored hosts do. The session announces `editServers`, `deleteServers`,
   `manageCustomers`, `manageTargets` and `manageDevices` only to an account
   that holds every permission of the group. A customer or a site is never
@@ -240,7 +224,7 @@ the CSRF token.
   rules; servers, devices, targets, alert rules or incidents): the request is
   refused (`409`) with what still belongs, and nothing is ever deleted along
   with it, only the access grants to it. A device with SNMP history is refused
-  too, as in the admin. A target's detail carries the entry for the agent's
+  too. A target's detail carries the entry for the agent's
   own targets file (nothing secret: the agent's keys of the target); an SNMP
   credential profile is written and never answered, logged or recorded.
 - **Accounts, roles and access are administered by administrators only**
@@ -251,14 +235,15 @@ the CSRF token.
   permissions above: *viewer* (`use_console`), *operator* (also
   `acknowledge_incident` and `send_test_email`), *editor* (also every
   configuration permission, with `view_all_customers`) and *administrator* (a
-  superuser, who may also use the admin). Assigning a role sets exactly that
+  superuser). Assigning a role sets exactly that
   role's permissions on the account and takes it out of every group; a viewer
   or operator is granted customers (every site of each, now and later) and
-  single sites, or every customer; an account that holds a finer set of
-  permissions from the admin is shown as the highest role it amounts to. The
+  single sites, or every customer; there is no screen that grants single
+  permissions or groups, and an account given other permissions earlier is
+  shown as the highest role it amounts to. The
   administrator types a new account's first password (checked by the
-  installation's `AUTH_PASSWORD_VALIDATORS`, as the setup and the admin check
-  it) and tells it to the user, who changes it in **Settings → Account** with
+  installation's `AUTH_PASSWORD_VALIDATORS`, as the setup checks it) and tells
+  it to the user, who changes it in **Settings → Account** with
   the current one (a wrong current password counts as a failed sign-in, under
   the throttle); setting another account's password ends that account's
   sessions, and so does deactivating it. Accounts are deactivated, never
@@ -277,7 +262,7 @@ the CSRF token.
 - **Every administrative write is recorded** in the console's own append-only
   audit trail (`console.AuditEntry`; **Settings → Audit log**, read by
   administrators or an account granted `console.view_auditentry` with
-  `view_all_customers`; read-only in the admin too): who (the account, and its
+  `view_all_customers`): who (the account, and its
   name at the time, kept once the account is gone), when, what, on which
   object (type, id and name at the time), and the fields that changed with
   their values before and after, by the names the console API gives them.
@@ -336,9 +321,7 @@ the CSRF token.
   another of its customers created under the domain, an attacker on the path
   between Sentinel and the name servers (there is no DNSSEC validation), and a
   domain whose DNS account is someone else's. It does not make a domain's DNS
-  secure; it makes one server's word not enough. The admin shows domains and
-  verifications read-only to staff with the view permissions, of every
-  customer, as it does servers.
+  secure; it makes one server's word not enough.
 - **Nothing sensitive is returned**: no password hashes, agent tokens, SNMP
   credential profiles or secret settings; the session payload has the user
   name, display name, the access flags and what the account may administer. The server and container endpoints
@@ -349,25 +332,21 @@ the CSRF token.
   and rejects anything else with a `400` that does not repeat the input.
   Counts and totals describe only what the user may see.
 
-Whoever can edit *Customer access*, *Site access*, a user's permissions or
-groups, or a group's permissions in the admin can give any account (their own
-included) access to any customer: treat those permissions as "may see
-everything". The admin is still present in this version (a later release turns
-it off by default): everything above is done in the console, and the admin
-remains the way to a finer permission set than the four roles. Operational notes:
-create console users in the console (**Settings → Users & access**; they need no
-staff access, and only an administrator may do it); the throttle is per account because the client address is not
+Whoever administers accounts (an administrator, in **Settings → Users &
+access**) can give any account (their own included) access to any customer.
+Release 0.9.5 removed the Django admin: everything above is done in the
+console, and the four roles are the only permission sets it grants. Operational notes:
+create console users in the console (**Settings → Users & access**; only an
+administrator may do it); the throttle is per account because the client address is not
 trustworthy behind a proxy (see above), so it cannot be bypassed by rotating
 addresses but can be used to lock a known account out for the lockout period
-(unlock it under **Settings → Users & access**, or **Console → Login throttles**
-in the admin). Because the admin login shares
-the counter, this includes staff and superuser accounts, at both doors: someone
-who knows an administrator's user name can keep that administrator out of the
-console and the admin for the lockout period. This is the accepted price of a
+(unlock it under **Settings → Users & access**). This includes administrators:
+someone who knows an administrator's user name can keep that administrator out
+of the console for the lockout period. This is the accepted price of a
 throttle that works without a trustworthy client address; another
-administrator can delete the row, otherwise the lock ends by itself. If the only administrator is locked, run `docker compose exec web python manage.py unlock_login <username>` on the server (it needs shell access to the web service, not a sign-in); `--all` instead of a name clears every row. Put the console behind the same
-front-end protections as the admin (Cloudflare Access or WAF rate limiting) if
-it is exposed to the internet.
+administrator can unlock the account, otherwise the lock ends by itself. If the only administrator is locked, run `docker compose exec web python manage.py unlock_login <username>` on the server (it needs shell access to the web service, not a sign-in); `--all` instead of a name clears every row. Put the console behind
+front-end protections (Cloudflare Access or WAF rate limiting) if it is
+exposed to the internet.
 
 ## Server hardening
 
@@ -402,12 +381,11 @@ it is exposed to the internet.
   `Cross-Origin-Opener-Policy: same-origin`,
   `Cross-Origin-Resource-Policy: same-origin` and a `Permissions-Policy` that
   turns off the camera, microphone, geolocation, payment and USB features. The
-  responses of Django (APIs, admin) carry Django's own headers (nosniff,
+  responses of Django (the APIs and health checks) carry Django's own headers (nosniff,
   `Referrer-Policy`, `Cross-Origin-Opener-Policy`, `X-Frame-Options`); the
   `proxy` service adds the same `Permissions-Policy` and
   `Cross-Origin-Resource-Policy` to them, and to the JSON APIs under `/api/`
-  `Content-Security-Policy: default-src 'none'; frame-ancestors 'none'`. The
-  admin's pages get no Content Security Policy.
+  `Content-Security-Policy: default-src 'none'; frame-ancestors 'none'`.
 - SNMP credentials are never stored on the server: devices hold only the name
   of a credential profile kept in the agent's local files, no model or form has
   a field for a community string or key, and unknown payload fields are
@@ -514,12 +492,11 @@ account to the `docker` group.
   Heartbeats fail until the agent is reconfigured (measurements are queued).
 - On the agent host, root and the service account can read the token
   (environment file, process environment).
-- There is no built-in rate limiting or lockout for the heartbeat API, and no
-  built-in second factor for the admin. The admin login has the per-account
-  sign-in throttle (see Sign-in throttling), which limits guessing but not the
-  load a flood of attempts puts on the server. Use the front end for the rest
-  (for example Cloudflare WAF rate limiting and Cloudflare Access on
-  `/admin/`).
+- There is no built-in rate limiting or lockout for the heartbeat API. The
+  console sign-in has the per-account sign-in throttle (see Sign-in
+  throttling), which limits guessing but not the load a flood of attempts puts
+  on the server. Use the front end for the rest (for example Cloudflare WAF
+  rate limiting).
 - Traffic between the TLS front end and Gunicorn, and between Gunicorn and
   PostgreSQL, is unencrypted on the host or Compose network.
 - The agent trusts the system's CA certificates; there is no certificate

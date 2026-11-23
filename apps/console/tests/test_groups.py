@@ -1,4 +1,4 @@
-"""Default groups, the permission model and the admin pages."""
+"""Default groups, the permission model and the access grants."""
 
 import io
 from types import SimpleNamespace
@@ -8,10 +8,9 @@ from django.contrib.auth.models import Group, Permission
 from django.core.management import call_command
 from django.db import connection
 from django.test import TestCase
-from django.urls import reverse
 
 from apps.console.groups import VIEWERS, VIEWERS_ALL, ensure_console_groups
-from apps.console.models import CustomerAccess, LoginThrottle, SiteAccess
+from apps.console.models import CustomerAccess, SiteAccess
 from apps.console.tests.helpers import Org, make_user, permission
 from django.apps import apps as django_apps
 
@@ -131,57 +130,9 @@ class DumpDataTests(TestCase):
         self.assertNotIn("console_consoleaccess", connection.introspection.table_names())
 
 
-class AdminTests(TestCase):
+class GrantTests(TestCase):
     def setUp(self):
         self.org = Org()
-        self.root = make_user("root", superuser=True)
-        self.client.force_login(self.root)
-
-    def test_the_admin_pages_load(self):
-        make_user("alice", customers=[self.org.acme], sites=[self.org.globex_plant])
-        LoginThrottle.objects.create(key="u:1", window_started_at=self.org.acme.created_at)
-        for model in ("customeraccess", "siteaccess", "loginthrottle"):
-            for view in ("changelist", "add"):
-                url = reverse(f"admin:console_{model}_{view}")
-                response = self.client.get(url)
-                if model == "loginthrottle" and view == "add":
-                    self.assertEqual(response.status_code, 403)
-                else:
-                    self.assertEqual(response.status_code, 200, url)
-        self.assertContains(self.client.get(reverse("admin:console_customeraccess_changelist")), "alice")
-
-    def test_the_inventory_admins_used_by_the_autocomplete_have_a_total_order(self):
-        from django.contrib import admin as django_admin
-
-        from apps.inventory.models import Customer, Site
-
-        for model in (Customer, Site):
-            ordering = django_admin.site._registry[model].ordering
-            self.assertEqual(ordering[-1], "pk", model.__name__)  # ties are broken, so paging cannot repeat or skip rows
-
-    def test_a_user_manager_can_delete_users_who_have_throttle_rows(self):
-        from django.contrib.auth import get_user_model
-        from django.contrib.auth.models import Permission as P
-
-        manager = make_user("manager", console=False, is_staff=True)
-        manager.user_permissions.add(P.objects.get(codename="delete_user"), P.objects.get(codename="view_user"))
-        target = make_user("target")
-        LoginThrottle.objects.create(key=f"u:{target.pk}", user=target, attempts=2, window_started_at=self.org.acme.created_at)
-        self.client.force_login(manager)
-        url = reverse("admin:auth_user_delete", args=[target.pk])
-        self.assertEqual(self.client.get(url).status_code, 200)  # not "you do not have permission to delete ... login throttle"
-        self.client.post(url, {"post": "yes"})
-        self.assertFalse(get_user_model().objects.filter(pk=target.pk).exists())
-        self.assertFalse(LoginThrottle.objects.filter(key=f"u:{target.pk}").exists())
-
-    def test_the_throttle_list_names_the_account(self):
-        user = make_user("alice")
-        LoginThrottle.objects.create(key=f"u:{user.pk}", user=user, attempts=5, window_started_at=self.org.acme.created_at)
-        LoginThrottle.objects.create(key="x:12", attempts=5, window_started_at=self.org.acme.created_at)
-        response = self.client.get(reverse("admin:console_loginthrottle_changelist"))
-        self.assertContains(response, "alice")
-        self.assertContains(response, "unknown names")
-        self.assertContains(self.client.get(reverse("admin:console_loginthrottle_changelist") + "?q=alice"), "alice")
 
     def test_grants_are_unique_per_user_and_customer(self):
         from django.db import IntegrityError, transaction
@@ -197,11 +148,3 @@ class AdminTests(TestCase):
         user = make_user("alice", customers=[self.org.acme], sites=[self.org.acme_hq])
         user.delete()
         self.assertEqual((CustomerAccess.objects.count(), SiteAccess.objects.count()), (0, 0))
-
-    def test_throttle_rows_are_read_only_but_can_be_deleted_to_unlock(self):
-        row = LoginThrottle.objects.create(key="u:5", attempts=5, window_started_at=self.org.acme.created_at)
-        url = reverse("admin:console_loginthrottle_change", args=[row.pk])
-        self.assertEqual(self.client.get(url).status_code, 200)
-        self.assertEqual(self.client.post(url, {"attempts": 0}).status_code, 403)
-        self.client.post(reverse("admin:console_loginthrottle_delete", args=[row.pk]), {"post": "yes"})
-        self.assertFalse(LoginThrottle.objects.exists())

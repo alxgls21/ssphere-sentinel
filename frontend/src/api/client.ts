@@ -23,6 +23,9 @@ import type {
   ContainerList,
   ContainerListOptions,
   CustomerDetail,
+  DeliveryList,
+  DeliveryListOptions,
+  DomainDeleted,
   DomainDetail,
   DomainInput,
   DomainList,
@@ -249,6 +252,12 @@ export interface SentinelApi {
    */
   updateAlertRule(id: string, patch: AlertRulePatch, options?: Signal): Promise<AlertRuleChange>
 
+  /**
+   * Deletes a rule that never opened an incident, with its evaluation state. Rejects: 409 `rule_has_history`
+   * (an incident keeps the rule: disable it instead), 404 (gone already), 403.
+   */
+  deleteAlertRule(id: string, options?: Signal): Promise<Deleted>
+
   /** The alert engine, the notifier, the email outbox and what the deployment sets. 403 without the capability. */
   getSystemStatus(options?: Signal): Promise<SystemStatus>
 
@@ -302,6 +311,12 @@ export interface SentinelApi {
 
   /** One page of the monitored domains of every customer (global visibility), searched, filtered, sorted and paged by the answerer. 403 without it. */
   listDomains(options?: DomainListOptions): Promise<DomainList>
+
+  /** Deletes a domain with its verification history (administrators only). Rejects: 409 `verification_active`, 404 (gone already), 403. */
+  deleteDomain(id: string, options?: Signal): Promise<DomainDeleted>
+
+  /** One page of the incident emails and what became of each (administrators only; 403 for anyone else). */
+  listDeliveries(options?: DeliveryListOptions): Promise<DeliveryList>
 
   /** One domain with the DNS record to add and its latest verification. 404 for an unknown id. */
   getDomain(id: string, options?: Signal): Promise<DomainDetail>

@@ -8,8 +8,8 @@
 # on the first start (sentinel/secrets.py); docs/server-deployment.md.
 #
 # The proxy service is the only one published, on SENTINEL_HTTP_BIND:SENTINEL_HTTP_PORT
-# (default: all interfaces, port 8000): it serves the console and passes /api/,
-# /admin/, /static/ and /health/ on to web. Browsers and agents use it alone. It
+# (default: all interfaces, port 8000): it serves the console and passes /api/
+# and /health/ on to web. Browsers and agents use it alone. It
 # shares the edge network with web only; PostgreSQL and the workers are on the
 # internal Compose network, which it cannot reach. In production, terminate TLS
 # in front of it (reverse proxy or Cloudflare Tunnel, see compose.tunnel.yml) and

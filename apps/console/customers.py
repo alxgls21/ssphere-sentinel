@@ -3,7 +3,7 @@
 
 Who: reading needs what reading anything needs (the grants: a restricted account sees its own
 customers and sites, and a hidden or unknown id is a 404). Writing needs what configuring
-monitoring needs (``alerts.change_alertrule`` with global visibility) and the admin's model
+monitoring needs (``alerts.change_alertrule`` with global visibility) and Django's model
 permission for the action (``inventory.add_customer``, ``change_customer``, ``delete_customer``;
 the same three on ``inventory.Site``); otherwise 403. See ``apps.console.permissions``.
 

@@ -1,12 +1,12 @@
-"""Alert rules: ``GET/POST /alert-rules/``, ``GET/PATCH /alert-rules/<id>/``, ``GET /alert-rules/options/``.
+"""Alert rules: ``GET/POST /alert-rules/``, ``GET/PATCH/DELETE /alert-rules/<id>/``, ``GET /alert-rules/options/``.
 
 Who: every endpoint needs global visibility (``console.view_all_customers``, or a
 superuser): a rule may concern every customer, and the rules name the customers and
 sites they are for. Then ``alerts.view_alertrule`` (or ``change_alertrule``) to
-read, ``alerts.add_alertrule`` to create, ``alerts.change_alertrule`` to change; the
-options need any of the three. Otherwise 403. Rules are never deleted here: an
-incident keeps its rule, so a rule is disabled instead (the admin deletes one that
-never had an incident).
+read, ``alerts.add_alertrule`` to create, ``alerts.change_alertrule`` to change or delete;
+the options need any of the three. Otherwise 403. Only a rule that never opened an incident
+is deleted (``canDelete``): an incident keeps its rule, so one with history is disabled
+instead.
 
 AlertRule::
 
@@ -16,10 +16,12 @@ AlertRule::
      "activationSeconds": int, "recoverySeconds": int,
      "scope": {"type": all | customer | site, "customerId": str | null, "customerName": str | null,
                "siteId": str | null, "siteName": str | null},
-     "openIncidents": int, "createdAt", "updatedAt", "version": int, "canEdit": bool}
+     "openIncidents": int, "createdAt", "updatedAt", "version": int, "canEdit": bool,
+     "canDelete": bool}
 
 ``key`` names the rules Sentinel installed. ``scope.type`` ``all`` is every object,
 including those on no site; a ``site`` scope also gives the site's customer.
+``canDelete``: this account may change rules and the rule has never opened an incident.
 
 List::
 
@@ -61,6 +63,11 @@ Invalid values are a 400 ``validation_error`` with ``fields``: the field names a
 number. Unknown fields are refused there too. The body is at most 16 KiB (room for the
 longest name and description, whatever their characters and however they are escaped).
 
+Delete: ``DELETE`` with the CSRF token and no body (or ``{}``). 409 ``rule_has_history``
+when the rule has ever opened an incident (disable it instead); a rule Sentinel installed
+may be deleted too, and is not installed again. Its evaluation state goes with it. Recorded in
+the audit trail and the configuration trail. 200 ``{"generatedAt", "deleted": {"id", "name"}}``.
+
 Options::
 
     {"generatedAt",
@@ -82,7 +89,7 @@ from uuid import UUID
 
 from django.core.exceptions import NON_FIELD_ERRORS, ValidationError
 from django.db import IntegrityError, transaction
-from django.db.models import Count, F, OuterRef, Subquery, Value
+from django.db.models import Count, Exists, F, OuterRef, Subquery, Value
 from django.db.models.functions import Coalesce
 from django.http import JsonResponse
 from django.utils import timezone
@@ -143,6 +150,7 @@ FIELDS = (
     "site__customer_id",
     "site__customer__name",
     "open_incidents",
+    "has_history",
     "created_at",
     "updated_at",
     "version",
@@ -187,7 +195,10 @@ def with_columns(queryset):
         .annotate(n=Count("pk"))
         .values("n")
     )
-    return queryset.annotate(open_incidents=Coalesce(Subquery(open_incidents), Value(0)))
+    return queryset.annotate(
+        open_incidents=Coalesce(Subquery(open_incidents), Value(0)),
+        has_history=Exists(Incident.objects.filter(rule=OuterRef("pk"))),
+    )
 
 
 def serialize(row: dict, *, may_change: bool) -> dict:
@@ -228,6 +239,7 @@ def serialize(row: dict, *, may_change: bool) -> dict:
         "updatedAt": iso(row["updated_at"]),
         "version": row["version"],
         "canEdit": may_change,
+        "canDelete": may_change and not row["has_history"],
     }
 
 
@@ -294,10 +306,12 @@ def detail_item(request, rule_id) -> dict:
     return serialize(row, may_change=may_change_rules(request.user, request.visibility))
 
 
-@console_api(methods=("GET", "PATCH"))
+@console_api(methods=("GET", "PATCH", "DELETE"))
 def rule_item(request, rule_id: UUID):
     if request.method == "PATCH":
         return change_rule(request, rule_id)
+    if request.method == "DELETE":
+        return delete_rule(request, rule_id)
     now = timezone.now()
     require(may_view_rules(request.user, request.visibility), "This account may not see alert rules.")
     QueryParams(request, ())
@@ -484,6 +498,38 @@ def change_rule(request, rule_id: UUID):
         result = effects(rule, before, open_incidents)
     logger.info("Alert rule changed (rule=%s, user_id=%s, version=%s)", rule.pk, request.user.pk, rule.version)
     return JsonResponse({"generatedAt": iso(now), "item": detail_item(request, rule.pk), "effects": result})
+
+
+def delete_rule(request, rule_id: UUID):
+    now = timezone.now()
+    require(may_change_rules(request.user, request.visibility), "This account may not change alert rules.")
+    QueryParams(request, ())
+    data = json_object(request, max_bytes=1024, empty=True)
+    if data:
+        raise validation_error({name: ["Unknown field: a deletion has no options."] for name in sorted(data)})
+    with transaction.atomic():
+        # Held until the end: the engine cannot open an incident of the rule in between (its insert waits, then
+        # finds no rule).
+        rule = AlertRule.objects.select_for_update().filter(pk=rule_id).first()
+        if rule is None:
+            raise ApiError(404, "not_found", "Not found.")
+        if Incident.objects.filter(rule=rule).exists():
+            raise ApiError(
+                409, "rule_has_history", "This rule has opened incidents, which keep it: disable it instead."
+            )
+        done = {"id": str(rule.pk), "name": rule.name}
+        audit.rule_deleted(request.user, rule, source=ConfigurationSource.CONSOLE)
+        trail.record(
+            request.user,
+            action="alert_rule_deleted",
+            target_type=trail.ALERT_RULE,
+            target_id=rule.pk,
+            target_name=rule.name,
+            changed=trail.changes(audit.rule_values(rule), {}),
+        )
+        rule.delete()
+    logger.info("Alert rule deleted (rule=%s, user_id=%s)", done["id"], request.user.pk)
+    return JsonResponse({"generatedAt": iso(now), "deleted": done})
 
 
 # -- options -----------------------------------------------------------------------------

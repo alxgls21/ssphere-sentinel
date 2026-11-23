@@ -3,7 +3,7 @@
 Every administrative write of the console records one entry here, inside the transaction of the
 change: customers and sites, users and their access, network targets, devices, servers and their
 agents, acknowledged incidents, alert rules and monitored domains. (Alert rules, domains and email
-subscriptions are also in the alerts app's own configuration trail, which the admin shows; this
+subscriptions are also in the alerts app's own configuration trail; this
 trail is the console's, and the console reads it: ``apps.console.audit_log``.)
 
 Only safe values are recorded: field names and non-secret values, by the names the console API
@@ -80,6 +80,7 @@ ACTIONS = {
     "incident_acknowledged": "Incident acknowledged",
     "alert_rule_created": "Alert rule created",
     "alert_rule_changed": "Alert rule changed",
+    "alert_rule_deleted": "Alert rule deleted",
     "domain_created": "Domain added",
     "domain_verification_requested": "Domain verification requested",
     "domain_deleted": "Domain deleted",

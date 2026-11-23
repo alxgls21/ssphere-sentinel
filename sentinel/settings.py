@@ -282,7 +282,7 @@ if not 30 <= SENTINEL_AUDIT_RETENTION_DAYS <= 3650:
 # Email notifications: optional, and off unless SENTINEL_SMTP_HOST is set. The
 # credentials come from the environment only, never from the database, and in
 # Docker Compose reach the notifier service only. Only console users who have a
-# subscription (in the admin) receive anything.
+# subscription (Settings > Notifications in the console) receive anything.
 SENTINEL_SMTP_HOST = env("SENTINEL_SMTP_HOST", default="").strip()
 SENTINEL_SMTP_PORT = env_int("SENTINEL_SMTP_PORT", default=587)
 if not 1 <= SENTINEL_SMTP_PORT <= 65535:
@@ -337,7 +337,7 @@ MAILERS = {
 ALLOWED_HOSTS = env_list("DJANGO_ALLOWED_HOSTS", default="localhost,127.0.0.1")
 if SENTINEL_URL_HOST and SENTINEL_URL_HOST not in ALLOWED_HOSTS:
     ALLOWED_HOSTS.append(SENTINEL_URL_HOST)
-# Full origins (``https://sentinel.example.com``) allowed to submit admin forms
+# Full origins (``https://sentinel.example.com``) allowed to send the console's writes
 # when TLS is terminated in front of Django (reverse proxy, Cloudflare Tunnel).
 CSRF_TRUSTED_ORIGINS = env_list("DJANGO_CSRF_TRUSTED_ORIGINS")
 if SENTINEL_URL and SENTINEL_URL not in CSRF_TRUSTED_ORIGINS:
@@ -357,19 +357,19 @@ if SECURE_HSTS_SECONDS < 0:
 SECURE_HSTS_INCLUDE_SUBDOMAINS = env_bool("DJANGO_SECURE_HSTS_INCLUDE_SUBDOMAINS")
 SECURE_HSTS_PRELOAD = env_bool("DJANGO_SECURE_HSTS_PRELOAD")
 # Secure cookies by default outside DEBUG. Browsers send them over HTTPS only,
-# so admin login over plain http:// needs both set to false (testing only).
+# so a console sign-in over plain http:// needs both set to false (testing only).
 # With SENTINEL_URL, its scheme decides: a browser keeps no Secure cookie from an http:// address.
 COOKIES_SECURE_DEFAULT = SENTINEL_URL.startswith("https://") if SENTINEL_URL else not DEBUG
 SESSION_COOKIE_SECURE = env_bool("DJANGO_SESSION_COOKIE_SECURE", default=COOKIES_SECURE_DEFAULT)
 CSRF_COOKIE_SECURE = env_bool("DJANGO_CSRF_COOKIE_SECURE", default=COOKIES_SECURE_DEFAULT)
 
+# No Django admin: everything is administered in the console (and, to recover access, with
+# createsuperuser, changepassword and unlock_login). Django serves JSON and the health checks only,
+# so there are no pages, messages or static files either.
 INSTALLED_APPS = [
-    "django.contrib.admin",
     "django.contrib.auth",
     "django.contrib.contenttypes",
     "django.contrib.sessions",
-    "django.contrib.messages",
-    "django.contrib.staticfiles",
     # Required for BrinIndex (enforced by a system check since Django 6.1).
     "django.contrib.postgres",
     # Project apps
@@ -393,16 +393,8 @@ MIDDLEWARE = [
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
     "django.contrib.auth.middleware.AuthenticationMiddleware",
-    "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
 ]
-if not DEBUG:
-    # Serves the collected static files (admin CSS/JS) from Gunicorn, right
-    # after SecurityMiddleware. With DEBUG on, runserver serves them instead.
-    MIDDLEWARE.insert(
-        MIDDLEWARE.index("django.middleware.security.SecurityMiddleware") + 1,
-        "whitenoise.middleware.WhiteNoiseMiddleware",
-    )
 
 ROOT_URLCONF = "sentinel.urls"
 
@@ -418,7 +410,6 @@ TEMPLATES = [
             "context_processors": [
                 "django.template.context_processors.request",
                 "django.contrib.auth.context_processors.auth",
-                "django.contrib.messages.context_processors.messages",
             ],
         },
     },
@@ -464,16 +455,6 @@ LANGUAGE_CODE = "en-us"
 TIME_ZONE = "UTC"
 USE_I18N = True
 USE_TZ = True
-
-STATIC_URL = "static/"
-STATIC_ROOT = BASE_DIR / "staticfiles"
-STORAGES = {
-    "default": {"BACKEND": "django.core.files.storage.FileSystemStorage"},
-    # Pre-compressed copies are created by collectstatic. Not the manifest
-    # (hashed-name) variant: that requires collectstatic before any template
-    # renders, including in tests, and only the admin uses static files.
-    "staticfiles": {"BACKEND": "whitenoise.storage.CompressedStaticFilesStorage"},
-}
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 

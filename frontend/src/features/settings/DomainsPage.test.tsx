@@ -123,6 +123,22 @@ describe('the list', () => {
   })
 })
 
+describe('after a deletion', () => {
+  it('says which domain went, with its customer, when the domain page sends the operator here', async () => {
+    setup({
+      route: {
+        pathname: '/settings/domains',
+        state: { deleted: 'bücher.example', customer: 'Globex' },
+      } as unknown as string,
+    })
+    expect(
+      await screen.findByText(
+        'The domain bücher.example of Globex is deleted, with its verification history.',
+      ),
+    ).toBeInTheDocument()
+  })
+})
+
 describe('adding a domain', () => {
   it('checks the customer and the name here before asking the server', async () => {
     const user = userEvent.setup()

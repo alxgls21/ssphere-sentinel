@@ -37,15 +37,9 @@ COPY manage.py gunicorn.conf.py entrypoint.sh ./
 COPY sentinel ./sentinel
 COPY apps ./apps
 
-# Collect the admin's static files (served by WhiteNoise) and precompile the
-# application. Settings need values for their required variables at import
-# time; these placeholders exist only for this build step and are not secrets.
+# Precompile the application (Django serves no static files: the console is the proxy's).
 # Everything stays owned by root and read-only for the runtime user.
-RUN DJANGO_SECRET_KEY=collectstatic-build-step-only \
-    AGENT_TOKEN_PEPPER=collectstatic-build-step-only \
-    POSTGRES_DB=unused POSTGRES_USER=unused POSTGRES_PASSWORD=unused \
-    python manage.py collectstatic --noinput --verbosity 0 \
-    && python -m compileall -q sentinel apps \
+RUN python -m compileall -q sentinel apps \
     && chmod 0755 entrypoint.sh
 
 USER sentinel:sentinel

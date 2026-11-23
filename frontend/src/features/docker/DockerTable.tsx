@@ -3,11 +3,12 @@ import { Link } from 'react-router'
 import type { ContainerListItem } from '@/api/types'
 import { useViewTo } from '@/app/viewSearch'
 import { cn } from '@/lib/cn'
-import { containerWord, startedText } from '@/lib/containers'
+import { startedText } from '@/lib/containers'
 import { EMPTY, formatStamp, withAgo, type Timezone } from '@/lib/format'
 import { PlaceName } from '@/ui/PlaceName'
 import { Tooltip } from '@/ui/controls'
-import { STATUS_EDGE, StatusTag } from '@/ui/status'
+import { ContainerStateTag } from '@/ui/ContainerStateTag'
+import { STATUS_EDGE } from '@/ui/status'
 import {
   NO_CURRENT_STATE,
   SORT_LABEL,
@@ -85,7 +86,7 @@ export function DockerTable({ rows, query, onSort, nowMs, tz }: DockerTableProps
                     aria-hidden="true"
                     className={cn('absolute inset-y-0 left-0 w-0.5', STATUS_EDGE[item.status])}
                   />
-                  <StatusTag status={item.status} word={containerWord(item)} variant="tag" />
+                  <ContainerStateTag row={item} />
                 </td>
                 {/* oxlint-disable-next-line jsx-a11y/control-has-associated-label -- the name inside is the text */}
                 <td className={cn(CELL, 'min-w-32 px-1')}>

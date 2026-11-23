@@ -15,7 +15,7 @@ import {
 } from './sections'
 
 describe('the sections of Settings', () => {
-  it('are, in order: Notifications, Account, Alert rules, Customers & sites, Network targets, Devices, Domains, Users & access, Audit log, System', () => {
+  it('are, in order: Notifications, Account, Alert rules, Customers & sites, Network targets, Devices, Domains, Users & access, Audit log, Email log, System', () => {
     expect(SECTIONS.map((section) => section.label)).toEqual([
       'Notifications',
       'Account',
@@ -26,6 +26,7 @@ describe('the sections of Settings', () => {
       'Domains',
       'Users & access',
       'Audit log',
+      'Email log',
       'System',
     ])
     expect(SECTIONS.map((section) => section.path)).toEqual([
@@ -38,6 +39,7 @@ describe('the sections of Settings', () => {
       '/settings/domains',
       '/settings/users',
       '/settings/audit-log',
+      '/settings/email-log',
       '/settings/system',
     ])
   })
@@ -71,6 +73,8 @@ describe('the sections of Settings', () => {
     expect(sectionOffered('devices', can('manageDevices'))).toBe(true)
     expect(sectionOffered('users', can('manageUsers'))).toBe(true)
     expect(sectionOffered('domains', can('viewDomains'))).toBe(true)
+    expect(sectionOffered('email-log', can('viewDeliveryLog'))).toBe(true)
+    expect(sectionOffered('email-log', can('manageUsers'))).toBe(false)
     expect(sectionOffered('domains', can('addDomains', 'verifyDomains'))).toBe(false)
     expect(sectionOffered('audit-log', can('viewAuditLog'))).toBe(true)
     const editor = can('manageCustomers', 'manageTargets', 'manageDevices', 'manageServers')

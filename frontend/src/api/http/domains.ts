@@ -1,6 +1,7 @@
 import type { SentinelApi } from '../client'
 import type {
   Choice,
+  DomainDeleted,
   DomainDetail,
   DomainList,
   DomainRecord,
@@ -178,3 +179,23 @@ export const getDomainVerification =
         },
       ),
     )
+
+export function parseDomainDeleted(raw: unknown): DomainDeleted {
+  const row = record(raw)
+  const deleted = record(row.deleted)
+  const customer = record(deleted.customer)
+  return {
+    generatedAt: time(row.generatedAt),
+    deleted: {
+      id: text(deleted.id),
+      name: text(deleted.name),
+      displayName: text(deleted.displayName),
+      customer: { id: text(customer.id), name: text(customer.name) },
+    },
+  }
+}
+
+export const deleteDomain =
+  (transport: Transport): SentinelApi['deleteDomain'] =>
+  async (id, options) =>
+    parseDomainDeleted(await transport.delete(domainPath(id), { signal: options?.signal }))

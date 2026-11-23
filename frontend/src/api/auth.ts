@@ -50,6 +50,10 @@ export interface SessionCapabilities {
   viewDomains: boolean
   addDomains: boolean
   verifyDomains: boolean
+  /** Delete a monitored domain with its verification history: administrators only. */
+  deleteDomains: boolean
+  /** Read the log of incident emails and why one did not arrive: administrators only. */
+  viewDeliveryLog: boolean
   /** The signed-in account's own settings: its password. */
   manageOwnAccount: boolean
 }
@@ -74,6 +78,8 @@ export const NO_CAPABILITIES: SessionCapabilities = {
   viewDomains: false,
   addDomains: false,
   verifyDomains: false,
+  deleteDomains: false,
+  viewDeliveryLog: false,
   manageOwnAccount: false,
 }
 

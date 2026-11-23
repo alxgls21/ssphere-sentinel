@@ -14,9 +14,12 @@ fail() { echo "FAIL: $*" >&2; exit 1; }
 echo "liveness:  $(curl --fail --silent --show-error "$base/health/")"
 echo "readiness: $(curl --fail --silent --show-error "$base/health/ready/")"
 
-# Admin static files are collected into the image and served by WhiteNoise.
-curl --fail --silent --show-error --output /dev/null "$base/static/admin/css/base.css" \
-    || fail "admin static files are not served"
+# There is no Django admin: the proxy passes no /admin/ or /static/ to web, so they are the console's own page
+# (which shows its "not found"), like any other path that is not an API.
+console_page=$(curl --fail --silent --show-error "$base/")
+for path in admin/ admin/login/ static/admin/css/base.css; do
+    [ "$(curl --silent "$base/$path")" = "$console_page" ] || fail "/$path is not the console's page"
+done
 
 # The application runs as the unprivileged image user on a read-only root fs.
 uid=$(docker compose exec -T web id -u)

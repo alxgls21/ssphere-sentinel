@@ -382,14 +382,16 @@ refused_web_start() {  # refused_web_start <name> <seconds> <message>: web, star
     grep -qF "$3" <<<"$(service_log web)" || { describe_web; fail "web did not say why: $3"; }
     docker compose stop web alert-engine notifier domain-verifier maintenance
 }
-unapply_admin() {  # the migrations of the admin app undone by the migrate login, so that there is something to apply
-    docker compose run --rm --no-deps -T migrate python manage.py migrate admin zero > "$work/unapply.out" 2>&1 \
-        || { indented < "$work/unapply.out" >&2; fail "the migrations of admin could not be undone"; }
-    expect "t" "the table of the undone migrations" "SELECT to_regclass('public.django_admin_log') IS NULL"
+# The app whose migrations are undone so that there is something to apply: web (monitored domains) is a leaf of
+# the migration graph (no other app's migration depends on it), and its one migration has foreign keys.
+unapply_leaf() {  # the migrations of the leaf app undone by the migrate login
+    docker compose run --rm --no-deps -T migrate python manage.py migrate web zero > "$work/unapply.out" 2>&1 \
+        || { indented < "$work/unapply.out" >&2; fail "the migrations of web could not be undone"; }
+    expect "t" "the table of the undone migrations" "SELECT to_regclass('public.web_monitoreddomain') IS NULL"
 }
-admin_stays_unapplied() {  # admin_stays_unapplied <what ran>: no migration ran in it
-    expect "t" "django_admin_log after $1" "SELECT to_regclass('public.django_admin_log') IS NULL"
-    expect "0" "the record of the migrations of admin after $1" "SELECT count(*) FROM django_migrations WHERE app = 'admin'"
+leaf_stays_unapplied() {  # leaf_stays_unapplied <what ran>: no migration ran in it
+    expect "t" "web_monitoreddomain after $1" "SELECT to_regclass('public.web_monitoreddomain') IS NULL"
+    expect "0" "the record of the migrations of web after $1" "SELECT count(*) FROM django_migrations WHERE app = 'web'"
 }
 
 # What PostgreSQL says to statements run with the login of a container: one line each.
@@ -652,7 +654,7 @@ scenario_legacy_settings_refused() {
     # migrations of an app were undone first: they would be applied again if it got further).
     local applied restarts
     docker compose stop web alert-engine notifier domain-verifier maintenance
-    unapply_admin
+    unapply_leaf
     applied=$(applied_migrations)
     grep -v -e '^SENTINEL_DB_ROLES=' -e '^SENTINEL_DB_PASSWORD=' -e '^SENTINEL_BOOTSTRAP_ENV_FILE=' \
         -e '^SENTINEL_MIGRATE_ENV_FILE=' "$work/env.separate" > .env
@@ -666,14 +668,14 @@ scenario_legacy_settings_refused() {
     restarts=$(docker inspect --format '{{.RestartCount}}' "$(container web)")
     [ "$restarts" -ge 1 ] || fail "web did not fail and start again"
     grep -q 'a superuser login, may not be used' <<<"$(service_log web)" || fail "web was not refused as a superuser login"
-    admin_stays_unapplied "a refused superuser login"
+    leaf_stays_unapplied "a refused superuser login"
     [ "$(applied_migrations)" = "$applied" ] || fail "a refused superuser login changed the record of the migrations"
     if curl --fail --silent --max-time 3 --output /dev/null http://127.0.0.1:8000/health/; then fail "web serves with the superuser login"; fi
     docker compose stop web alert-engine notifier domain-verifier maintenance
     cp "$work/env.separate" .env
     # The migrate service as it always runs: what was undone is applied again.
-    docker compose run --rm --no-deps -T migrate > "$work/reapply.out" 2>&1 || { indented < "$work/reapply.out" >&2; fail "the migrations of admin could not be applied again"; }
-    expect "t" "the migrations of admin applied again" "SELECT to_regclass('public.django_admin_log') IS NOT NULL"
+    docker compose run --rm --no-deps -T migrate > "$work/reapply.out" 2>&1 || { indented < "$work/reapply.out" >&2; fail "the migrations of web could not be applied again"; }
+    expect "t" "the migrations of web applied again" "SELECT to_regclass('public.web_monitoreddomain') IS NOT NULL"
 }
 
 scenario_second_start() {
@@ -806,7 +808,7 @@ scenario_privilege_drift() {
     local database before verifiers_before applied variant name change undo expectation first=true
     database=$(value_of POSTGRES_DB)
     docker compose stop web alert-engine notifier domain-verifier maintenance
-    unapply_admin
+    unapply_leaf
     before=$(fingerprint)
     verifiers_before=$(verifiers)
     applied=$(applied_migrations)
@@ -828,7 +830,7 @@ scenario_privilege_drift() {
         refused_start "drift-$name" 90 --expect migrate:start migrate:die=1 --absent web:start
         grep -qF "the database roles differ from what Sentinel provisions" <<<"$(migrate_log)" || fail "migrate did not say why ($name)"
         grep -qF "$expectation" <<<"$(migrate_log)" || fail "migrate did not name the difference ($name)"
-        admin_stays_unapplied "$name"
+        leaf_stays_unapplied "$name"
         [ "$(applied_migrations)" = "$applied" ] || fail "a migration ran with the roles drifted ($name)"
         # Web, started by itself, makes its own check: it is refused too, and fails again and again.
         if [ "$first" = true ]; then
@@ -840,7 +842,7 @@ scenario_privilege_drift() {
         verified
     done
     start undone --expect migrate:start migrate:die=0 web:start web:healthy
-    expect "t" "the migrations that were undone, applied by the deployment that follows" "SELECT to_regclass('public.django_admin_log') IS NOT NULL"
+    expect "t" "the migrations that were undone, applied by the deployment that follows" "SELECT to_regclass('public.web_monitoreddomain') IS NOT NULL"
 }
 
 scenario_password_rotation() {
@@ -886,11 +888,11 @@ scenario_interrupted_migration() {
     # was weakened; the next start finishes the job.
     local before up
     docker compose stop web alert-engine notifier domain-verifier maintenance
-    unapply_admin
+    unapply_leaf
     before=$(fingerprint)
-    # A superuser session holds a lock that the creation of django_admin_log's foreign key needs.
+    # A superuser session holds a lock that the creation of web_monitoreddomain's foreign key to the customers needs.
     docker compose exec -T -d -e PGAPPNAME=e2e-lock db sh -c \
-        'exec psql -X -q -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c "BEGIN; LOCK TABLE django_content_type IN ACCESS EXCLUSIVE MODE; SELECT pg_catalog.pg_sleep(600); COMMIT;"'
+        'exec psql -X -q -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c "BEGIN; LOCK TABLE inventory_customer IN ACCESS EXCLUSIVE MODE; SELECT pg_catalog.pg_sleep(600); COMMIT;"'
     retry 30 "the lock to be held" lock_held || exit 1
     events_begin interrupted
     docker compose up --detach --wait --wait-timeout 180 > "$work/up-interrupted.out" 2>&1 &
@@ -903,22 +905,22 @@ scenario_interrupted_migration() {
     events_end
     ordered interrupted --expect migrate:start migrate:die=137 --absent web:start
     [ "$(docker inspect --format '{{.State.Running}}' "$(container migrate)")" = false ] || fail "migrate is still running"
-    expect "t" "the interrupted migration's table" "SELECT to_regclass('public.django_admin_log') IS NULL"
-    expect "0" "the interrupted migration's record" "SELECT count(*) FROM django_migrations WHERE app = 'admin'"
+    expect "t" "the interrupted migration's table" "SELECT to_regclass('public.web_monitoreddomain') IS NULL"
+    expect "0" "the interrupted migration's record" "SELECT count(*) FROM django_migrations WHERE app = 'web'"
     [ "$(fingerprint)" = "$before" ] || fail "an interrupted migration changed a privilege"
     [ "$(migrations_privileges)" = "app SELECT" ] || fail "an interrupted migration left django_migrations writable"
     verified
     start resumed --expect migrate:start migrate:die=0 web:start web:healthy
-    expect "t" "the migrations finished" "SELECT to_regclass('public.django_admin_log') IS NOT NULL"
-    expect "sentinel_owner" "the owner of what was migrated again" "SELECT pg_get_userbyid(relowner) FROM pg_class WHERE oid = 'public.django_admin_log'::regclass"
+    expect "t" "the migrations finished" "SELECT to_regclass('public.web_monitoreddomain') IS NOT NULL"
+    expect "sentinel_owner" "the owner of what was migrated again" "SELECT pg_get_userbyid(relowner) FROM pg_class WHERE oid = 'public.web_monitoreddomain'::regclass"
     [ "$(migrations_privileges)" = "app SELECT" ] || fail "django_migrations is not read-only for the runtime login after the interruption"
     docker compose exec -T web python manage.py migrate --check
 }
 lock_held() {
-    [ "$(echo "SELECT count(*) FROM pg_locks l JOIN pg_class c ON c.oid = l.relation WHERE l.mode = 'AccessExclusiveLock' AND l.granted AND c.relname = 'django_content_type'" | sql)" = 1 ]
+    [ "$(echo "SELECT count(*) FROM pg_locks l JOIN pg_class c ON c.oid = l.relation WHERE l.mode = 'AccessExclusiveLock' AND l.granted AND c.relname = 'inventory_customer'" | sql)" = 1 ]
 }
-migration_blocked() {  # the migrate login waits for the share row exclusive lock that the foreign key to django_content_type needs
-    [ "$(echo "SELECT count(*) FROM pg_locks l JOIN pg_class c ON c.oid = l.relation JOIN pg_stat_activity a ON a.pid = l.pid WHERE NOT l.granted AND l.mode = 'ShareRowExclusiveLock' AND c.relname = 'django_content_type' AND a.usename = 'sentinel_migrate'" | sql)" -ge 1 ]
+migration_blocked() {  # the migrate login waits for the share row exclusive lock that the foreign key to inventory_customer needs
+    [ "$(echo "SELECT count(*) FROM pg_locks l JOIN pg_class c ON c.oid = l.relation JOIN pg_stat_activity a ON a.pid = l.pid WHERE NOT l.granted AND l.mode = 'ShareRowExclusiveLock' AND c.relname = 'inventory_customer' AND a.usename = 'sentinel_migrate'" | sql)" -ge 1 ]
 }
 lock_released() {
     [ "$(echo "SELECT count(*) FROM pg_stat_activity WHERE application_name = 'e2e-lock' OR usename = 'sentinel_migrate'" | sql_cluster)" = 0 ]

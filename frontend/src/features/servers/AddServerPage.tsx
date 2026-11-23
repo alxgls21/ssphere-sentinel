@@ -60,7 +60,7 @@ export default function AddServerPage() {
       <div className="rounded-sm border border-border bg-panel">
         <EmptyState
           title="Not permitted to add servers"
-          hint="The console offers this only to an account that may change alert rules and holds the admin's permissions to add servers and to add and change agents, with access to every customer. The server checks it on every request."
+          hint="The console offers this only to an account that may change alert rules and may add servers and add and change agents, with access to every customer. The server checks it on every request."
         />
       </div>
     )

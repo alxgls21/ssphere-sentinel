@@ -16,6 +16,7 @@ import { useViewSearch, useViewTo } from '@/app/viewSearch'
 import { useResource } from '@/hooks/useResource'
 import { describeWriteFailure, summaryOf, type FormFailure } from '@/lib/forms'
 import { effectsSentence, previewChange, type ChangePreview } from '@/lib/ruleChanges'
+import { DeleteConfirm } from '@/ui/DeleteConfirm'
 import { Panel } from '@/ui/Panel'
 import { Button } from '@/ui/controls'
 import { EmptyState, Notice, Skeleton } from '@/ui/states'
@@ -239,8 +240,8 @@ function Editor({
 
 /**
  * Settings > Alert rules > a rule, or a new one. The options (what a form may offer), the customers
- * and sites (for the scope) and, for an existing rule, the rule are read from the API. A rule is
- * never deleted here: it is disabled.
+ * and sites (for the scope) and, for an existing rule, the rule are read from the API. A rule that
+ * never opened an incident may be deleted; one that did is disabled, since its incidents keep it.
  */
 export default function RuleEditorPage() {
   const api = useApi()
@@ -278,6 +279,37 @@ export default function RuleEditorPage() {
   const back = (location.state as { list?: string } | null)?.list
   const created = (location.state as { created?: boolean } | null)?.created === true
   const rule: AlertRule | undefined = saved?.rule ?? detail.data?.item
+
+  const [confirmDelete, setConfirmDelete] = useState(false)
+  const [deleting, setDeleting] = useState(false)
+  const [deleteProblem, setDeleteProblem] = useState<string | null>(null)
+  const shell = useContext(ShellContext)
+  const removeRule = async () => {
+    if (id === undefined) return
+    setDeleting(true)
+    setDeleteProblem(null)
+    try {
+      const gone = await api.deleteAlertRule(id)
+      shell?.announce(`Alert rule ${gone.deleted.name} deleted.`)
+      void navigate(viewTo('/settings/alert-rules'), {
+        replace: true,
+        state: { deleted: gone.deleted.name },
+      })
+    } catch (error) {
+      if (error instanceof ApiError && error.status === 404) {
+        void navigate(viewTo('/settings/alert-rules'), { replace: true })
+        return
+      }
+      setDeleteProblem(
+        error instanceof ApiError
+          ? error.message
+          : 'The rule could not be deleted: the server could not be reached.',
+      )
+      shell?.announce('The rule was not deleted.')
+    } finally {
+      setDeleting(false)
+    }
+  }
 
   if (!mayOpen) {
     return (
@@ -361,10 +393,7 @@ export default function RuleEditorPage() {
 
       {notFound ? (
         <div className="rounded-sm border border-border bg-panel">
-          <EmptyState
-            title="Alert rule not found"
-            hint="It does not exist, or it was removed from the admin."
-          />
+          <EmptyState title="Alert rule not found" hint="It does not exist, or it was deleted." />
         </div>
       ) : forbidden ? (
         <div className="rounded-sm border border-border bg-panel">
@@ -404,6 +433,48 @@ export default function RuleEditorPage() {
           ) : null}
         </Panel>
       )}
+
+      {!creating && rule && mayWrite && !notFound && !forbidden ? (
+        <Panel title="Delete" features="settings" scope="NOW" className="max-w-4xl">
+          {confirmDelete && rule.canDelete ? (
+            <DeleteConfirm
+              kind="alert rule"
+              name={rule.name}
+              busy={deleting}
+              problem={deleteProblem}
+              onConfirm={() => void removeRule()}
+              onCancel={() => {
+                setConfirmDelete(false)
+                setDeleteProblem(null)
+              }}
+            >
+              <p>
+                The rule and its evaluation state are deleted: the engine stops applying it. The
+                audit trail keeps the deletion.
+              </p>
+              <p>
+                Only a rule that never opened an incident can be deleted. A rule with incidents is
+                disabled instead, because they keep it.
+              </p>
+            </DeleteConfirm>
+          ) : (
+            <div className="flex flex-wrap items-center gap-3">
+              <Button
+                onClick={() => setConfirmDelete(true)}
+                disabled={!rule.canDelete}
+                aria-describedby="rule-delete-why"
+              >
+                Delete rule
+              </Button>
+              <span id="rule-delete-why" className="type-body text-fg-muted">
+                {rule.canDelete
+                  ? 'It never opened an incident, so it can be deleted. To stop it for a while, disable it instead.'
+                  : 'This rule has opened incidents, which keep it: disable it instead.'}
+              </span>
+            </div>
+          )}
+        </Panel>
+      ) : null}
     </div>
   )
 }

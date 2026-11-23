@@ -6,8 +6,9 @@ import type { Resource } from '@/hooks/useResource'
 import type { ServerDetail } from '@/api/types'
 import { Panel } from '@/ui/Panel'
 import { EmptyState, SkeletonRows } from '@/ui/states'
-import { STATUS_EDGE, StatusTag } from '@/ui/status'
-import { containerWord, sortContainers, startedText } from '@/lib/containers'
+import { ContainerStateTag } from '@/ui/ContainerStateTag'
+import { STATUS_EDGE } from '@/ui/status'
+import { sortContainers, startedText } from '@/lib/containers'
 
 const HEAD =
   'type-label sticky top-0 z-10 h-6 border-b border-border bg-raised text-left whitespace-nowrap text-fg-faint'
@@ -41,7 +42,7 @@ function ContainerTable({ rows, nowMs }: { rows: readonly ServerContainer[]; now
                   aria-hidden="true"
                   className={cn('absolute inset-y-0 left-0 w-0.5', STATUS_EDGE[row.status])}
                 />
-                <StatusTag status={row.status} word={containerWord(row)} variant="tag" />
+                <ContainerStateTag row={row} />
               </td>
               <td className={cn(CELL, 'type-data-strong max-w-0 truncate px-3 @xl:max-w-none')}>
                 {row.container.name}

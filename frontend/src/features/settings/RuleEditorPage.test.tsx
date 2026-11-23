@@ -59,6 +59,7 @@ function Back() {
 }
 
 interface Served {
+  deleteAlertRule?: SentinelApi['deleteAlertRule']
   rule?: AlertRule | Error
   options?: ReturnType<typeof options> | Error
 }
@@ -93,6 +94,10 @@ function setup(
     },
     effects: { openIncidents: 0, closes: [], closesAll: false },
   }))
+  const deleteAlertRule = vi.fn<SentinelApi['deleteAlertRule']>(async (id) => ({
+    generatedAt: iso(0),
+    deleted: { id, name: 'Device unreachable' },
+  }))
   const api = createTestApi({
     source: 'http',
     getAlertRuleOptions,
@@ -100,6 +105,7 @@ function setup(
     getAlertRule,
     createAlertRule,
     updateAlertRule,
+    deleteAlertRule: served.deleteAlertRule ?? deleteAlertRule,
   })
   renderApp(
     <>
@@ -121,6 +127,7 @@ function setup(
     getAlertRule,
     createAlertRule,
     updateAlertRule,
+    deleteAlertRule,
   }
 }
 
@@ -898,6 +905,93 @@ describe('keyboard and labels', () => {
     setup('/settings/alert-rules/new')
     await nameField()
     await user.click(screen.getByRole('link', { name: 'Alert rules' }))
+    expect(await screen.findByText('the list')).toBeInTheDocument()
+  })
+})
+
+describe('deleting a rule', () => {
+  const asks = (user: ReturnType<typeof userEvent.setup>) =>
+    user.click(screen.getByRole('button', { name: 'Delete rule' }))
+
+  it('is offered for a rule that never opened an incident, and says what it takes with it', async () => {
+    const user = userEvent.setup()
+    setup('/settings/alert-rules/r1')
+    await nameField()
+    await asks(user)
+    const dialog = screen.getByRole('alertdialog')
+    expect(within(dialog).getByText(/evaluation state are deleted/)).toBeInTheDocument()
+    expect(
+      within(dialog).getByText(/A rule with incidents is disabled instead/),
+    ).toBeInTheDocument()
+  })
+
+  it('asks for the name typed back, deletes, and returns to the list', async () => {
+    const user = userEvent.setup()
+    const served = setup('/settings/alert-rules/r1', undefined, {
+      rule: rule({ id: 'r1', name: 'Core down', openIncidents: 0 }),
+    })
+    await nameField()
+    await asks(user)
+    const dialog = screen.getByRole('alertdialog')
+    const confirm = within(dialog).getByRole('button', { name: 'Delete alert rule' })
+    expect(confirm).toBeDisabled()
+    await user.type(within(dialog).getByRole('textbox'), 'Core down')
+    await user.click(confirm)
+    await waitFor(() => expect(served.deleteAlertRule).toHaveBeenCalledWith('r1'))
+    expect(await screen.findByText('the list')).toBeInTheDocument()
+  })
+
+  it('does not offer it for a rule that opened incidents, and says to disable it', async () => {
+    setup('/settings/alert-rules/r1', undefined, {
+      rule: rule({ id: 'r1', canDelete: false, openIncidents: 1 }),
+    })
+    await nameField()
+    expect(screen.getByRole('button', { name: 'Delete rule' })).toBeDisabled()
+    expect(
+      screen.getByText('This rule has opened incidents, which keep it: disable it instead.'),
+    ).toBeInTheDocument()
+  })
+
+  it('does not offer it to an account that may only view the rule', async () => {
+    setup('/settings/alert-rules/r1', can('viewAlertRules'))
+    await nameField()
+    expect(screen.queryByRole('button', { name: 'Delete rule' })).not.toBeInTheDocument()
+  })
+
+  it('shows the server’s refusal when an incident opened meanwhile, and stays', async () => {
+    const user = userEvent.setup()
+    setup('/settings/alert-rules/r1', undefined, {
+      rule: rule({ id: 'r1', name: 'Core down', openIncidents: 0 }),
+      deleteAlertRule: vi.fn(async () => {
+        throw new ApiError(
+          'This rule has opened incidents, which keep it: disable it instead.',
+          409,
+          'rule_has_history',
+        )
+      }),
+    })
+    await nameField()
+    await asks(user)
+    const dialog = screen.getByRole('alertdialog')
+    await user.type(within(dialog).getByRole('textbox'), 'Core down')
+    await user.click(within(dialog).getByRole('button', { name: 'Delete alert rule' }))
+    expect(await within(dialog).findByText(/which keep it: disable it instead/)).toBeInTheDocument()
+    expect(screen.queryByText('the list')).not.toBeInTheDocument()
+  })
+
+  it('goes back to the list when the rule is gone already', async () => {
+    const user = userEvent.setup()
+    setup('/settings/alert-rules/r1', undefined, {
+      rule: rule({ id: 'r1', name: 'Core down', openIncidents: 0 }),
+      deleteAlertRule: vi.fn(async () => {
+        throw new ApiError('Not found.', 404, 'not_found')
+      }),
+    })
+    await nameField()
+    await asks(user)
+    const dialog = screen.getByRole('alertdialog')
+    await user.type(within(dialog).getByRole('textbox'), 'Core down')
+    await user.click(within(dialog).getByRole('button', { name: 'Delete alert rule' }))
     expect(await screen.findByText('the list')).toBeInTheDocument()
   })
 })

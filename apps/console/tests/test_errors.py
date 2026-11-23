@@ -37,13 +37,20 @@ class JsonErrorTests(TestCase):
         client = Client(enforce_csrf_checks=True)
         console = client.post("/api/v1/console/auth/logout/")
         self.assertEqual((console.status_code, console.json()["error"]["code"]), (403, "csrf_failed"))
-        admin = client.post("/admin/login/", {"username": "x", "password": "y"})
-        self.assertEqual(admin.status_code, 403)
-        self.assertIn("text/html", admin["Content-Type"])
+        # No other path takes a form today (there is no admin); one that did would get Django's page.
+        from django.test import RequestFactory
 
-    def test_health_endpoints_and_admin_are_untouched(self):
+        from apps.console.http import csrf_failure
+
+        elsewhere = csrf_failure(RequestFactory().post("/elsewhere/"), reason="CSRF cookie not set.")
+        self.assertEqual(elsewhere.status_code, 403)
+        self.assertIn("text/html", elsewhere["Content-Type"])
+
+    def test_health_endpoints_are_untouched_and_there_is_no_admin(self):
         self.assertEqual(Client().get("/health/").status_code, 200)
-        self.assertEqual(Client().get("/admin/login/").status_code, 200)
+        for path in ("/admin/", "/admin/login/", "/static/admin/css/base.css"):
+            with self.subTest(path=path):
+                self.assertEqual(Client().get(path).status_code, 404)
 
 
 class ExceptionMappingTests(TestCase):

@@ -7,7 +7,6 @@ from django.core.exceptions import ValidationError
 from django.db import IntegrityError, transaction
 from django.db.models import ProtectedError
 from django.test import TestCase
-from django.urls import reverse
 
 from apps.alerts.conditions import HEALTH, REASONS, EntityKind, reasons_for
 from apps.alerts.models import (
@@ -500,43 +499,3 @@ class SecretsTests(TestCase):
             for field in model._meta.get_fields():
                 with self.subTest(model=model.__name__, field=field.name):
                     self.assertFalse(any(word in field.name.lower() for word in self.SECRETISH))
-
-
-class AdminTests(TestCase):
-    def setUp(self):
-        self.client.force_login(make_user("root", superuser=True))
-        self.rule = make_rule(reason="offline")
-        self.incident = open_incident(self.rule)
-        AlertEvaluationState.objects.create(
-            rule=self.rule,
-            entity_kind="server",
-            entity_ref=self.incident.entity_ref,
-            phase="firing",
-            incident=self.incident,
-            condition_health="critical",
-            condition_reason="offline",
-            condition_since=at(0),
-            last_health="critical",
-        )
-        AlertEngineHeartbeat.objects.create(started_at=at(0), beat_at=at(30))
-
-    def test_the_admin_pages_load(self):
-        for model in ("alertrule", "incident", "alertevaluationstate", "alertengineheartbeat"):
-            with self.subTest(model=model):
-                self.assertEqual(self.client.get(reverse(f"admin:alerts_{model}_changelist")).status_code, 200)
-        self.assertEqual(self.client.get(reverse("admin:alerts_alertrule_change", args=[self.rule.pk])).status_code, 200)
-        page = self.client.get(reverse("admin:alerts_incident_change", args=[self.incident.pk]))
-        self.assertEqual(page.status_code, 200)
-        self.assertContains(page, "Opened")
-
-    def test_incidents_and_engine_records_are_read_only(self):
-        with self.assertLogs("django.request", "WARNING"):
-            self.assertEqual(self.client.get(reverse("admin:alerts_incident_add")).status_code, 403)
-            self.assertEqual(self.client.get(reverse("admin:alerts_incident_delete", args=[self.incident.pk])).status_code, 403)
-        page = self.client.get(reverse("admin:alerts_incident_change", args=[self.incident.pk]))
-        self.assertNotContains(page, 'name="_save"')
-
-    def test_a_rules_kind_is_fixed_once_it_exists(self):
-        page = self.client.get(reverse("admin:alerts_alertrule_change", args=[self.rule.pk]))
-        self.assertNotContains(page, 'name="entity_kind"')
-        self.assertContains(self.client.get(reverse("admin:alerts_alertrule_add")), 'name="entity_kind"')

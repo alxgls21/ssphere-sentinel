@@ -66,6 +66,8 @@ describe('parseSession capabilities', () => {
     viewDomains: true,
     addDomains: false,
     verifyDomains: true,
+    deleteDomains: false,
+    viewDeliveryLog: true,
     manageOwnAccount: true,
   }
 

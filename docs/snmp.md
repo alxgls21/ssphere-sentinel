@@ -17,8 +17,7 @@ without an `snmp` section is handled exactly as before.
 
 ## Quick start
 
-1. **Server.** In the console, under **Settings → Devices** (or in the admin,
-   under **Inventory → Devices**), add the device
+1. **Server.** In the console, under **Settings → Devices**, add the device
    (management address, and the agent that can reach it) and fill the SNMP
    section: SNMP version, port, poll interval and a **credential profile
    name** of your choice (for example `core-switches`). Note the device's UUID.
@@ -72,8 +71,8 @@ without an `snmp` section is handled exactly as before.
    ```
 
 6. Check. The journal shows `SNMP monitoring: 1 enabled device(s), 4 concurrent
-   poll(s) at most`, and after the first poll (within seconds) the device appears
-   under **SNMP → Device SNMP states** in the admin.
+   poll(s) at most`, and after the first poll (within seconds) the device's page
+   in the console shows its SNMP state.
 
 The server must be upgraded first (see [Upgrade notes](#upgrade-notes)).
 
@@ -614,14 +613,14 @@ snmpsim and a live server (`apps/snmp/tests/test_agent_e2e.py`).
 
 | Model | Purpose | Written by |
 | --- | --- | --- |
-| **SNMP configuration** (`SnmpConfig`) | One per SNMP-monitored device: SNMP version (`2c` or `3`; v1 is not supported), port, poll interval (default 300 s, 30–86,400), request timeout (default 5 s), retries (default 1) and a **credential profile name** | Admin (inline on the device page) |
+| **SNMP configuration** (`SnmpConfig`) | One per SNMP-monitored device: SNMP version (`2c` or `3`; v1 is not supported), port, poll interval (default 300 s, 30–86,400), request timeout (default 5 s), retries (default 1) and a **credential profile name** | Console (the SNMP section of the device) |
 | **Device SNMP state** (`DeviceSnmpState`) | Latest state: reachable, last poll and last success time, response time, uptime, sysName, sysDescr, sysObjectID | Ingest |
 | **Interface** | One per (device, `ifIndex`): name, description, alias, type, speed, admin and operational status, when the operational status last changed, whether it is still present | Ingest |
 | **Device poll** (`DevicePoll`) | One row per poll: reachability, response time, uptime, error category. This is the reachability history | Ingest |
 | **Interface sample** (`InterfaceSample`) | Counters of one interface at one poll: **raw counters and the calculated deltas**, status, speed | Ingest |
 
-Configuration lives under **Inventory → Devices** (the SNMP section of a
-device); everything else is visible, read-only, under **SNMP** in the admin.
+Configuration lives under **Settings → Devices** in the console (the SNMP
+section of a device); the latest state is shown, read-only, on the device's page.
 Nothing written by agents can be edited or deleted by hand.
 
 A device is accepted for SNMP reports only if it is **enabled**, **assigned to
@@ -699,7 +698,7 @@ before.
 | Field | Rules |
 | --- | --- |
 | `poll_id` | UUID chosen by the agent; the **idempotency key** |
-| `device_id` | UUID of the device (shown in the admin); must be assigned to the reporting agent |
+| `device_id` | UUID of the device (in the address of its page in the console); must be assigned to the reporting agent |
 | `measured_at` | ISO-8601 time of the poll (naive means UTC). At most 5 minutes in the future, and not older than the acceptance window (see below). A device has at most one poll per `measured_at` |
 | `reachable` | `true` or `false` |
 | `response_ms` | Optional number 0–600,000 |
@@ -869,9 +868,9 @@ need more. Partitioning and long-term rollups are not implemented.
 ## Deleting devices
 
 Polling history is never deleted implicitly. A device that has history cannot
-be deleted (the console refuses it, and the admin says so, without trying to
-list the history): disable it, and delete it once `purge_snmp_data` has removed
-its history (the console's device page offers the deletion then). Deleting an
+be deleted (the console refuses it): disable it, and delete it once
+`purge_snmp_data` has removed its history (the console's device page offers
+the deletion then). Deleting an
 **agent** keeps all history and only unassigns its devices; history rows do not
 reference the agent, so this never scans or rewrites them, however large they
 are.
@@ -885,9 +884,6 @@ are.
   status *as delivered*. With out-of-order delivery it can be later than the real
   transition; the exact transition is visible in the sample history. Agents
   deliver oldest first, so this only matters after outages.
-- Interface and sample lists in the admin show an estimated total (from
-  PostgreSQL's statistics) when they are large and unfiltered, instead of a
-  `COUNT(*)` over millions of rows; filtered and small lists are exact.
 - The retention command and ingest can race on an absent interface that is
   listed again at the very moment it is purged; at worst one request fails and
   the agent retries.

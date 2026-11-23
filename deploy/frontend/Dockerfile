@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1
 
 # SSphere Sentinel console: the React build served by nginx, which also passes
-# the APIs, the Django admin and the health checks on to the web service.
+# the APIs and the health checks on to the web service.
 # Build context: ./frontend; the nginx configuration comes as the additional
 # context "nginx" (compose.yml, service proxy).
 

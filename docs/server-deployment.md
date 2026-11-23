@@ -13,7 +13,7 @@ or by a reverse proxy on the host. Replace `<tag>` with the release you deploy.
 
 | Path | Served by |
 | --- | --- |
-| `/api/` (console and agent APIs), `/admin/`, `/static/`, `/health/` | `web`, through the proxy |
+| `/api/` (console and agent APIs), `/health/` | `web`, through the proxy |
 | `/assets/` | the console's files, built into the `proxy` image (cached for good: their names change with their content) |
 | everything else | the console's `index.html` (its own routes, such as `/servers`) |
 
@@ -201,9 +201,8 @@ server's logs can do this, even when the console is already on the internet.
 `docker compose exec web python manage.py createsuperuser`, which ends the
 setup as well.)
 
-Once HTTPS is set up (step 3), the console is at `https://sentinel.example.com/`
-and the admin at `https://sentinel.example.com/admin/`. The superuser may use
-both; other console users are created in the admin.
+Once HTTPS is set up (step 3), the console is at `https://sentinel.example.com/`.
+Other console users are created there, in **Settings → Users & access**.
 
 With the secrets in `.env`: once the first start has succeeded, delete the
 `SENTINEL_POSTGRES_INITIALIZE` line from `.env` and run `docker compose up -d` (the `db` container is
@@ -239,7 +238,7 @@ check, no HTTPS redirect) and expose no configuration or error details.
 
 Choose one front end. In both, HTTPS is enforced in front of the `proxy`
 service; Django uses Secure cookies and `DJANGO_CSRF_TRUSTED_ORIGINS` (the
-console and the admin sign in with it) and does not need to trust any
+console signs in with it) and does not need to trust any
 forwarded header. See [security.md](security.md) for the trusted proxy boundary
 if you want Django itself to redirect to HTTPS or send HSTS.
 
@@ -284,8 +283,7 @@ Django-side redirect would loop. Cloudflare already redirects clients to HTTPS.
 Agents are HTTP clients, not browsers. Make sure nothing on Cloudflare
 challenges them: exempt `/api/v1/agent/` from Bot Fight Mode, managed
 challenges and rate-limiting rules that could block a host sending a request
-every 30 seconds, and do not put that path behind Cloudflare Access. You can
-put `/admin/` behind Cloudflare Access for an extra login factor.
+every 30 seconds, and do not put that path behind Cloudflare Access.
 
 ### Option B: reverse proxy on the host
 
@@ -345,8 +343,8 @@ bytes)` or `HTTP 400 (request body N bytes)`, and keeps its queued data
 ### Plain HTTP (testing only)
 
 Without a front end, set `SENTINEL_HTTP_BIND=0.0.0.0` and, to sign in to the
-console or the admin over `http://` from another machine,
-`DJANGO_SESSION_COOKIE_SECURE=false` and `DJANGO_CSRF_COOKIE_SECURE=false`. Agent tokens and admin passwords then cross
+console over `http://` from another machine,
+`DJANGO_SESSION_COOKIE_SECURE=false` and `DJANGO_CSRF_COOKIE_SECURE=false`. Agent tokens and passwords then cross
 the network unencrypted; the agent logs a warning for `http://` URLs.
 
 ## 4. Add monitored hosts
@@ -361,18 +359,17 @@ the commands read the token hidden from the terminal into the root-only
 environment file, so it is never on a command line. The server's page then
 shows its agent, where a token is rotated (the old one stops working at once)
 and the agent is disabled or enabled. This is offered to the accounts that may
-change alert rules and hold the admin's permissions for the same actions
+change alert rules and hold the model permissions for the same actions
 (`alerts.change_alertrule` with access to every customer, plus
-`infrastructure.add_server`, `agents.add_agent` and `agents.change_agent`: the
-first administrator, or whoever you grant them). The address in the answer and
+`infrastructure.add_server`, `agents.add_agent` and `agents.change_agent`: an
+administrator, or an account whose role includes them). The address in the answer and
 in the commands is `SENTINEL_URL`; while it is not set, the console shows the
 token without the commands and says to set it, rather than guessing an address
 from the request (which is `http://` behind a proxy that ends TLS). The server
 stores only a hash of each token, never logs one, and answers it in that one
 response only.
 
-The admin remains possible: add a **Server**, then an **Agent** for it (the
-token is shown once), or run `python manage.py create_agent`; all three make
+The command line remains possible: `python manage.py create_agent`; both make
 the token the same way.
 
 The rest of the administration is in the console as well, under **Settings**,
@@ -407,8 +404,8 @@ the server on every request ([security.md](security.md#console-authentication-an
   with it; measurements, targets and devices stay), after the server's name is
   typed back.
 
-The admin is still present in this version; a later release turns it off by
-default.
+Release 0.9.5 removed the Django admin: everything it did is done in the
+console ([upgrade note](#upgrades)).
 
 ## Operations
 
@@ -430,9 +427,9 @@ access logs are off by default; enable them with
 
 ### Alerts and email notifications
 
-The `alert-engine` service evaluates the alert rules (in the admin under
-*Alerts*) every 30 seconds, and opens and recovers the incidents the console
-shows. It runs the application image with the database login of `web` and
+The `alert-engine` service evaluates the alert rules (in the console under
+**Settings → Alert rules**) every 30 seconds, and opens and recovers the
+incidents the console shows. It runs the application image with the database login of `web` and
 never applies migrations: it starts with `web` and waits until the migrations
 are applied (by `web`, or by `migrate` with separate database logins). Its
 health check fails when a cycle does not begin in time; `docker compose logs
@@ -471,13 +468,15 @@ and nothing is queued for email meanwhile. To email incidents:
    docker compose exec -T notifier python manage.py send_test_email you@example.com
    ```
 
-3. In the admin, under *Alerts > Email subscriptions*, add the console users who
-   should be emailed: critical incidents only (the default) or warnings too,
-   and recoveries (off by default). A subscriber needs an active account with
-   an email address and console access. Each email covers only the incidents of
-   the sites the user may see in the console, and all of this is checked again
-   just before it is sent: an email the user may no longer receive is not sent,
-   and the admin says why.
+3. In the console, each user who should be emailed switches it on in
+   **Settings → Notifications**, or an administrator does it for any account in
+   **Settings → Users & access** (the account's page, *Notifications* panel):
+   critical incidents only (the default) or warnings too, and recoveries (off
+   by default). A subscriber needs an active account with an email address and
+   console access. Each email covers only the incidents of the sites the user
+   may see in the console, and all of this is checked again just before it is
+   sent: an email the user may no longer receive is not sent, and
+   **Settings → Email log** says why.
 
 What is sent, and when:
 
@@ -490,9 +489,9 @@ What is sent, and when:
   An email not sent within `SENTINEL_NOTIFICATION_MAX_AGE_HOURS` (default 24) is
   given up, by the notifier or, should it no longer run, by the retention
   commands.
-  *Alerts > Email notifications* in the admin shows each email's status and
-  why it failed or was not sent; the notifier's log names users by id and
-  failures by kind.
+  **Settings → Email log** (administrators) shows each email's status and why
+  it failed or was not sent, in plain words; the notifier's log names users by
+  id and failures by kind.
 * Delivery is at least once. The notifier records each email right after the
   SMTP server accepts it; if it is killed in between, the email is sent again
   about half an hour later (with the same `Message-ID` when it covers the same
@@ -509,7 +508,8 @@ address: the notifier sends it, so it waits until a notifier runs (and expires
 after ten minutes). Alert rules can be managed in the console by users with the
 alert rule permissions and access to every customer, and the system status by
 users with *Can see the system status in the console* and access to every
-customer. Grant these permissions in the admin, to users or groups of your own.
+customer. These permissions come with the roles given in **Settings → Users &
+access**.
 
 To stop emailing, remove the `SENTINEL_SMTP_*` settings from `.env`, then
 `docker compose up -d`: the notifier goes back to idle.
@@ -568,10 +568,11 @@ A verification no verifier takes within ten minutes expires, and the console
 says whether a verifier runs. One domain may be verified every 10 seconds, a
 user may ask for 20 verifications in 10 minutes, and at most 200 wait at once.
 The permissions (*Can add monitored domain*, *Can view monitored domain*, *Can
-ask for a domain's verification*) are granted in the admin, to users or groups
-of your own; the admin shows domains and verifications read-only. Every domain
-added, verification asked for and answer is in the configuration trail
-(*Alerts > Configuration changes*). In this release a domain stays verified once
+ask for a domain's verification*) come with the roles given in **Settings →
+Users & access**. Domains are added and verified in **Settings → Domains**; only
+an administrator deletes one, and not while a verification waits or runs. Every
+domain added, verification asked for and answer is in the configuration trail.
+In this release a domain stays verified once
 verified; nothing is monitored yet.
 
 ### Upgrades
@@ -642,7 +643,7 @@ to the same address instead (`docker compose exec web python manage.py check
 
 **After upgrading to the release that adds the `proxy` service**, the console
 is served at the address and port `web` had, and `web` is no longer published
-on the host: the agents, the admin and the health checks keep their URLs. A
+on the host: the agents and the health checks keep their URLs. A
 Cloudflare Tunnel must point to `proxy:8080` instead of `web:8000`
 ([Option A](#option-a-cloudflare-tunnel)); a reverse proxy on the host needs no
 change. Anything else that reached `web` on another port or address (a
@@ -650,9 +651,25 @@ monitoring probe, say) must use the published port.
 
 **After upgrading to the release that adds the console's server and container
 views**, servers and network targets have no site yet, so only users who may
-see all customers can see them. In the admin, filter *Servers* and *Network
-targets* by *Site: Empty* and set each one's site from the list; restricted
+see all customers can see them. Set each one's site in the console, on its
+page (a server or network target without a site shows none there); restricted
 console users see a server as soon as it has a site they are granted.
+
+**After upgrading to 0.9.5**, the Django admin is gone, and everything it did
+is in the console: servers and their agents (**Servers → Add server**, and the
+server's page for **Create agent**, **Rotate token** and enabling or disabling
+an agent) and, under **Settings**, network targets, devices, customers and
+sites, alert rules, domains, users and their access, notifications, the email
+log, the audit log and the system status. Bookmarks to `/admin/` now show the
+console's "not found". The database keeps the unused table `django_admin_log`,
+which does no harm. Access is recovered on the server (this needs shell
+access, not a sign-in):
+
+```bash
+docker compose exec web python manage.py createsuperuser             # a new administrator
+docker compose exec web python manage.py changepassword <user>       # a new password
+docker compose exec web python manage.py unlock_login <user>         # or --all
+```
 
 ### Database migrations
 
@@ -1109,7 +1126,7 @@ no session of the application is connected), refuses anything but a verified
 work directory and the bundle that was imported, records `activating`, and
 then starts the stack; `recovery: ACTIVATED` is the last line. Point the TLS front
 end at the new project's port (the old `proxy` is stopped and its port free),
-sign in to the console and the admin, confirm that servers, their history and
+sign in to the console, confirm that servers, their history and
 the network targets are there and that agents report again.
 
 **If `activate` does not complete**
@@ -1203,7 +1220,7 @@ and fails (older Compose releases wait indefinitely) when it no longer exists,
 for example after `docker container prune`.
 
 Schedule the dump (for example daily from cron), copy it off the host and test a restore regularly.
-Dumps contain hashes of admin passwords and agent tokens and all monitoring
+Dumps contain hashes of account passwords and agent tokens and all monitoring
 data: store them encrypted with restricted access. Also back up `.env` (and
 `.env.tunnel`, and the `./secrets` directory of an installation whose secrets
 were created on its first start) separately and securely; without
@@ -1418,7 +1435,7 @@ docker compose exec web python manage.py migrate --check
 curl -fsS http://127.0.0.1:8000/health/ready/
 ```
 
-Sign in to the console and the admin, and confirm that servers, their history
+Sign in to the console, and confirm that servers, their history
 and the network targets are there and that agents report again.
 
 **Rollback**
@@ -1491,10 +1508,9 @@ stay.
 
 `clearsessions` removes expired web sessions (every console sign-in creates one).
 If the server is on the internet, rate-limit `POST /api/v1/console/auth/login/`
-in the front end (Cloudflare rate limiting rules or WAF) and do not exempt
-`/api/v1/console/` from the protections you apply to `/admin/`: the in-app
-sign-in throttle (shared by the console and `/admin/login/`) limits password
-guessing per account, not the load a flood of attempts puts on the server.
+in the front end (Cloudflare rate limiting rules or WAF): the in-app sign-in
+throttle limits password guessing per account, not the load a flood of
+attempts puts on the server.
 
 ### Resources
 

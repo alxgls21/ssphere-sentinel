@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import {
   createDomain,
+  deleteDomain,
   getDomain,
   getDomainVerification,
   listDomains,
@@ -11,7 +12,12 @@ import type { Transport } from './transport'
 const transport = (answer: unknown) => {
   const get = vi.fn(async () => answer)
   const post = vi.fn(async () => answer)
-  return { get, post } as unknown as Transport & { get: typeof get; post: typeof post }
+  const del = vi.fn(async () => answer)
+  return { get, post, delete: del } as unknown as Transport & {
+    get: typeof get
+    post: typeof post
+    delete: typeof del
+  }
 }
 
 const row = (over: Record<string, unknown> = {}) => ({
@@ -186,6 +192,34 @@ describe('adding and verifying', () => {
           verifier: { state: 'lost' },
         }),
       )('d1', 'v1'),
+    ).rejects.toMatchObject({ code: 'bad_response' })
+  })
+})
+
+describe('deleting a domain', () => {
+  it('deletes by the encoded id, with no body, and reads the domain it names with its customer', async () => {
+    const t = transport({
+      generatedAt: '2026-10-17T10:00:00.000Z',
+      deleted: {
+        id: 'd1',
+        name: 'xn--bcher-kva.example',
+        displayName: 'bücher.example',
+        customer: { id: 'c1', name: 'Acme' },
+      },
+    })
+    const result = await deleteDomain(t)('a/b')
+    expect(t.delete).toHaveBeenCalledWith('domains/a%2Fb/', { signal: undefined })
+    expect(result.deleted).toEqual({
+      id: 'd1',
+      name: 'xn--bcher-kva.example',
+      displayName: 'bücher.example',
+      customer: { id: 'c1', name: 'Acme' },
+    })
+  })
+
+  it('refuses an answer that does not name what was deleted', async () => {
+    await expect(
+      deleteDomain(transport({ generatedAt: '2026-10-17T10:00:00.000Z' }))('d1'),
     ).rejects.toMatchObject({ code: 'bad_response' })
   })
 })

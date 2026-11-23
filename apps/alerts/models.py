@@ -124,7 +124,7 @@ class AlertRule(models.Model):
     )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
-    # One more on every save, from the console or the admin: a change the console
+    # One more on every save: a change the console
     # sends with an older version is refused rather than overwriting this one.
     version = models.PositiveIntegerField(default=1, editable=False)
 
@@ -193,7 +193,7 @@ class AlertRule(models.Model):
             raise ValidationError(errors)
 
     def save(self, *args, **kwargs):
-        # Validated on every save (like the inventory), so nothing bypasses the admin's checks.
+        # Validated on every save (like the inventory), so no write bypasses the checks.
         self.full_clean()
         if self._state.adding:
             return super().save(*args, **kwargs)
@@ -1006,7 +1006,7 @@ class ConfigurationSource(models.TextChoices):
 
 
 class ConfigurationEvent(models.Model):
-    """One change of configuration, made in the console or the admin: an append-only trail.
+    """One change of configuration, made in the console (or, before 0.9.5, the Django admin): an append-only trail.
 
     Who (the account, and the name it had then), how, what, on what, when, and the
     values before and after of the fields that changed. None of these objects holds

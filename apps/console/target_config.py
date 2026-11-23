@@ -2,7 +2,7 @@
 (reading them is ``apps.console.targets``, which answers the GET of the same URLs).
 
 Who: what configuring monitoring needs (``alerts.change_alertrule`` with global visibility) and
-the admin's model permission for the action (``network.add_networktarget``,
+Django's model permission for the action (``network.add_networktarget``,
 ``change_networktarget``, ``delete_networktarget``); otherwise 403. A hidden or unknown target
 is a 404. See ``apps.console.permissions``.
 

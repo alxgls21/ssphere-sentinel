@@ -1,9 +1,9 @@
 """Unlock an account that the sign-in throttle has locked (apps.console.throttle).
 
-The console sign-in and the admin login share one counter per account, so someone who knows an administrator's
-user name can lock that administrator out of both for the lockout period. When the only administrator is locked
-there is nobody left to delete the row in the admin: this command, run on the server, does it. It needs shell
-access to the web service, not a sign-in.
+The console sign-in counts failures per account, so someone who knows an administrator's user name can lock that
+administrator out for the lockout period. When the only administrator is locked there is nobody left to unlock it
+in the console: this command, run on the server, does it. It needs shell access to the web service, not a
+sign-in.
 """
 
 import unicodedata

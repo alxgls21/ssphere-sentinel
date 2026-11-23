@@ -25,8 +25,6 @@ dependencies = [
     "Django>=6.1,<6.2",
     "gunicorn>=23.0",
     "psycopg[binary]>=3.2",
-    # Serves the admin's static files from Gunicorn (no extra web server).
-    "whitenoise>=6.6",
     # Domain verification: DNS questions to a domain's own name servers, IDNA2008/UTS #46
     # names, and the Public Suffix List (updated with each release of the package).
     "dnspython>=2.7",

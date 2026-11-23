@@ -30,7 +30,7 @@ def ensure_console_groups(sender, using="default", apps=None, plan=None, **kwarg
     left them. A group that already exists under a default name is not
     modified. Both groups are created and filled in one transaction, and only
     when both permissions exist. If the auth tables are not part of that run
-    (a partial ``migrate``), nothing is created: add the groups in the admin.
+    (a partial ``migrate``), nothing is created: a full ``migrate`` later does not add them either.
     """
     if not any(
         (migration.app_label, migration.name) == INITIAL_MIGRATION and not backwards

@@ -1,6 +1,6 @@
 """The configuration trail (``ConfigurationEvent``): who changed which rule or subscription, and how.
 
-Called by the console API and the admin, inside the transaction of the change. Only
+Called by the console API, inside the transaction of the change. Only
 the object's own fields are recorded, by the names the console API gives them; none
 of them is a credential.
 """

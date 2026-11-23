@@ -134,6 +134,9 @@ export function parseContainer(raw: unknown): ServerContainer {
       state: oneOf(CONTAINER_STATE, container.state),
       health: oneOf(CONTAINER_HEALTH, container.health),
       startedAt: nullableTime(container.startedAt),
+      exitCode: container.exitCode === null ? null : whole(container.exitCode),
+      oomKilled: container.oomKilled === null ? null : flag(container.oomKilled),
+      finishedAt: nullableTime(container.finishedAt),
     },
     status: oneOf(HEALTH, row.status),
   }

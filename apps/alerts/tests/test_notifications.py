@@ -31,7 +31,6 @@ from django.core.exceptions import ValidationError
 from django.core.management import CommandError, call_command
 from django.db import IntegrityError, OperationalError, connection
 from django.test import SimpleTestCase, TestCase, TransactionTestCase, override_settings
-from django.urls import reverse
 from django.utils import timezone
 
 from apps.alerts import engine, notifications
@@ -1209,37 +1208,15 @@ class RuntimeTests(TestCase):
 
 
 @SMTP_ON
-class AdminTests(TestCase):
+class DeletedRecipientTests(TestCase):
     def setUp(self):
-        self.client.force_login(make_user("root", email="root@example.com", superuser=True))
         incident = Estate().incident()
         subscribe(console_user("ops", all_customers=True))
         enqueue(incident, OPENED, at=timezone.now())
 
-    def test_email_records_are_read_only_and_subscriptions_are_managed_there(self):
-        notification = Notification.objects.get()
-        for url, status in (
-            ("/admin/alerts/notification/", 200),
-            (f"/admin/alerts/notification/{notification.pk}/change/", 200),
-            ("/admin/alerts/notification/add/", 403),
-            ("/admin/alerts/notificationsubscription/", 200),
-            ("/admin/alerts/notificationsubscription/add/", 200),
-        ):
-            with self.subTest(url=url):
-                response = self.client.get(url)
-                self.assertEqual(response.status_code, status)
-                self.assertNotIn(SMTP_PASSWORD, response.content.decode())
-        response = self.client.post(f"/admin/alerts/notification/{notification.pk}/change/", {"status": "sent"})
-        self.assertEqual(response.status_code, 403)
-        notification.refresh_from_db()
-        self.assertEqual(notification.status, "pending")
-
     def test_a_user_who_was_emailed_can_be_deleted_and_the_record_stays(self):
         ops = get_user_model().objects.get(username="ops")
-        meta = ops._meta
-        response = self.client.post(reverse(f"admin:{meta.app_label}_{meta.model_name}_delete", args=[ops.pk]), {"post": "yes"})
-        self.assertEqual(response.status_code, 302)
-        self.assertFalse(type(ops).objects.filter(pk=ops.pk).exists())
+        ops.delete()
         self.assertEqual((Notification.objects.get().recipient_id, Notification.objects.get().recipient_name), (None, "ops"))
 
 

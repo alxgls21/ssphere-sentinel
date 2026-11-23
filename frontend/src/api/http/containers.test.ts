@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import { ApiError } from '../errors'
+import { parseContainer } from './servers'
 import { listContainers, parseContainerList } from './containers'
 import type { Transport } from './transport'
 
@@ -14,6 +15,9 @@ const row = (over: Record<string, unknown> = {}) => ({
     state: 'running',
     health: 'unhealthy',
     startedAt: '2026-10-16T08:00:00.000Z',
+    exitCode: null,
+    oomKilled: null,
+    finishedAt: null,
   },
   status: 'critical',
   serverName: 'ath-db-01',
@@ -131,5 +135,47 @@ describe('containers list', () => {
     } catch (error) {
       expect(error).toMatchObject({ code: 'bad_response' })
     }
+  })
+})
+
+describe('how a container ended', () => {
+  const crashed = {
+    container: {
+      id: 's1:abc',
+      serverId: 's1',
+      name: 'api',
+      image: 'api:1',
+      state: 'exited',
+      health: 'none',
+      startedAt: '2026-10-16T08:00:00.000Z',
+      exitCode: 137,
+      oomKilled: true,
+      finishedAt: '2026-10-16T09:00:00.000Z',
+    },
+    status: 'critical',
+  }
+
+  it('reads the exit code, the memory kill and when it ended, and keeps them null when not known', () => {
+    const read = parseContainer(crashed)
+    expect(read.container).toMatchObject({
+      exitCode: 137,
+      oomKilled: true,
+      finishedAt: '2026-10-16T09:00:00.000Z',
+    })
+    const unknown = parseContainer({
+      ...crashed,
+      container: { ...crashed.container, exitCode: null, oomKilled: null, finishedAt: null },
+    })
+    expect(unknown.container).toMatchObject({ exitCode: null, oomKilled: null, finishedAt: null })
+  })
+
+  it.each([
+    ['an exit code that is not a number', { exitCode: 'x' }],
+    ['a memory flag that is not a boolean', { oomKilled: 'yes' }],
+    ['an exit code that is missing', { exitCode: undefined }],
+  ])('refuses %s', (_what, over) => {
+    expect(() =>
+      parseContainer({ ...crashed, container: { ...crashed.container, ...over } }),
+    ).toThrow(/unexpected answer/)
   })
 })

@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import {
   createAlertRule,
+  deleteAlertRule,
   getAlertRule,
   getAlertRuleOptions,
   listAlertRules,
@@ -34,6 +35,7 @@ const wireRule = (over: Record<string, unknown> = {}) => ({
   updatedAt: '2026-10-18T09:00:00Z',
   version: 4,
   canEdit: true,
+  canDelete: false,
   ...over,
 })
 const EFFECTS = {
@@ -105,6 +107,7 @@ describe('an alert rule', () => {
       updatedAt: '2026-10-18T09:00:00Z',
       version: 4,
       canEdit: true,
+      canDelete: false,
     })
   })
 
@@ -420,5 +423,25 @@ describe('changing a rule', () => {
         change({ effects: { openIncidents: 1, closes: ['gone'], closesAll: false } }),
       ),
     ).toThrow(/unexpected answer/)
+  })
+})
+
+describe('deleting a rule', () => {
+  it('deletes by the encoded id with no body, and reads the name of the rule that went', async () => {
+    const del = vi.fn(async () => ({
+      generatedAt: '2026-10-18T10:00:00Z',
+      deleted: { id: 'r/1', name: 'Device unreachable' },
+    }))
+    const t = { delete: del } as unknown as Transport
+    const result = await deleteAlertRule(t)('r/1')
+    expect(del).toHaveBeenCalledWith('alert-rules/r%2F1/', { signal: undefined })
+    expect(result.deleted).toEqual({ id: 'r/1', name: 'Device unreachable' })
+  })
+
+  it('refuses an answer that does not name what was deleted', async () => {
+    const t = {
+      delete: vi.fn(async () => ({ generatedAt: '2026-10-18T10:00:00Z' })),
+    } as unknown as Transport
+    await expect(deleteAlertRule(t)('r1')).rejects.toMatchObject({ code: 'bad_response' })
   })
 })

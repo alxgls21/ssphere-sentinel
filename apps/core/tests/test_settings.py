@@ -34,6 +34,7 @@ print(json.dumps({
     "ALLOWED_HOSTS": s.ALLOWED_HOSTS,
     "CSRF_TRUSTED_ORIGINS": s.CSRF_TRUSTED_ORIGINS,
     "MIDDLEWARE": s.MIDDLEWARE,
+    "INSTALLED_APPS": s.INSTALLED_APPS,
     "LOG_LEVEL": s.LOG_LEVEL,
     "SNMP_RETENTION_DAYS": s.SENTINEL_SNMP_RETENTION_DAYS,
     "SNMP_MAX_AGE_DAYS": s.SENTINEL_SNMP_MAX_AGE_DAYS,
@@ -82,15 +83,15 @@ class ProductionSettingsTests(SimpleTestCase):
         self.assertIsNone(conf["SECURE_PROXY_SSL_HEADER"])
         self.assertFalse(conf["USE_X_FORWARDED_HOST"])
         self.assertEqual(conf["MIDDLEWARE"][0], "apps.core.middleware.HealthCheckMiddleware")
-        self.assertEqual(
-            conf["MIDDLEWARE"][2], "whitenoise.middleware.WhiteNoiseMiddleware"
-        )
+        # Django serves no page and no static file: no admin, no WhiteNoise, no messages.
+        for name in ("whitenoise.middleware.WhiteNoiseMiddleware", "django.contrib.messages.middleware.MessageMiddleware"):
+            self.assertNotIn(name, conf["MIDDLEWARE"])
+        self.assertNotIn("django.contrib.admin", conf["INSTALLED_APPS"])
 
-    def test_debug_relaxes_cookies_and_uses_runserver_static_files(self):
+    def test_debug_relaxes_cookies(self):
         conf = self.settings_for(DJANGO_DEBUG="true")
         self.assertFalse(conf["SESSION_COOKIE_SECURE"])
         self.assertFalse(conf["CSRF_COOKIE_SECURE"])
-        self.assertNotIn("whitenoise.middleware.WhiteNoiseMiddleware", conf["MIDDLEWARE"])
 
     def test_https_settings_are_configurable(self):
         conf = self.settings_for(
