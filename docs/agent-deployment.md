@@ -432,9 +432,3 @@ Removing `/var/lib/ssphere-sentinel-agent` deletes measurements that were not
 delivered yet. The Docker socket proxy does not stop with the agent: until its
 container is removed, it keeps answering on `127.0.0.1:2375` to every local
 user.
-
-## macOS
-
-The agent runs on macOS (`pip install` into a virtual environment, then
-`sentinel-agent run`), for example under `launchd`; a ready-made launchd
-service is not provided yet.

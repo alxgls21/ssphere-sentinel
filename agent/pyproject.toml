@@ -27,7 +27,6 @@ classifiers = [
     "Development Status :: 3 - Alpha",
     "Environment :: No Input/Output (Daemon)",
     "Intended Audience :: System Administrators",
-    "Operating System :: MacOS",
     "Operating System :: POSIX :: Linux",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3 :: Only",

@@ -607,7 +607,7 @@ snmpsim and a live server (`apps/snmp/tests/test_agent_e2e.py`).
 - Counter state is kept in memory (see `first`).
 - An SNMPv3 `context_name` other than the default is supported; per-VLAN
   community indexing (`community@vlan`) is not.
-- Windows is not supported (the agent targets Linux and macOS).
+- Windows and macOS are not supported (the agent targets Linux servers).
 
 ## What is stored (server side)
 

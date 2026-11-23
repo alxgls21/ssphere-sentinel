@@ -3,7 +3,7 @@
 Lightweight host agent for [SSphere Sentinel](https://github.com/alxgls21/ssphere-sentinel),
 a self-hosted infrastructure and network monitoring platform.
 
-The agent runs on monitored Linux or macOS hosts and sends authenticated
+The agent runs on monitored Linux hosts and sends authenticated
 heartbeats to a Sentinel server, with host telemetry (CPU, memory, disk,
 uptime), ICMP/TCP network measurements from a persistent local queue,
 optional Docker container discovery and optional SNMP monitoring of network

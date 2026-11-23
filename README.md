@@ -21,9 +21,9 @@ and lightweight host agents.
   counters (optional).
 
 The server stores current state and bounded history in PostgreSQL. Operators
-administer everything in the console (hosts, customers and sites, targets, devices, accounts; the Django admin is still present); the web console, served on the
-same address by the Compose deployment, reads the session-authenticated console
-API.
+administer everything in the console (hosts, customers and sites, targets, devices, alert rules,
+domains, accounts, email notifications); there is no Django admin. The web console, served on the
+same address by the Compose deployment, reads the session-authenticated console API.
 
 ## Architecture
 
@@ -37,8 +37,8 @@ Sentinel has two independently packaged parts:
   and health checks. In the Compose deployment an nginx `proxy` service
   serves the built web console and passes these paths on to Django, on one
   address ([server deployment](docs/server-deployment.md)).
-- **Agent (`ssphere-sentinel-agent`)** — a Python 3.11+ process for Linux or
-  macOS. It has no Django dependency and does not require Docker. The agent
+- **Agent (`ssphere-sentinel-agent`)** — a Python 3.11+ process for Linux
+  servers. It has no Django dependency and does not require Docker. The agent
   always initiates connections to the server.
 
 ![SSphere Sentinel agent workflow](docs/assets/agent-workflow.webp)
@@ -390,7 +390,7 @@ Compose versions below, updates and the PostgreSQL upgrade):
 | Server | The release's Docker image: Python 3.14 and Django 6.1 | `scripts/install.sh` installs it; nobody chooses the versions |
 | PostgreSQL | 18 for new installations, 16 for installations not moved yet | [PostgreSQL versions](docs/server-deployment.md#postgresql-versions) |
 | Docker | Engine 24+, Compose 2.24+ (the oldest, 2.24.6, and the current release are tested) | Ubuntu 24.04 packages Compose 2.24 |
-| Agent | Python 3.11+ on Linux and macOS (3.11 and 3.14 are tested, with the extras at their lowest and latest versions) | It runs on the monitored hosts, with the Python they have |
+| Agent | Python 3.11+ on Linux (3.11 and 3.14 are tested, with the extras at their lowest and latest versions) | It runs on the monitored hosts, with the Python they have |
 | Console | The browsers Vite's build targets | [Frontend guide](frontend/README.md) |
 
 Anything else may work, and is not tested.

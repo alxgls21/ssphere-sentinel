@@ -423,7 +423,7 @@ class SupportPolicyTests(unittest.TestCase):
     def test_the_agent_runs_on_the_oldest_python_it_declares_and_the_newest(self):
         declared = re.search(r'requires-python = ">=(3\.\d+)"', (ROOT / "agent" / "pyproject.toml").read_text())[1]
         agent = {(cell["os"], cell["python"]) for cell in self.cells("agent")}
-        self.assertEqual(agent, {("ubuntu-24.04", declared), ("ubuntu-24.04", "3.14"), ("macos-latest", "3.14")})
+        self.assertEqual(agent, {("ubuntu-24.04", declared), ("ubuntu-24.04", "3.14")})
         extras = {(cell["python"], cell["deps"]) for cell in self.cells("agent-extras")}
         self.assertEqual(extras, {(declared, "lowest"), ("3.14", "latest")})
 
