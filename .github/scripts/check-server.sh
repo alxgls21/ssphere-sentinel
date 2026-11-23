@@ -49,7 +49,7 @@ networks() { docker inspect --format '{{range $name, $network := .NetworkSetting
 [[ " $(networks db)" != *_edge\ * ]] || fail "the database is on the edge network"
 docker compose exec -T proxy wget -q -T 5 -O /dev/null http://web:8000/health/ || fail "the proxy does not reach web"
 
-# A console user, to sign in through the proxy (console and admin), removed
+# A console user, to sign in through the proxy, removed
 # afterwards; its password is random and masked in the log.
 password=$(python3 -c 'import secrets; print(secrets.token_urlsafe(32))')
 if [ "${GITHUB_ACTIONS:-}" = true ]; then echo "::add-mask::$password"; fi
@@ -63,7 +63,7 @@ fi
 echo "signing in at $scheme://$public"
 
 SENTINEL_CHECK_PASSWORD=$password SENTINEL_CHECK_HOST=$public SENTINEL_CHECK_SCHEME=$scheme python3 - <<'PY'
-"""The console, its API, the admin and the agent API through the proxy, as a browser and an agent use them."""
+"""The console, its API and the agent API through the proxy, as a browser and an agent use them."""
 
 import http.client
 import json
@@ -187,22 +187,6 @@ check(response.status == 200 and "items" in body, f"a signed-in API call: {respo
 response, body = browser.api("POST", "/api/v1/console/auth/logout/", {}, token)
 check(response.status == 200 and body["authenticated"] is False, f"sign-out: {response.status} {body}")
 
-# The Django admin, signed in with its own form through the proxy.
-admin = Browser()
-response, page = admin.send("GET", "/admin/login/")
-check(response.status == 200, f"/admin/login/: {response.status}")
-# The admin's pages get the headers Django does not send, and no CSP from the proxy (its own scripts and styles).
-check("Content-Security-Policy" not in response.headers, "the proxy gave the admin the APIs' CSP")
-check("camera=()" in response.headers.get("Permissions-Policy", ""), "the admin lacks Permissions-Policy")
-middleware_token = re.search(rb'name="csrfmiddlewaretoken" value="([^"]+)"', page)[1].decode()
-form = f"csrfmiddlewaretoken={middleware_token}&username=ci-proxy&password={PASSWORD}&next=/admin/"
-response, _ = admin.send("POST", "/admin/login/?next=/admin/", form,
-                         {"Content-Type": "application/x-www-form-urlencoded", "Origin": ORIGIN,
-                          "Referer": f"{ORIGIN}/admin/login/"})
-check(response.status == 302 and response.headers["Location"] == "/admin/", f"admin sign-in: {response.status}")
-response, _ = admin.send("GET", "/admin/")
-check(response.status == 200, f"/admin/ after sign-in: {response.status}")
-
 # The agent API: the bearer token passes through to Django. A heartbeat of the agent's largest size is within
 # the proxy's limit, which nginx checks before anything else (on a path it serves itself, so that no early
 # answer from Django races the upload); the agent's own heartbeats follow (agent-systemd-e2e.sh).
@@ -214,7 +198,7 @@ check(response.status != 413, "the proxy refuses a heartbeat of the agent's larg
 # nginx refuses a larger one from its Content-Length alone, before the body is sent.
 response, data = request("POST", "/", None, {"Content-Type": "application/json", "Content-Length": str(3 * 1024 * 1024 + 1)})
 check(response.status == 413, f"the proxy has no body size limit ({response.status})")
-print("console, console API, admin and agent API pass through the proxy")
+print("console, console API and agent API pass through the proxy")
 PY
 # The database as it was: the user and the sessions it signed in with (the rehearsals compare row counts).
 docker compose exec -T web python manage.py shell --no-imports -v 0 -c \

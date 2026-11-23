@@ -382,7 +382,8 @@ for deployment warnings that must not be relaxed for convenience.
 
 ## Support policy
 
-What is supported is what CI tests on every push:
+What is supported is what CI tests: on every push, and for a release also in Docker (the image, the
+Compose versions below, updates and the PostgreSQL upgrade):
 
 | Part | Supported | Why |
 | --- | --- | --- |
